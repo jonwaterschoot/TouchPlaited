@@ -276,99 +276,110 @@ Goal: Lock in the control layout before any audio code is written. Changing this
 
 | Control | Proposed Function | Notes |
 |---------|-------------------|-------|
-| S31 | **Frequency (coarse)** | Main pitch knob |
+| S31 | **Frequency (coarse pitch)** | Global pitch offset in all modes |
 | S32 | **Harmonics** | Direct Plaits param |
 | S33 | **Timbre** | Direct Plaits param |
 | S34 | **Morph** | Direct Plaits param |
-| S30 | **Model select** (0–23) | Left side knob — scrolls models |
-| S35 | **Level / VCA** | Right side knob |
-| S36 (fader) | **Decay** | Envelope decay time |
-| S37 (fader) | **FM amount** | Or Timbre attenuverter |
-| SW1 (3-pos) | **Scale family** | e.g. minor / chromatic / major |
-| SW2 (3-pos) | **Playmode selector** | 1 = standard / Z = per-pad presets / 3 = randomizer |
-| P3–P9 | **7 note pads / 7 preset slots** | Role changes per playmode |
-| P10 | **Octave up** (momentary) | Top pad — all playmodes |
-| P11 | **Octave down** (momentary) | Top pad — all playmodes |
-| P0 | **Modifier hold** | Enters secondary settings mode / pad-edit in Playmode Z |
-| P2 | **Trigger / accent** | Retrigger without changing pitch |
-| P0 + P8/P9 | **Increment / decrement** secondary value | While P0 held (Playmode 1) |
-| LED | **Blink feedback** | On trigger; pattern on value/mode change |
+| S30 | **FM amount** | `frequency_modulation_amount` |
+| S35 | **Model select** (0–23) | P0 held = models 0–11; P2 held = models 12–23; pickup mode |
+| S36 (fader) | **Volume / Level** | Output level |
+| S37 (fader) | **Decay** | Envelope decay time |
+| SW1 (3-pos) | **Scale family** | Down=Minor / Center=Chromatic / Up=Major |
+| SW2 (3-pos) | **Playmode** | Down=1 Basic Pitch / Center=2 Soft Random / Up=3 Full Random |
+| P3–P9 | **7 note pads / 7 sound slots** | Scale degrees in mode 1; per-pad presets in modes 2–3 |
+| P10 | **Octave up** (cycles +1) | Applies to pad input only, not MIDI |
+| P11 | **Octave down** (cycles −1) | Applies to pad input only, not MIDI |
+| P0 | **Modifier A** — no standalone action | Hold + S35 → model 0–11; hold + P10/P11 → root note; hold + pad → record mode |
+| P2 | **Modifier B** — no standalone action | Hold + S35 → model 12–23 |
+| P0 + P2 | **Re-randomize all pads** | Modes 2 and 3 only |
+| P0 + P10 | **Root note up** (+1 semitone) | C default; C–B range; LED blink at limits; plays tone to audition |
+| P0 + P11 | **Root note down** (−1 semitone) | Same as above |
+| P0 + pad (tap) | **Enter recording mode** for that pad | LED blinks; other pads silent |
+| P0 + pad (≥500ms) | **Confirm / store** pad slot | Fast gradual blink; SW2 flip = cancel |
+| LED | **Blink feedback** | Trigger, value change, mode entry, root note limits |
+
+**Notes:**
+- `lpg_colour`: not a panel parameter on original Plaits; hardcoded `0.5f` in v0.1 — parking lot item
+- Octave range: proposed ±3 from C4 (C1–C7, MIDI 24–96); tighten after testing
+- S31 sets the base register; root note and scale offsets are applied on top of it
 
 ---
 
-> ### ⬛ VERIFY 2.A — Hardware mapping
+> ### ✅ VERIFY 2.A — Hardware mapping
 >
-> Review the table above. Confirm, reject, or revise each row before any code is written.
->
-> **Changes:** ___
+> **Decision: confirmed in table above (2026-06-28).** Key changes from original proposal:
+> S30→FM amount, S35→model select (P0/P2 modifier halves), S36→volume, S37→decay.
+> P0 and P2 are modifier-only in all modes (no standalone action).
+> lpg_colour hardcoded 0.5f — not a panel param on original Plaits.
 
 ---
 
-> ### ⬛ VERIFY 2.B — Model selection method
+> ### ✅ VERIFY 2.B — Model selection method
 >
-> S30 as a continuous knob sweeping 0–23 is the simplest implementation.
->
-> **Options:**
-> - (a) S30 knob sweeps 0–23 continuously (no mode change needed)
-> - (b) P0 + pad combo selects model (frees S30 for another param)
-> - (c) SW1/SW2 combo steps through model groups
-> - (d) Hybrid: S30 selects model bank (0–7, 8–15, 16–23), SW selects within bank
->
-> **Decision:** ___
+> **Decision: S35 + modifier (option e — new).**
+> S35 = model select knob with pickup/catch mode.
+> P0 held + S35 → models 0–11 (maps 0..1 knob range to 0–11).
+> P2 held + S35 → models 12–23 (maps 0..1 knob range to 12–23).
+> Neither P0 nor P2 alone triggers a model change — pickup mode required to prevent jumps.
+> Switching modifier mid-selection: model stays at current value until S35 crosses the stored value.
 
 ---
 
-> ### ⬛ VERIFY 2.C — Scale system
+> ### ✅ VERIFY 2.C — Scale & root note system
 >
-> **Updated context:** SW2 is now the playmode selector, so scale selection is SW1 only.
-> Octave shift is handled by P10/P11 (momentary), so SW2 is freed up.
+> **Decision: SW1 Down=Minor / Center=Chromatic / Up=Major**
 >
-> SW1 (3-pos) selects scale family; P3–P9 play the 7 degrees of that scale.
-> Octave is shifted at any time via P10 (up) / P11 (down).
+> Octave: P10 cycles up (+1 oct), P11 cycles down (−1 oct) — click-through, not momentary.
+> Applies to pad input only; MIDI input is unaffected.
+> Proposed range: ±3 oct from C4 (C1–C7 = MIDI 24–96).
 >
-> **Proposed scale list (SW1 positions):**
-> - Down: Minor (natural) — good default for moody/bass use
-> - Center: Chromatic (7 semitones, P3=root ascending)
-> - Up: Major
->
-> Additional scales accessible via P0 modifier mode (step through extended list).
->
-> **Decision — which scales, in which SW1 positions:** ___
+> Root note: P0 + P10 → +1 semitone, P0 + P11 → −1 semitone.
+> Default: C. Range: C through B (12 semitones). LED blink sequence at both limits.
+> Switching root note: Plaits plays the root tone immediately to audition.
+> Note: S31 (frequency knob) sets the base pitch register — if S31 is not near center,
+> the auditioned root tone will sound offset from the expected pitch. User must be aware.
 
 ---
 
-> ### ⬛ VERIFY 2.D — Multi-voice / playmode architecture
+> ### ✅ VERIFY 2.D — Multi-voice / playmode architecture
 >
-> **New finding:** Engine switching is instant (≤0.25 ms), CPU per voice ≈10–15%, safe ceiling ≈4 simultaneous voices.
+> **Voice pool: 4 voices in SDRAM; oldest-note steal when full.**
 >
-> **Three proposed playmodes (SW2):**
+> ---
 >
-> **Playmode 1 (SW2 down)** — Standard, monophonic:
-> - 1 active Plaits voice; 7 pads = 7 scale degrees; knobs control the one model globally.
-> - Voice stealing per VERIFY 5.A when two pads pressed.
+> **Playmode 1 — Basic Pitch (SW2 down)**
+> - 1 Plaits voice; knobs directly set the live Patch (no pickup needed — what you see is what you get).
+> - 7 pads = 7 scale degrees (SW1) + current octave (P10/P11).
+> - Monophonic: voice stealing per VERIFY 5.A.
+> - Model: S35 + P0 (0–11) or S35 + P2 (12–23) with pickup mode.
 >
-> **Playmode Z (SW2 center)** — Per-pad presets, polyphonic:
-> - 7 pad slots, each storing its own `Patch` (model + all parameters).
-> - Up to 4 simultaneous voices from the voice pool; oldest-note steal when pool full.
-> - Hold P0 + press a pad → enter "edit this pad" mode: all knobs address that pad's stored Patch.
-> - **Pot pickup / catch mode required**: knob value only takes effect once it crosses the stored value (avoids jumps when switching pad context). Must be implemented before this mode is usable.
-> - Each pad can have a completely different model — pressing a pad instantly switches that slot's voice to its stored model (instant because engine switching is ≤0.25 ms).
-> - Pitch in Playmode Z: pads still follow the scale (SW1) + octave (P10/P11), just each pad ALSO has its own timbre/model settings.
+> **Playmode 2 — Soft Random (SW2 center)**
+> - Same engine as the current Basic Pitch model; each of 7 pad slots has its own random variant of harmonics/timbre/morph/decay.
+> - Pitch still follows scale (SW1) + octave (P10/P11) — pads play different notes with different timbres.
+> - Polyphonic: up to 4 simultaneous pads via voice pool.
+> - Changing model (S35 + P0/P2) in this mode: all 7 pad slots re-randomize their params for the new model immediately.
+> - P0 + P2 → re-randomize all 7 pads while keeping current model.
+> - First load from another mode: generates 7 random variants of the current Basic Pitch model.
+> - Subsequent returns to mode 2: loads last stored random variants (does not re-randomize).
 >
-> **Playmode 3 (SW2 up)** — Randomizer:
-> - Touch a pad → generate random `Patch` (bounded random — constrained ranges, not pure chaos), immediately play it.
-> - Release P0 modifier (or a defined "commit" gesture) → store that random Patch permanently in that pad's slot.
-> - Shares the 7-slot storage system with Playmode Z (randomizer fills slots, Playmode Z edits them manually).
-> - LED blinks to confirm a slot is stored.
+> **Playmode 3 — Full Random (SW2 up)**
+> - Each of 7 pad slots gets its own random model + random params.
+> - All pads trigger at the same base root note — scale selection (SW1) has no pitch effect here.
+>   (Point is 7 different timbres/textures at one pitch, not a melodic scale.)
+> - Polyphonic: up to 4 simultaneous pads via voice pool.
+> - P0 + P2 → re-randomize all 7 pad slots (new random models + params).
+> - First load from another mode: full randomize all 7 slots.
+> - Subsequent returns to mode 3: loads last stored random slots.
 >
-> **Voice pool:** Allocate N voice instances at startup (per decision below), each with 16 KB SDRAM scratch.
+> **Slot storage shared across modes 2 and 3.** Mode 1 is independent (live knob values).
 >
-> **Decide:**
-> - (a) Allocate 4 voices (safe ceiling, oldest-note steal at capacity) — **recommended**
-> - (b) Allocate 7 voices (one per pad, simultaneous; risky on heavy engines, fine on VA/noise)
-> - (c) Start with 2 (match mosc), expand after measuring with CpuLoadMeter
->
-> **Decision — voice count and playmode layout:** ___
+> **Recording mode (modes 2 and 3):**
+> - Tap P0 + pad → enter recording mode for that pad; LED blinks; all other pads silent.
+> - Hold P0 + same pad ≥500ms → confirm/store; LED fast gradual blink animation confirms.
+> - While in recording mode: can copy current pad to another slot (different blink pattern); user chooses to store to that slot or cancel.
+> - Cancel: flip SW2 → cancels, reloads previous setting for the pad.
+
+
 
 ---
 
@@ -394,16 +405,22 @@ Goal: Plaits makes a sound when a pad is pressed, hardcoded model and pitch.
 
 Goal: All knobs drive Plaits parameters in real time, smoothly.
 
-- [ ] Read ADC for S31 → `patch.note` (map 0..1 → MIDI note range, e.g. 24..84 for C1–C5)
-- [ ] Read ADC for S32 → `patch.harmonics` (0..1 direct)
-- [ ] Read ADC for S33 → `patch.timbre` (0..1 direct)
-- [ ] Read ADC for S34 → `patch.morph` (0..1 direct)
-- [ ] Read ADC for S30 → `patch.engine` via `min(max((int)(v * 23 + 0.5f), 0), 23)` (per VERIFY 2.B)
-- [ ] Read ADC for S35 → `patch.lpg_colour` (LPG colour — 0=VCA mode, 1=LPG mode)
-- [ ] Read ADC for S36 → `patch.decay` (0..1 direct)
-- [ ] Read ADC for S37 → `patch.frequency_modulation_amount` (0..1 direct)
-- [ ] Note: `daisy::AnalogControl` has built-in smoothing — use it, do not add redundant filtering
-- [ ] Test: twisting each knob produces expected audible change
+- [ ] Read S31 → `patch.note` (0..1 → MIDI range 24..96, C1–C7; log curve applied in Phase 11)
+- [ ] Read S32 → `patch.harmonics` (0..1 direct)
+- [ ] Read S33 → `patch.timbre` (0..1 direct)
+- [ ] Read S34 → `patch.morph` (0..1 direct)
+- [ ] Read S30 → `patch.frequency_modulation_amount` (0..1 direct)
+- [ ] Read S35 → model select with pickup/catch mode:
+  - Read P0 and P2 pad state each loop
+  - If P0 held: map S35 0..1 → engine 0..11 (`(int)(v * 11.5f)`)
+  - If P2 held: map S35 0..1 → engine 12..23 (`12 + (int)(v * 11.5f)`)
+  - Pickup: only apply if S35 ADC value has crossed the last stored value for that bank
+  - Neither P0 nor P2 alone triggers a model change
+- [ ] Read S36 → output level/VCA gain (0..1 → applied as output scale in audio callback)
+- [ ] Read S37 → `patch.decay` (0..1 direct)
+- [ ] `patch.lpg_colour` hardcoded to `0.5f` — not user-accessible in v0.1
+- [ ] Note: `daisy::AnalogControl` has built-in smoothing — do not add redundant filtering
+- [ ] Test: all 8 pots produce audible changes in their assigned parameters
 
 ---
 
@@ -422,18 +439,9 @@ Goal: P3–P9 play notes; P10/P11 shift octaves.
 
 ---
 
-> ### ⬛ VERIFY 5.A — Voice stealing in Playmode 1
+> ### ✅ VERIFY 5.A — Voice stealing in Playmode 1
 >
-> In Playmode 1 there is one active Plaits voice. If two pads are pressed simultaneously, which note wins?
-> (Playmode Z handles polyphony via a voice pool — this gate applies to Playmode 1 only.)
->
-> **Options:**
-> - (a) Last-note priority (most recent pad wins, retriggers) — most expressive for melody
-> - (b) First-note priority (ignore new presses while one is held)
-> - (c) Highest note
-> - (d) Lowest note
->
-> **Decision:** ___
+> **Decision: (a) Last-note priority — most recent pad wins and retriggers the voice.**
 
 ---
 
@@ -453,124 +461,113 @@ Goal: SW1 selects scale family; pads play the correct intervals for that scale.
 
 ## Phase 7: Model Selection UI
 
-Goal: User can reach all 24 models; LED confirms selection.
+Goal: S35 + P0/P2 selects any of 24 models; LED confirms selection.
 
-- [ ] Implement model selection per VERIFY 2.B decision
-- [ ] Clamp/wrap model index at 0 and 23
-- [ ] Implement LED blink feedback on model change (per VERIFY 7.A)
-- [ ] Test: cycle through all 24 models, each sounds distinct
-
----
-
-> ### ⬛ VERIFY 7.A — LED feedback scheme
->
-> The LED is on/off only. Options for communicating model number or state change:
->
-> - (a) N short blinks = model number (slow for model 23)
-> - (b) Grouped blinks: tens digit as long blinks + ones as short (e.g. 2 long + 3 short = model 23)
-> - (c) Single blink on any change (no numerical info)
-> - (d) Blink rate encodes position in range (faster near max)
-> - (e) LED stays on in "model select mode," off otherwise
->
-> **Decision:** ___
+- [ ] Implement pickup/catch logic for S35 model select (see Phase 4)
+- [ ] Clamp model index: 0–11 for P0 bank, 12–23 for P2 bank; no wrap-around
+- [ ] LED blinks on model change to confirm new selection (per VERIFY 7.A)
+- [ ] Test: cycle through all 24 models audibly; confirm each bank (P0 and P2) covers its 12
 
 ---
 
-## Phase 8: Modifier Mode (P0 combo)
-
-Goal: Hold P0 to enter a secondary settings mode; P8/P9 increment/decrement a value.
-
-- [ ] Implement P0 hold detection: >300 ms hold → modifier mode active
-- [ ] While in modifier mode: disable normal note playing
-- [ ] P8 (while P0 held) → decrement current secondary value
-- [ ] P9 (while P0 held) → increment current secondary value
-- [ ] LED blinks once on each increment/decrement
-- [ ] LED blinks 3× on reaching minimum; 3× on reaching maximum
-- [ ] Release P0 → exit modifier mode, resume note playing
-- [ ] Define which secondary values are accessible (per VERIFY 8.A)
-- [ ] Test each secondary parameter end-to-end
+> ### ✅ VERIFY 7.A — LED feedback scheme
+>
+> **Decision: (b) Grouped blinks — tens as long blinks, ones as short blinks.**
+> Fallback to (e) "LED stays on in model-select mode" if (b) proves too clunky in practice.
+>
+> **Encoding:**
+> - Long blink = ~400 ms on; short blink = ~100 ms on; gap between blinks = ~150 ms; pause between groups = ~500 ms
+> - Model 1–9: 0 long + N short (e.g. model 7 = 7 short blinks)
+> - Model 10–19: 1 long + N short (e.g. model 15 = 1 long + 5 short)
+> - Model 20–23: 2 long + N short (e.g. model 23 = 2 long + 3 short)
+> - Model 0: special case — 1 very short pulse (50 ms) to avoid a silent result
+> - Models with 0 ones digit (10, 20): long blinks only, no short group
+>
+> **Fallback rule:** If user testing finds counting ≥7 blinks too slow/confusing, switch to (e): LED simply stays on while P0 or P2 is held (model-select active), off when released. No numerical info, but instant feedback.
 
 ---
 
-> ### ⬛ VERIFY 8.A — What lives in modifier mode?
->
-> Candidates (pick 2–4 for v0.1):
-> - Noise mix (Plaits has a noise parameter)
-> - Envelope attack time
-> - FM ratio / coarse tuning
-> - Scale root note (transpose without changing octave)
-> - Active secondary value cycles with each P0 press (P0 tap = next parameter, P0 hold = adjust)
->
-> **Decision — which parameters, and how to cycle between them:** ___
+## Phase 8: Modifier + Recording Mode (P0/P2 combos)
+
+Goal: Implement all P0 and P2 modifier combinations as defined in the hardware mapping.
+
+**P0 and P2 have no standalone action in any mode.**
+
+- [ ] Implement `ModifierState`: tracks P0 held, P2 held, and elapsed hold time
+- [ ] P0 + S35 → model select 0–11 (with pickup; see Phase 4)
+- [ ] P2 + S35 → model select 12–23 (with pickup; see Phase 4)
+- [ ] P0 + P10 → root note +1 semitone; LED blink; play audition tone; blink sequence at limit (B)
+- [ ] P0 + P11 → root note −1 semitone; same feedback; blink sequence at limit (C)
+- [ ] P0 + P2 → re-randomize all 7 pad slots (modes 2 and 3 only; no-op in mode 1)
+
+**Recording mode (applies to modes 2 and 3 only):**
+- [ ] P0 + pad (short tap < 500ms): enter recording mode for that pad
+  - LED blinks steadily; all other 6 pads go silent (no note trigger)
+  - Voice pool still renders the selected pad's current sound while in recording mode
+- [ ] While in recording mode, S31–S35 + P0/P2 can adjust the selected pad's Patch directly (with pickup on each knob)
+- [ ] P0 + same pad held ≥500ms: confirm/store → LED fast gradual blink animation confirms; exit recording mode; all pads resume
+- [ ] While in recording mode: P0 + any OTHER pad = "copy to this slot"
+  - LED uses a distinct blink pattern (e.g. double blink) to show copy mode
+  - P0 + original pad (≥500ms) = store copy there; or SW2 flip = cancel copy
+- [ ] SW2 position change at any time → cancel recording mode, reload previous Patch for the pad
+- [ ] Test: enter, edit, confirm, copy, cancel — all transitions work correctly
 
 ---
 
 ## Phase 8B: Multi-voice Pool
 
-Goal: Allocate N Plaits voices in SDRAM; implement a voice pool with oldest-note stealing. This is the shared foundation for Playmodes Z and 3.
+Goal: Allocate 4 Plaits voices in SDRAM; voice pool with oldest-note stealing.
 
-- [ ] Decide final voice count (per VERIFY 2.D) before this phase
-- [ ] Allocate N `plaits::Voice` instances, each behind the Pimpl wrapper
-- [ ] Allocate N × 16 KB scratch buffers in SDRAM: `uint8_t scratch[N][16384] DSY_SDRAM_BSS`
-- [ ] Initialize all N voices at startup
-- [ ] Implement `VoicePool`: tracks which voices are active, which pad owns each, and time-of-last-trigger for oldest-note stealing
-- [ ] Instrument with `CpuLoadMeter`: log CPU % with 1, 2, 3, 4 voices active to validate estimates
-- [ ] Confirm: 4 simultaneous voices stays within acceptable CPU load; adjust N if not
+- [ ] Allocate 4 `plaits::Voice` instances, each behind the Pimpl wrapper
+- [ ] Allocate 4 × 16 KB scratch buffers in SDRAM: `uint8_t scratch[4][16384] DSY_SDRAM_BSS`
+- [ ] Initialize all 4 voices at startup
+- [ ] Implement `VoicePool`: tracks active voices, which pad slot owns each, time-of-last-trigger
+- [ ] On voice pool full: steal oldest active voice (gate off immediately, reassign)
 - [ ] Each pad slot stores a `Patch` struct (7 slots × ~48 bytes = negligible RAM)
-- [ ] Mix N active voice outputs: sum `Frame.out` values, divide by N for consistent level
+- [ ] Mix active voice outputs: accumulate `Frame.out` samples, divide by number of active voices
+- [ ] Instrument: log CPU % with 1, 2, 3, 4 active voices via `CpuLoadMeter`
+- [ ] Confirm ≤70% CPU with all 4 active on heaviest engines
 
 ---
 
 ## Phase 8C: Playmode Switcher (SW2)
 
-Goal: SW2 selects the active playmode; behavior of pads, knobs, and LED changes per mode.
+Goal: SW2 position routes all pad/knob/LED logic to the correct playmode handler.
 
-- [ ] Read SW2 on every main loop iteration (3 states: down=1 / center=Z / up=3)
-- [ ] Implement a `playmode` enum: `STANDARD`, `PER_PAD`, `RANDOMIZER`
-- [ ] On SW2 change: transition cleanly (release any held notes, reset voice pool)
-- [ ] Route pad presses, knob reads, and P0 modifier to the correct playmode handler
-- [ ] LED blinks N times on mode switch (1, 2, or 3 blinks) to confirm new mode
-- [ ] Test: switch modes mid-session, correct behavior in each
-
----
-
-## Phase 8D: Playmode Z — Per-pad Presets
-
-Goal: Each of the 7 pads has its own stored model + full Patch. Multiple pads can sound simultaneously (up to voice pool limit).
-
-- [ ] Initialize all 7 pad slots with distinct default `Patch` values (spread across different models)
-- [ ] On pad press: assign a free voice from the pool to that pad, load pad's stored `Patch`, trigger
-- [ ] On pad release: gate off that pad's voice; return voice to pool after decay
-- [ ] Simultaneously pressed pads each play their own voice (up to N-voice limit)
-- [ ] **Implement pot pickup / catch mode:**
-  - Each knob tracks its last-known ADC value
-  - On entering a pad-edit context, knob is "uncaught" — it does not affect the parameter until the ADC value sweeps through (crosses) the stored parameter value
-  - Once caught, the knob controls the parameter normally
-  - LED blinks briefly when a knob is "caught" (optional, if LED is free)
-- [ ] Hold P0 + press a pad → enter "edit this pad" context; all 4 main knobs (S31–S34) address that pad's Harmonics/Timbre/Morph/Model
-- [ ] S30 in edit context → adjust that pad's model (0–23) with pot pickup
-- [ ] Release P0 → exit edit context, pad's updated Patch is persisted in its slot
-- [ ] All 7 pads remain playable even while editing one (hold P0 = P3–P9 still trigger notes)
-- [ ] Test: assign different models to each pad; press multiple pads simultaneously; confirm each sounds its own model
+- [ ] Read SW2 each main loop (3 states: down=1 / center=2 / up=3)
+- [ ] Implement `Playmode` enum: `BASIC_PITCH`, `SOFT_RANDOM`, `FULL_RANDOM`
+- [ ] On SW2 change: gate off all held voices; cancel any active recording mode; LED blinks 1/2/3 times to confirm mode
+- [ ] On entering mode 2 for first time: generate 7 soft-random variants from current Basic Pitch model
+- [ ] On entering mode 3 for first time: fully randomize all 7 pad slots
+- [ ] On subsequent entries to modes 2 or 3: load last stored slots (no re-randomize)
+- [ ] Route pad presses, knob reads, P0/P2 combos to mode-specific handlers
+- [ ] Test: switch modes mid-session; correct sounds in each; stored slots persist
 
 ---
 
-## Phase 8E: Playmode 3 — Randomizer
+## Phase 8D: Playmode 2 — Soft Random
 
-Goal: Touch a pad to receive a random sound; lock it to that pad slot with a modifier gesture.
+Goal: 7 pad slots each with a random variant of the current model's params; still pitched/scaled.
 
-- [ ] Implement `randomize_patch(Patch& p)`: fills all Patch fields with constrained random values
-  - `engine`: random 0–23 (uniform)
-  - `harmonics`, `timbre`, `morph`: random 0..1, biased toward 0.2–0.8 range (avoid extreme silence/clipping)
-  - `note`: keep the pad's normal scale degree (do not randomize pitch)
-  - `decay`: random 0.1–0.9
-  - `lpg_colour`: random 0..1
-- [ ] On pad press in Playmode 3: call `randomize_patch()`, load into voice, trigger immediately
-- [ ] The randomized Patch is *temporary* — not stored unless confirmed
-- [ ] Confirm gesture (options — decide at implementation time): double-tap the pad, or hold P0 briefly while pad is pressed
-- [ ] On confirm: copy the temporary Patch into that pad's permanent slot (shared with Playmode Z)
-- [ ] LED: blinks 3× fast on each new randomize; long blink on store confirmation
-- [ ] Test: tap many pads rapidly — each gives a new random sound; confirm-store a few; switch to Playmode Z and verify the stored sounds match
+- [ ] `generate_soft_random_slots(model)`: for each of 7 slots, copy Basic Pitch model, randomize harmonics/timbre/morph/decay within ±0.3 of pad index spread (constrained, not full random)
+- [ ] On pad press: load that slot's Patch into a pool voice, use scale pitch for that pad, trigger
+- [ ] S35 (+ P0/P2) model knob change while in mode 2: call `generate_soft_random_slots(new_model)` immediately, updating all 7 slots
+- [ ] P0 + P2: re-call `generate_soft_random_slots(current_model)` to generate new random variants
+- [ ] Recording mode (Phase 8 modifier): fully editable per-pad — all knobs adjustable with pickup
+- [ ] Test: 7 pads sound different timbres of same engine; model knob change reshuffles all
+
+---
+
+## Phase 8E: Playmode 3 — Full Random
+
+Goal: 7 pad slots each with a fully random model + params; all at root pitch.
+
+- [ ] `generate_full_random_slots()`: for each of 7 slots, randomize engine (0–23), harmonics/timbre/morph (0.2–0.8 biased), decay (0.1–0.9); `lpg_colour` = 0.5f
+- [ ] On pad press: load that slot's Patch, trigger at root note pitch (ignore scale degrees — pitch is fixed)
+  - Root note = current root + current octave offset, same for all 7 pads
+- [ ] P0 + P2: re-call `generate_full_random_slots()` to randomize all 7 slots fresh
+- [ ] Recording mode (Phase 8 modifier): can store/confirm any slot; SW2 flip cancels
+- [ ] Test: all 7 pads play same pitch, different random timbres; P0+P2 reshuffles
 
 ---
 
@@ -628,7 +625,7 @@ Goal: Stable, well-tuned, flashable v0.1 firmware.
 - **Persistent state** — save last model + settings across power cycles (requires flash write via libDaisy `PersistentStorage`)
 - **TRS MIDI** — for users who have hardware-modded their Simple Touch
 - **Additional scales** — accessible via modifier mode (P0 + pad combos beyond the 3 SW1 positions)
-- **OLED screen** — future hardware revision; would replace the LED blink scheme entirely
+- **128px OLED screen (optional add-on)** — small I2C 128×32 or 128×64 OLED; would show model name, param values, current mode, root note. Would replace or supplement the LED blink scheme. User is considering this for a v2 hardware build.
 - **Clock sync** — connect a mono jack to the clock input, sync envelope or arpeggio
 - **Chord mode** — single pad triggers a chord (maps to multiple sequential Plaits triggers)
 - **Persistent pad slots** — save all 7 per-pad Patches across power cycles (libDaisy `PersistentStorage`)
@@ -645,11 +642,11 @@ Fill this in as VERIFY blocks are resolved:
 |---|----------|--------|------|
 | 0.A | DSP integration strategy | Copy `plaits/dsp/` + stmlib directly; mosc = reference only | 2026-06-27 |
 | 0.B | Block size | 12 samples — Plaits sweet spot, 3× more efficient for voice pool | 2026-06-27 |
-| 2.A | Final hardware mapping table (SW2 now = playmode selector) | | |
-| 2.B | Model selection in Playmode 1 (knob S30 / pad combos / hybrid) | | |
-| 2.C | Scale system (which scales, which SW1 positions) | | |
-| 2.D | Multi-voice architecture (voice count, playmode layout) | | |
-| 5.A | Voice stealing in Playmode 1 (last-note / first-note / highest / lowest) | | |
-| 7.A | LED blink feedback scheme | | |
-| 8.A | Which parameters live in modifier mode (Playmode 1) | | |
+| 2.A | Final hardware mapping table | Confirmed — see table in Phase 2 | 2026-06-28 |
+| 2.B | Model selection method | S35 + P0 (0–11) / P2 (12–23), pickup mode | 2026-06-28 |
+| 2.C | Scale system | SW1: Down=Minor / Center=Chromatic / Up=Major; root via P0+P10/P11 | 2026-06-28 |
+| 2.D | Multi-voice / playmode architecture | 4 voices; modes: Basic Pitch / Soft Random / Full Random | 2026-06-28 |
+| 5.A | Voice stealing in Playmode 1 | Last-note priority (most recent pad wins, retriggers) | 2026-06-28 |
+| 7.A | LED blink feedback scheme | (b) grouped blinks; fallback to (e) if clunky | 2026-06-28 |
+| 8.A | ~~Modifier mode parameters~~ | Superseded by recording mode (Phase 8) | 2026-06-28 |
 | 10.A | Audio input strategy (passthrough / exciter / modulator / ignore) | | |
