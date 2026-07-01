@@ -6,7 +6,17 @@
       "WebFetch(domain:forum.electro-smith.com)",
       "WebFetch(domain:community.daisy.audio)",
       "WebFetch(domain:hammondeggsmusic.ca)",
-      "WebFetch(domain:patchstorage.com)"
+      "WebFetch(domain:patchstorage.com)",
+      "Bash(git commit -m ' *)",
+      "Bash(gh pr *)",
+      "Bash(git remote *)",
+      "Bash(ls /tmp/eurorack/plaits/*.h)",
+      "Read(//tmp/eurorack/**)",
+      "Read(//tmp/eurorack/plaits/**)",
+      "Bash(xargs grep -l \"Switch3\")",
+      "Bash(xargs grep -l \"Mpr121\")",
+      "Bash(make)",
+      "Bash(arm-none-eabi-size \"c:/Users/jonwa/Documents/GitHub/TouchPlaited/build/TouchPlaited.elf\")"
     ]
   }
 }
