@@ -98,20 +98,23 @@ Density 1 = only weight-4 (strong) hits fire. Density 4 = weight-1 ghost notes a
 
 ## Deliberate decisions
 
-**Block size: 96, rendered as 8 × 12-sample chunks**  
-`hw.SetAudioBlockSize(96)`. Each audio callback processes 96 samples by calling Plaits' Render() in 8 consecutive 12-sample passes. This eliminates ISR glitches while staying within Plaits' max block size constraint. 2ms per callback at 48kHz.
+**Block size: 192, rendered as 8 × 24-sample chunks**  
+`hw.SetAudioBlockSize(192)`. Each audio callback processes 192 samples by calling Plaits' Render() in 8 consecutive 24-sample passes. Eliminates ISR glitches on heavy engines (drum, modal, granular) while staying within Plaits' max block size constraint. ~4ms per callback at 48kHz.
 
 **P0 and P2 have no standalone sound action**  
 Touching P0 or P2 alone must never trigger a model audition or any sound change. Fixed by anchoring `bank_caught = false` and `bank_thresh = current S35 value` at the moment of TOUCH (not release). The catch gate then requires the pot to actually move before model select activates.
 
 **Engine LED blink removed**  
-The original plan called for a grouped-blink scheme to show the engine number (VERIFY 7.A option b). Tested — too complex to read in practice. Removed entirely. Model changes are confirmed by the audition tone only. OLED screen is the right answer for showing engine numbers; deferred to a future hardware revision.
+Tested — counting blinks to identify an engine number is too slow and confusing in practice. Model changes are confirmed by the audition tone only. OLED screen is the right answer for showing engine numbers; deferred to a future hardware revision.
 
 **MPR121 thresholds: defaults only**  
-Attempted raising touch threshold to 20 and adding hardware debounce (register 0x5B). This broke pad registration entirely (threshold too high, and MPR121 may not accept register writes in run mode). Reverted to library defaults (12/6). Ghost-touch suppression is handled in software via `any_musical_pad_held()` guard.
+Attempted raising touch threshold to 20 and adding hardware debounce (register 0x5B). This broke pad registration entirely. Reverted to library defaults (12/6). Ghost-touch suppression handled in software via `any_musical_pad_held()` guard.
 
 **SW1/SW2 are fully independent**  
-Previous implementation had wrong pin assignments (D10 used, which isn't a switch pin). Fixed by restoring the TouchBass template files. SW1 only affects scale/LED. SW2 only affects playmode.
+Previous implementation had wrong pin assignments (D10 used, which isn't a switch pin). Fixed by restoring the TouchBass template files.
+
+**Phase 8F (audio callback refactor) — attempted, reverted**  
+Moved control processing to `main()` loop to free ISR budget. Caused random device crashes: `generate_*()` runs in main loop while `SetOnTouch` callback fires in ISR and reads `pad_slots[]` mid-write → data race. Reverted to controls-in-callback. Fix requires wrapping every `generate_*()` call in `__disable_irq()` / `__enable_irq()`. Defer unless crackle returns on heavy engines.
 
 ---
 
@@ -120,41 +123,20 @@ Previous implementation had wrong pin assignments (D10 used, which isn't a switc
 | Feature | Status |
 |---|---|
 | Basic Pitch (SW2 down) | Working — 4-voice pool, oldest-note steal |
-| Soft Random (SW2 center) | Working — 7 pad slots, anchored spread ±0.25 normal / ±0.45 extreme |
+| Soft Random (SW2 center) | Working — 7 pad slots, spread ±0.25 / ±0.45 |
 | Full Random (SW2 up) | Working — 7 slots, per-stage randomization |
-| SW2 blink on mode change | Working — 1/2/3 blinks for down/center/up |
-| SW1 blink on scale change | Working — confirms scale switch |
-| P0+P2 hold animation | Working — charging blink 150ms→40ms; stages at 1000ms/2000ms/3000ms |
-| P0+P2 hold audio preview | Working — auditions pad_slots[0] with actual params at each stage |
-| Model select (P0+S35, P2+S35) | Working — dead zone (3%) required before catch activates |
-| Root note (P0+P10/P11) | Working — C through B, audition tone, LIMIT blink at edges |
+| Drum mode (Stage 3 of Full Random) | Working — 7 roles, engine pool per pad |
+| Sequencer (P1) | Implemented — needs full hardware test |
+| Recording mode (modes 2 & 3) | Implemented — confirm conflict known (see Open Decisions) |
+| Voice pool (4 voices, SDRAM) | Working |
+| SW1/SW2 blinks on change | Working |
+| P0+P2 hold animation + audio preview | Working |
+| Model select (P0+S35, P2+S35) | Working — 3% dead zone before catch activates |
+| Root note (P0+P10/P11) | Working — C through B, audition tone, LIMIT blink |
 | Octave shift (P10/P11) | Working — ±3 octaves |
-| FM amount (S30) | Working — skips audition voice (audition always FM=0) |
+| FM amount (S30) | Working |
 
 ---
-
-## Still to verify on hardware
-
-[x] - SW1 scale polarity: confirm which physical flick = Major vs Minor
-[x] - SW2 position polarity: confirm down = Basic Pitch (1 blink) and up = Full Random (3 blinks)
-[x] - P0+P2 hold: confirm 1000ms/2000ms/3000ms timing feels right; currently 500 blocks = 1000ms at 2ms/block
-
-→ result / decision: 
-[x]   - SW1 = good
-[x]   - SW2 = reverse order, atm down is Full random → should be down = basic pitch mode
-[x]   - P0+P2 hold: good
----
-
-
-
-
-## TODO (deferred)
-
-- **P0 as stepped pot selector**: while P0 held, pot movement quantized to fixed steps; each step auditions the result. Useful for precise per-slot parameter control in random modes. Revisit after recording mode is implemented.
-
-- **OLED screen**: would display engine name, params, current mode, root note. Planned for a future hardware revision. Would replace the LED blink scheme for engine number display.
-- **Audio input** (VERIFY 10.A): passthrough / exciter / modulator / ignore — decision pending
-
 
 ## Models list + division
 
@@ -227,18 +209,14 @@ Non-drum engines that can be tuned percussively:
 
 Stage 3 Full Random fills each pad with a role-appropriate sound, like a DAW drum map.  
 Scale, root_semitone, and octave_offset are **all ignored** in drum mode.  
-Each slot stores its own `note` value, randomized within a role-appropriate range — so drums can be differently tuned for character. Recording mode will allow per-slot note editing (mechanism TBD, P10/P11 or a knob remap).
-
-**`PadSlot` needs a `note` field** (currently absent — required for drum mode to work correctly).
+Each slot stores its own `note` value, randomized within a role-appropriate range.
 
 ```
 P3    P4    P5    P6    P7    P8    P9
 Kick  Snr   CHH   OHH  Clap  Tom   Perc
 ```
 
-GM reference notes (for future MIDI alignment): 36=Kick · 38=Snare · 42=CHH · 46=OHH · 39=Clap · 41=Low Tom
-
----
+GM reference notes: 36=Kick · 38=Snare · 42=CHH · 46=OHH · 39=Clap · 41=Low Tom
 
 ### Per-role engine pool + param ranges
 
@@ -298,69 +276,143 @@ CHH and OHH both use engine 23 — distinguished purely by morph range.
 | 23 HiHat (cymbal perc) | 0.15–0.40 | 0.50–0.90 | 0.50–1.00 | 72–96 |
 | 18 Particle (shaker) | 0.20–0.50 | 0.30–0.70 | 0.30–0.70 | 60–80 |
 
----
-
 ### Implementation notes
 
 - `generate_full_random(3)` becomes `generate_drum_random()` that iterates all 7 slots and picks engine+params from the role's pool.
 - `PadSlot` gains a `float note` field (default 60.0f); `NoteOnWithParams` uses `slot.note` instead of `root_note_f()` in drum mode.
 - Stage 3 re-randomize (P0+P2 hold 3s) also re-randomizes each slot's note within role range.
-- Recording mode: in drum mode, P10/P11 while in rec_mode shift `pad_slots[rec_slot].note` by ±2 semitones (bypasses global octave shift). Exact control TBD.
+- Recording mode: in drum mode, P10/P11 while in rec_mode shift `pad_slots[rec_slot].note` by ±2 semitones (bypasses global octave shift).
 
-## Notes
+---
 
-[ ] the distortion for drums should also be included in the normal play mode of playmode basic pitch 1
+## Open Decisions
 
+These need a design choice before implementation.
 
-[?]done, need to check the 6 op models
+### 1. Recording mode: confirm gesture conflicts with model-change gesture
 
-**Recording mode**: per-pad parameter recording for Soft/Full random modes (Phase 8 in plan):
-Recording presets: 
+**Problem:** in recording mode, P0+S35 changes the slot's engine (P0 held + scroll S35). The confirm gesture is P0+same pad ≥500ms. If you've just changed the engine and then try to confirm, the P0 hold state overlaps and the confirm doesn't register (or triggers unexpectedly).
 
-- in soft and full random allow storing pots S30 and S31 and fader S37 as well
-- in full random mode drum mode this might be different when the model doesn't use those pots, chart which they are, so when can apoint other fx or values
+**Options:**
+- (a) In recording mode, holding the rec pad alone for ≥500ms = confirm (no P0 required). Simpler, removes the conflict entirely. Risk: accidental confirm from a long pad hold.
+- (b) Require P0 to be released, then re-held + pad for confirm. Forces a deliberate two-step. More explicit but adds a step.
+- (c) Disable model select inside recording mode — you can't change engines while editing other params. Simplest state machine fix; costs a feature.
+- (d) Double-tap the rec pad (with P0 released) = confirm. Different gesture class entirely.
 
-- add a recordable volume per pad, we can use fader S36 for this that fader will there for also need a pickup functionality
+Leaning toward **(a)** — pad-alone confirm is intuitive and matches how you'd expect "hold to confirm" to work.
 
-When changing the model in recording mode, trying to confirm fails due to the need to use the P0 as a confirm key, we need to resolve this: options? 
-  - ?
+### 2. Per-pad stored parameters — scope
 
-**General model comments**: 
-- the contiuous mode 7, it's hard to keep this in the game, maybe, can we manually add a envelope to it, looks like it is only reacting to S34, maybe add functions to the "free" pots, or should we just ditch it. 
+**Current:** recording mode stores per slot: engine, harmonics, timbre, morph, decay, note (drum).  
+**Proposed addition:** also store FM amount (S30) and LPG colour/drive (S31) per slot.
 
-- some models are not or barely audible when auditioning and they are hard to set with the normal controls: the Six-Op A, B and C models secifically. 
-  - one improvent that would help to make clear a new pmodel is in fact loaded is a LED blink.
-  - a more user friendly experience here would be to have our preview to be audible, and to have the controls mapped better as those are also hard to find the right positions where it does start to produce sound
-  - e.g. with these model SIX OP there is a sound on every second tap of a key at some settings S32 sometimes does nothing at all? 
+**Considerations:**
+- S31 already does two things: LPG in pitched modes, soft-clip drive in drum mode. Per-slot S31 in drum mode means per-slot drive level, which is actually useful for balancing kick vs hat volume.
+- Engines 21–23 don't respond to S30 or S37 (they use internal envelopes only). Storing S30 per-slot for drums is pointless unless we remap S30 to something else for drum slots.
+- Decision: store S30 and S31 per-slot for pitched modes (Soft Random, Full Random non-drum). For drum mode, handle S31 as per-slot drive but skip S30 since drum engines ignore FM amount.
 
+### 3. Per-pad volume
 
-  ---
+**Proposal:** add a `volume` float to `PadSlot`; S36 fader controls per-pad volume when in recording mode (with pickup), global output volume otherwise.
 
-  After latest rother drum update:
+This requires S36 to switch meaning on recording mode entry/exit. S36 needs pickup when entering recording mode so the global volume doesn't snap to the slot's stored volume.
 
-- editing sound designing drum sounds is messy and to hard. 
-  - move to system where you can edit any pad / make it active by last touched, this could make it handy to also live tweak separate sounds
-- we need to review all live controls in drum mode
-  - if we want live parameters + simple per sound editing by last touched pad, then we need a new way to enter leave recording
+**Decision needed:** yes/no, and whether S36 pickup resets to the slot's stored volume or to the global volume on exit.
 
- → streamline controls so they match as much as possible with normal instrument mode (e.g. drive, and FM amount)
+### 4. Drum mode editing: last-touched pad vs explicit recording mode
 
-in seq mode live parameter:
+**Current:** must do P0+pad tap to enter recording mode, then P0+same pad ≥500ms to confirm. Messy in practice when designing multiple drum sounds back to back.
 
-- Decay seems to be hard maybe because it differs per model, 
-  - Maybe we can force decay on each model to be on S37, which models have decay linked to one of the stadard knobs in plaits?
-  - in live mode we could apply a percentage of decay globally, making all sounds tighter, but follow their original per instrument decay
-  
+**Proposed:** any pad press in drum mode makes it the "active" editing slot — knobs (S32–S34, S37) immediately affect that pad's sound. No recording mode entry needed. Confirm/store would need a new gesture (SW2 center tap? P0 double-tap?).
 
-- would be cooler if the "drum" sequencer just started on any playmode. And that we then make sure it follows the last set scale (that wy it could also be a melodic seq)
+**Impact:** large UX change. The current recording mode concept (other pads silenced, audition retriggers) is useful for focused editing. The last-touched approach is better for live tweaking. These could coexist: last-touched for quick knob tweaks, recording mode for full editing + confirm.
 
-- Electro pattern doesn't feel like the type of electro i had in mind, sketch it out manually first then copy to the model here
+### 5. Chiptune engine (7): keep, ditch, or fix
 
-- more variance in the drum patterns generate other patterns not just new sounds
-- the density knob could be used in conjunction with a random/chance parameter
-  - on one knob we could devide left O as least density, original pattern, 0.5 center = normal, 1 = as most deviation and less chance
+Chiptune is a self-running arpeggiator — it ignores gate and only responds to S34 (morph). Hard to use in a live pad context.
 
-## Live record playing into a pattern
-- Two possible routes, actual record audio into a buffer that could be played back so it would be possible to play on top in the other modes, controls for this might be the hardest part.
-- Or record live playback, but this will limit the abillity to play on top. (might be easier as it might require less overlapping hardware controls)
+**Options:**
+- Remove from the model selection list entirely (it's already excluded from all FR stages).
+- Keep as selectable in Basic Pitch mode only; document it as an "arpeggiator mode."
+- Map S30/S32/S33 to its internal parameters (rate, octave range, waveform) to make it more playable.
 
+---
+
+## Known Issues
+
+### Distortion (S31 drive) not active in Basic Pitch mode
+
+S31 drives soft-clip distortion in drum mode but passes through as LPG colour in Basic Pitch. The distortion processing should also be available in Basic Pitch mode. Low-effort fix — the processing path already exists, just needs to be routed.
+
+### Six-Op A/B/C models (2, 3, 4) barely audible on audition
+
+These models produce sound only in specific parameter regions. At init/random values they're often silent. Known behavior: sound appears only on every second gate trigger at some settings; S32 (harmonics) sometimes does nothing depending on the patch state.
+
+**What helps:**
+- A brief LED blink on model load would at least confirm the engine switched.
+- The audition tone on model select should use known-good parameter values for Six-Op specifically (mid harmonics 0.5, timbre 0.3–0.6, morph 0.4–0.7) rather than current knob positions.
+- Worth creating a `kModelAuditionParams[]` table with sane defaults per engine for the audition tone.
+
+### Decay in sequencer mode — drum engines use morph not decay
+
+In sequencer mode S37 drives `patch.decay`, but engines 21–23 use `morph` for their decay time (S37 does nothing for them). The drum tail length control is effectively broken for the three primary drum engines.
+
+**Fix:** in seq mode when the slot uses engine 21–23, map S37 to `morph` instead of `decay`. This can be a special case in the seq tick where it sets `patch.morph = decay_knob_value` for those engine indices.
+
+Alternatively: a global "tightness" multiplier that scales down the morph value of all active drum slots proportionally (preserving relative differences between sounds while making everything shorter/longer together).
+
+### Six-Op model parameter check needed
+
+After the drum mode implementation, Six-Op A/B/C behavior in Soft Random and Full Random modes needs a hardware verification pass. The concern is that random parameter values frequently land in silent regions.
+
+---
+
+## Feature Ideas
+
+These are not planned yet — sketch and decide before implementing.
+
+### Distortion in Basic Pitch mode
+Add S31 soft-clip drive to Basic Pitch output path. Already exists in drum mode; route it for non-drum use too. Quick win.
+
+### Sequencer on any playmode (melodic sequencer)
+Currently P1 forces FULL_RANDOM/drum mode. Alternative: sequencer fires whatever playmode is active, following the current scale. In Basic Pitch mode this becomes a 7-track melodic pattern sequencer (each track = one scale degree). Would need the weight tables to map to scale degrees instead of drum roles.
+
+### Density knob + chance parameter on one axis
+Current: S32 = pure density (how many steps fire). Proposed split:
+- 0.0–0.45: density reduction (below normal — fewer steps)
+- 0.5: normal pattern as programmed
+- 0.55–1.0: chance/mutation (steps start deviating from template — ghost notes, random skips)
+
+This gives the "organic looseness" dial that density alone doesn't provide.
+
+### More pattern variation — rhythm mutation
+P0+P2 currently re-randomizes drum sounds but keeps the same rhythm. A second gesture (e.g. longer hold, or double P0+P2) could mutate pattern weights slightly — adding ghost notes or swapping accents — without replacing all the sounds.
+
+### Electro pattern redesign
+The current Electro template doesn't feel right. Sketch the intended pattern manually first:
+- Syncopated kick (not just a straight offset — 16th-note pickup before beat 2, double hit on beat 4)
+- Hard snare on 2+4, ghost notes on the 16ths around it
+- Straight 16th-note hats with accent every 4th
+- Tom fill on bar 4
+
+### Live record into a pattern
+Two routes under consideration — not ready to pick yet:
+- **Audio buffer:** record synth output into a loop buffer, play back as a layer. Powerful but requires a separate audio buffer in SDRAM and complex transport controls.
+- **Note/trigger record:** capture pad triggers + timing into a step pattern, quantized. Simpler, but then the recorded pattern replaces live playing rather than layering on top.
+
+The second route is more feasible given the hardware constraints. Main problem: which controls handle record arm, start, stop, and loop length without clashing with everything else.
+
+---
+
+## Parking Lot (deferred, not forgotten)
+
+- **OLED screen** — 128×32 or 128×64 I2C add-on would show engine name, params, mode, root note. The chosen path for engine number display once hardware is revised.
+- **P0 as stepped pot selector** — while P0 held, pot movement quantized to fixed steps + audition. Revisit after recording mode redesign settles.
+- **Audio input** — passthrough / exciter / modulator / ignore. Decision still open (VERIFY 10.A in archived plan).
+- **Persistent state** — save last model + pad slots across power cycles (libDaisy `PersistentStorage`).
+- **USB MIDI** — NoteOn/NoteOff from DAW or keyboard. `MidiUsbHandler` in libDaisy.
+- **Chord mode** — single pad triggers a chord (multiple sequential Plaits triggers at scale intervals).
+- **Additional scales** — P0+pad combos beyond the 3 SW1 positions.
+- **Expand voice pool to 7** — once CPU headroom is confirmed on the engines actually in use.
+- **TRS MIDI** — for users who hardware-mod their Simple Touch board.
+- **Phase 8F retry** — move control processing out of ISR into main loop for CPU budget headroom. Requires `__disable_irq()` / `__enable_irq()` wrapping every `generate_*()` call. Only needed if crackle returns on heavy engines at kBlockSize=192.

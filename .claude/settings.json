@@ -16,7 +16,18 @@
       "Bash(xargs grep -l \"Switch3\")",
       "Bash(xargs grep -l \"Mpr121\")",
       "Bash(make)",
-      "Bash(arm-none-eabi-size \"c:/Users/jonwa/Documents/GitHub/TouchPlaited/build/TouchPlaited.elf\")"
+      "Bash(arm-none-eabi-size \"c:/Users/jonwa/Documents/GitHub/TouchPlaited/build/TouchPlaited.elf\")",
+      "Bash(gh api *)",
+      "Bash(python -c \"import sys,json,base64; d=json.load\\(sys.stdin\\); print\\(base64.b64decode\\(d['content']\\).decode\\(\\)\\)\")",
+      "Bash(python -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(d['sha'], d['commit']['message'], d['commit']['author']['name'], d['commit']['author']['date']\\)\")",
+      "Bash(python -c \"import sys,json; commits=json.load\\(sys.stdin\\); [print\\(c['sha'][:10], c['commit']['author']['date'][:10], c['commit']['message'].split\\(chr\\(10\\)\\)[0]\\) for c in commits]\")",
+      "Bash(python -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\('ahead_by:', d.get\\('ahead_by'\\), 'behind_by:', d.get\\('behind_by'\\)\\); [print\\(c['sha'][:10], c['commit']['message'].split\\(chr\\(10\\)\\)[0]\\) for c in d.get\\('commits',[]\\)]\")",
+      "Bash(python -c \"import sys,json; t=json.load\\(sys.stdin\\); [print\\(f['path']\\) for f in t['tree'] if 'mpr' in f['path'].lower\\(\\) or 'touch' in f['path'].lower\\(\\)]\")",
+      "Bash(python -c \"import sys,json; t=json.load\\(sys.stdin\\); [print\\(f['path']\\) for f in t['tree'] if 'hardware' in f['path'].lower\\(\\) or 'pad' in f['path'].lower\\(\\) or 'mpr' in f['path'].lower\\(\\) or 'touch' in f['path'].lower\\(\\) or 'hw' in f['path'].lower\\(\\)]\")",
+      "Bash(cp \"c:\\\\Users\\\\jonwa\\\\Documents\\\\GitHub\\\\TouchPlaited\\\\plan.md\" \"c:\\\\Users\\\\jonwa\\\\Documents\\\\GitHub\\\\TouchPlaited\\\\plan_archive.md\")"
+    ],
+    "additionalDirectories": [
+      "c:\\Users\\jonwa\\Documents\\GitHub\\TouchPlaited"
     ]
   }
 }
