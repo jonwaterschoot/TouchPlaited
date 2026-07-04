@@ -1,0 +1,394 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TouchPlaited Pattern Editor</title>
+<style>
+  :root {
+    --bg: #0b0c09; --panel: #13150e; --line: #262a1c; --line2: #3a4028;
+    --txt: #dfe4cb; --dim: #7f8570;
+    --w: #c8d43c;            /* chance 0 — always   */
+    --c1: #dcb32e;           /* chance 1 — 75%      */
+    --c2: #dd7f2f;           /* chance 2 — 50%      */
+    --c3: #d5503a;           /* chance 3 — 25%      */
+    --cell: 22px;
+  }
+  * { box-sizing: border-box; border-radius: 0 !important; }
+  html, body { margin: 0; background: var(--bg); color: var(--txt);
+    font: 12px/1.5 ui-monospace, "Cascadia Mono", Consolas, "Courier New", monospace; }
+  body { padding: 16px; }
+  h1 { font-size: 13px; letter-spacing: .25em; font-weight: 700; margin: 0;
+       text-transform: uppercase; }
+  h1 .px { color: var(--w); }
+  .sub { color: var(--dim); letter-spacing: .08em; margin: 2px 0 0; }
+  .top { display: flex; flex-wrap: wrap; gap: 10px 24px; align-items: flex-end;
+         border: 1px solid var(--line); background: var(--panel);
+         padding: 12px 14px; margin: 14px 0; }
+  label.fld { display: flex; flex-direction: column; gap: 4px; color: var(--dim);
+              text-transform: uppercase; letter-spacing: .12em; font-size: 10px; }
+  input[type=text], input[type=number], select, textarea, button {
+    font: inherit; color: var(--txt); background: var(--bg);
+    border: 1px solid var(--line2); padding: 4px 8px; }
+  input[type=text] { width: 12ch; } input[type=number] { width: 5ch; }
+  button { cursor: pointer; text-transform: uppercase; letter-spacing: .1em;
+           font-size: 11px; background: var(--panel); }
+  button:hover { border-color: var(--w); color: var(--w); }
+  button:focus-visible, input:focus-visible, select:focus-visible,
+  textarea:focus-visible, .cell:focus-visible { outline: 2px solid var(--w); outline-offset: -1px; }
+  button.primary { border-color: var(--w); color: var(--bg); background: var(--w); font-weight: 700; }
+  button.primary:hover { filter: brightness(1.1); color: var(--bg); }
+
+  .legend { display: flex; gap: 14px; align-items: center; flex-wrap: wrap;
+            color: var(--dim); font-size: 10px; letter-spacing: .08em;
+            text-transform: uppercase; }
+  .sw { display: inline-block; width: 10px; height: 10px; margin-right: 4px;
+        vertical-align: -1px; }
+
+  .bar-block { border: 1px solid var(--line); background: var(--panel);
+               padding: 10px 12px 12px; margin-bottom: 10px; }
+  .bar-head { display: flex; gap: 10px; align-items: baseline; margin-bottom: 8px; }
+  .bar-title { letter-spacing: .2em; text-transform: uppercase; font-size: 11px; }
+  .bar-title b { color: var(--w); }
+  .bar-copy { color: var(--dim); font-size: 10px; letter-spacing: .08em; }
+  .bar-copy button { padding: 1px 6px; font-size: 10px; }
+
+  .grid { display: grid; grid-template-columns: 52px repeat(16, var(--cell));
+          gap: 2px; width: max-content; }
+  .grid .gp { margin-left: 6px; }             /* beat group spacing */
+  .tl { color: var(--dim); font-size: 10px; letter-spacing: .1em;
+        text-transform: uppercase; align-self: center; }
+  .sn { color: var(--dim); font-size: 9px; text-align: center;
+        font-variant-numeric: tabular-nums; }
+  .sn.beat { color: var(--txt); }
+
+  .cell { position: relative; width: var(--cell); height: var(--cell);
+          border: 1px solid var(--line); background: var(--bg); padding: 0; }
+  .cell:hover { border-color: var(--line2); }
+  .cell .q { position: absolute; width: 8px; height: 8px; background: transparent; }
+  .cell .q1 { left: 2px;  bottom: 2px; }
+  .cell .q2 { right: 2px; bottom: 2px; }
+  .cell .q3 { left: 2px;  top: 2px; }
+  .cell .q4 { right: 2px; top: 2px; }
+  .cell.muted { opacity: .22; }
+  .cell.chance::after { content: ""; position: absolute; inset: 0;
+    background: repeating-linear-gradient(45deg, transparent 0 3px, rgba(11,12,9,.55) 3px 5px); }
+
+  .status { border: 1px solid var(--line); background: var(--panel);
+            padding: 6px 14px; color: var(--dim); letter-spacing: .06em;
+            min-height: 30px; margin-bottom: 14px; }
+  .status b { color: var(--txt); }
+
+  .panel { border: 1px solid var(--line); background: var(--panel);
+           padding: 12px 14px; margin-bottom: 12px; }
+  .panel h2 { font-size: 10px; letter-spacing: .2em; text-transform: uppercase;
+              color: var(--dim); margin: 0 0 8px; }
+  .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  textarea { width: 100%; min-height: 120px; white-space: pre; resize: vertical;
+             font-size: 11px; }
+  pre.out { border: 1px dashed var(--line2); background: var(--bg); padding: 10px;
+            overflow-x: auto; font-size: 11px; margin: 8px 0 0; user-select: all; }
+  .hint { color: var(--dim); font-size: 11px; margin: 6px 0 0; }
+  .hint code { color: var(--w); }
+  .wrap { max-width: 100%; overflow-x: auto; }
+  input[type=range] { accent-color: var(--w); width: 140px; }
+</style>
+
+<h1>TOUCH<span class="px">PLAITED</span> PATTERN EDITOR</h1>
+<p class="sub">7 tracks × 4 bars × 16 steps · step byte 0xCW · W weight 0–4 · C chance 0=always 1=75% 2=50% 3=25%</p>
+
+<div class="top">
+  <label class="fld">index
+    <input id="idx" type="number" min="0" max="99" value="3"></label>
+  <label class="fld">name
+    <input id="name" type="text" value="mypattern" spellcheck="false"></label>
+  <label class="fld">density preview <span id="dval"></span>
+    <input id="density" type="range" min="0" max="4" value="4"></label>
+  <div class="legend">
+    <span><span class="sw" style="background:var(--w)"></span>always</span>
+    <span><span class="sw" style="background:var(--c1)"></span>75%</span>
+    <span><span class="sw" style="background:var(--c2)"></span>50%</span>
+    <span><span class="sw" style="background:var(--c3)"></span>25%</span>
+    <span>quadrants = weight 1–4</span>
+  </div>
+</div>
+
+<div class="status" id="status">
+  click = set / clear · drag ↑↓ = weight · drag ←→ = chance · right-click = clear
+</div>
+
+<div class="wrap" id="bars"></div>
+
+<div class="panel">
+  <h2>Library — copy previous patterns</h2>
+  <div class="row">
+    <select id="lib"></select>
+    <button id="load">Load</button>
+    <button id="save">Save</button>
+    <button id="del">Delete</button>
+    <button id="clear">Clear grid</button>
+  </div>
+</div>
+
+<div class="panel">
+  <h2>Import — paste a kPat_ table (decimal or 0x values)</h2>
+  <div class="row"><textarea id="imp" spellcheck="false"
+    placeholder="paste the 7×64 initializer here…"></textarea></div>
+  <div class="row" style="margin-top:8px"><button id="doimp">Parse &amp; load</button></div>
+</div>
+
+<div class="panel">
+  <h2>Export — pattern file for synth/patterns/</h2>
+  <div class="row">
+    <button id="gen" class="primary">Generate code</button>
+    <button id="copy">Copy to clipboard</button>
+  </div>
+  <p class="hint">Save as <code id="fname">synth/patterns/03_mypattern.h</code> —
+    the next <code>make</code> registers it automatically.</p>
+  <pre class="out" id="out">…</pre>
+</div>
+
+<script>
+"use strict";
+const TRACKS = ["Kick","Snare","CHH","OHH","Clap","Tom","Perc"];
+const NT = 7, NS = 64, THRESH = 5;
+const CCOL = ["--w","--c1","--c2","--c3"], CPCT = ["always","75%","50%","25%"];
+
+// char codec: '.'=0, '1'-'4' plain weight, 'a'-'l' = chance 1-3 × weight 1-4
+function dec(ch){
+  if (ch === ".") return 0;
+  if (ch >= "1" && ch <= "4") return +ch;
+  const i = ch.charCodeAt(0) - 97;                    // a=0
+  return ((Math.floor(i/4)+1) << 4) | (i%4 + 1);
+}
+function rows(...s){ return s.join("").replace(/\s+/g,"").split("").map(dec); }
+
+const BUILTIN = {
+  "techno (built-in)": [
+    rows("4...4...4...4...".repeat(4)),
+    rows("................".repeat(3), "..............11"),
+    rows("..3...3...3...3.".repeat(3), "..3...3...3..131"),
+    rows("............3...".repeat(4)),
+    rows("....3.......3...".repeat(4)),
+    rows("................".repeat(3), "..............22"),
+    rows("...2.......2....".repeat(4)),
+  ],
+  "electro (built-in)": [
+    rows("4.....4.........", "4.....4...4..4..", "4.....4.........", "4.....4...4..411"),
+    rows("..114..1.1.14..1", "..114..1.1.14.11", "..114..1.1.14..1", "..114..1.1.14.11"),
+    rows("3.33..3333.3.333".repeat(3), "3133.13333.3.333"),
+    rows("....4.......4...".repeat(4)),
+    rows(".....g.......g..".repeat(3), ".....g.......4.."),
+    rows("................".repeat(3), "..............22"),
+    rows("2.22.2.222222.22".repeat(4)),
+  ],
+  "idm (built-in)": [
+    rows("4...........4...", "4......3........", "........4.......", "4...........4.3."),
+    rows("......3.........", "......3.........", "......3...2.....", "......3.......3."),
+    rows("..4..3.4...3..4.".repeat(3), "..4..3.4...3.141"),
+    rows(".......2........", "...............2", ".......2........", "...........2...."),
+    rows("................".repeat(4)),
+    rows("4.............2.", "..............2.", "................", "4.............2."),
+    rows(".2...2.2..2....2", "2..2..2..2....2.", "..2.2....2.2....", "2.2..2..2..2.2.."),
+  ],
+};
+
+let grid = new Uint8Array(NT * NS);
+let brush = 4;
+const cells = [];   // [t*64+s] -> button element
+const $ = id => document.getElementById(id);
+
+// ── build the four bar blocks ────────────────────────────────────────────────
+const barsEl = $("bars");
+for (let b = 0; b < 4; b++) {
+  const blk = document.createElement("div"); blk.className = "bar-block";
+  const head = document.createElement("div"); head.className = "bar-head";
+  head.innerHTML = `<span class="bar-title">BAR <b>${b+1}</b>${b===3?" · FILL":""}</span>
+    <span class="bar-copy">copy to
+      ${[0,1,2,3].filter(x=>x!==b).map(x=>`<button data-from="${b}" data-to="${x}">${x+1}</button>`).join(" ")}
+    </span>`;
+  blk.appendChild(head);
+  const g = document.createElement("div"); g.className = "grid";
+  g.appendChild(el("span",""));                       // corner
+  for (let s = 0; s < 16; s++) {
+    const n = el("span", String(s+1)); n.className = "sn" + (s%4===0 ? " beat":"");
+    if (s%4===0 && s) n.classList.add("gp");
+    g.appendChild(n);
+  }
+  for (let t = 0; t < NT; t++) {
+    const l = el("span", TRACKS[t].toUpperCase()); l.className = "tl"; g.appendChild(l);
+    for (let s = 0; s < 16; s++) {
+      const c = document.createElement("button");
+      c.type = "button"; c.className = "cell";
+      if (s%4===0 && s) c.classList.add("gp");
+      c.dataset.i = t*NS + b*16 + s;
+      for (let q = 1; q <= 4; q++) { const d = document.createElement("span");
+        d.className = "q q"+q; c.appendChild(d); }
+      g.appendChild(c); cells[t*NS + b*16 + s] = c;
+    }
+  }
+  blk.appendChild(g); barsEl.appendChild(blk);
+}
+function el(tag, txt){ const e = document.createElement(tag); e.textContent = txt; return e; }
+
+// ── rendering ────────────────────────────────────────────────────────────────
+function paint(i){
+  const v = grid[i], w = v & 15, c = v >> 4, d = +$("density").value;
+  const cell = cells[i], col = w ? `var(${CCOL[c]})` : "transparent";
+  cell.querySelectorAll(".q").forEach((q,qi)=>{ q.style.background = qi < w ? col : "transparent"; });
+  cell.classList.toggle("chance", c > 0 && w > 0);
+  cell.classList.toggle("muted", w > 0 && (w + d) < THRESH);
+  const t = Math.floor(i/NS), s = i%NS;
+  cell.setAttribute("aria-label",
+    `${TRACKS[t]} bar ${Math.floor(s/16)+1} step ${s%16+1}: ` +
+    (w ? `weight ${w}, ${CPCT[c]}` : "rest"));
+}
+function paintAll(){ for (let i = 0; i < grid.length; i++) paint(i); persist(); }
+
+// ── cell interaction: click toggles, drag sets weight (↑↓) / chance (←→) ────
+let drag = null;
+barsEl.addEventListener("pointerdown", e => {
+  const cell = e.target.closest(".cell"); if (!cell || e.button === 2) return;
+  const i = +cell.dataset.i, v0 = grid[i];
+  const w0 = v0 & 15 || brush & 15, c0 = v0 & 15 ? v0 >> 4 : brush >> 4;
+  drag = { i, x: e.clientX, y: e.clientY, w0, c0, was: v0, moved: false };
+  cell.setPointerCapture(e.pointerId);
+  grid[i] = (c0 << 4) | w0; paint(i); say(i);
+  e.preventDefault();
+});
+barsEl.addEventListener("pointermove", e => {
+  if (!drag) return;
+  const dw = Math.round((drag.y - e.clientY) / 14);
+  const dc = Math.round((e.clientX - drag.x) / 18);
+  if (dw || dc) drag.moved = true;
+  const w = Math.min(4, Math.max(1, drag.w0 + dw));
+  const c = Math.min(3, Math.max(0, drag.c0 + dc));
+  grid[drag.i] = (c << 4) | w; paint(drag.i); say(drag.i);
+});
+barsEl.addEventListener("pointerup", () => {
+  if (!drag) return;
+  if (!drag.moved && (drag.was & 15)) grid[drag.i] = 0;   // click on filled = clear
+  else brush = grid[drag.i];                              // remember as brush
+  paint(drag.i); persist(); drag = null;
+});
+barsEl.addEventListener("contextmenu", e => {
+  const cell = e.target.closest(".cell"); if (!cell) return;
+  e.preventDefault(); grid[+cell.dataset.i] = 0; paint(+cell.dataset.i); persist();
+});
+barsEl.addEventListener("pointerover", e => {
+  const cell = e.target.closest(".cell"); if (cell && !drag) say(+cell.dataset.i);
+});
+barsEl.addEventListener("click", e => {                    // bar copy buttons
+  const b = e.target.closest("button[data-from]"); if (!b) return;
+  const f = +b.dataset.from * 16, to = +b.dataset.to * 16;
+  for (let t = 0; t < NT; t++) for (let s = 0; s < 16; s++)
+    grid[t*NS + to + s] = grid[t*NS + f + s];
+  paintAll();
+});
+function say(i){
+  const v = grid[i], w = v & 15, c = v >> 4;
+  const t = Math.floor(i/NS), s = i%NS;
+  $("status").innerHTML = `<b>${TRACKS[t].toUpperCase()}</b> · bar ${Math.floor(s/16)+1} ·
+    step ${s%16+1} — ` + (w
+      ? `weight <b>${w}</b> · chance <b>${CPCT[c]}</b> · byte <b>${c ? "0x"+c+""+w : w}</b>
+         · audible from density <b>${Math.max(1, THRESH - w)}</b>`
+      : "rest");
+}
+
+// ── density preview ──────────────────────────────────────────────────────────
+$("density").addEventListener("input", () => {
+  $("dval").textContent = "(" + $("density").value + ")"; paintAll();
+});
+$("dval").textContent = "(4)";
+
+// ── library ──────────────────────────────────────────────────────────────────
+const LS = "touchplaited_patterns", WIP = "touchplaited_wip";
+function saved(){ try { return JSON.parse(localStorage.getItem(LS)) || {}; } catch { return {}; } }
+function refreshLib(){
+  const sel = $("lib"); sel.innerHTML = "";
+  const og1 = document.createElement("optgroup"); og1.label = "BUILT-IN";
+  Object.keys(BUILTIN).forEach(k => og1.appendChild(new Option(k)));
+  sel.appendChild(og1);
+  const s = saved(), ks = Object.keys(s);
+  if (ks.length){ const og2 = document.createElement("optgroup"); og2.label = "SAVED";
+    ks.forEach(k => og2.appendChild(new Option(k))); sel.appendChild(og2); }
+}
+$("load").onclick = () => {
+  const k = $("lib").value;
+  const src = BUILTIN[k] ? BUILTIN[k].flat() : saved()[k];
+  if (!src) return;
+  grid = Uint8Array.from(src); paintAll();
+  if (!BUILTIN[k]) $("name").value = k;
+  $("status").innerHTML = `loaded <b>${k}</b>`;
+};
+$("save").onclick = () => {
+  const k = cname(); const s = saved(); s[k] = Array.from(grid);
+  localStorage.setItem(LS, JSON.stringify(s)); refreshLib();
+  $("lib").value = k; $("status").innerHTML = `saved <b>${k}</b>`;
+};
+$("del").onclick = () => {
+  const k = $("lib").value; if (BUILTIN[k]) return;
+  const s = saved(); delete s[k]; localStorage.setItem(LS, JSON.stringify(s));
+  refreshLib(); $("status").innerHTML = `deleted <b>${k}</b>`;
+};
+$("clear").onclick = () => { grid.fill(0); paintAll(); };
+function persist(){ localStorage.setItem(WIP, JSON.stringify(Array.from(grid))); }
+
+// ── import ───────────────────────────────────────────────────────────────────
+$("doimp").onclick = () => {
+  const txt = $("imp").value.replace(/\/\/[^\n]*/g, "");
+  const nums = (txt.match(/0x[0-9a-fA-F]+|\d+/g) || [])
+    .map(x => parseInt(x, x.startsWith("0x") ? 16 : 10))
+    .filter(x => x <= 0x34);
+  // drop the leading 7 and 64 of a "[7][64]" declaration if present
+  const vals = nums.length >= NT*NS + 2 && nums[0] === 7 && nums[1] === 64
+    ? nums.slice(2) : nums;
+  if (vals.length < NT*NS){
+    $("status").innerHTML = `import: found only <b>${vals.length}</b> of ${NT*NS} values`; return;
+  }
+  grid = Uint8Array.from(vals.slice(0, NT*NS)); paintAll();
+  $("status").innerHTML = `imported <b>${NT*NS}</b> steps`;
+};
+
+// ── export ───────────────────────────────────────────────────────────────────
+function cname(){ return ($("name").value || "pattern").toLowerCase().replace(/\W+/g, "_"); }
+function fstem(){ return String(+$("idx").value || 0).padStart(2, "0") + "_" + cname(); }
+function fmt(v){ const w = v & 15, c = v >> 4; return c ? "0x" + c + "" + w : String(w); }
+function genCode(){
+  const stem = fstem(), sym = "kPat_" + stem;
+  let out = `#pragma once\n#include <cstdint>\n\n`;
+  out += `// ${cname()} — authored in tools/pattern_editor.html\n`;
+  out += `// Step byte encoding 0xCW: W = weight 0–4, C = chance 0=always 1=75% 2=50% 3=25%.\n`;
+  out += `// Track order: 0=Kick 1=Snare 2=CHH 3=OHH 4=Clap 5=Tom 6=Perc.\n`;
+  out += `static constexpr uint8_t ${sym}[7][64] = {\n`;
+  for (let t = 0; t < NT; t++){
+    out += `    // ${TRACKS[t]}\n`;
+    for (let b = 0; b < 4; b++){
+      const parts = [];
+      for (let g = 0; g < 4; g++)
+        parts.push([0,1,2,3].map(s => fmt(grid[t*NS + b*16 + g*4 + s])).join(","));
+      out += (b === 0 ? "    { " : "      ") + parts.join(", ")
+           + (b === 3 ? (t === NT-1 ? " },\n" : " },\n") : ",\n");
+    }
+  }
+  out += `};\n`;
+  return out;
+}
+$("gen").onclick = () => { $("out").textContent = genCode();
+  $("fname").textContent = `synth/patterns/${fstem()}.h`; };
+$("copy").onclick = async () => {
+  const txt = genCode(); $("out").textContent = txt;
+  $("fname").textContent = `synth/patterns/${fstem()}.h`;
+  try { await navigator.clipboard.writeText(txt); $("status").innerHTML = "copied to clipboard"; }
+  catch {
+    const r = document.createRange(); r.selectNodeContents($("out"));
+    const s = getSelection(); s.removeAllRanges(); s.addRange(r);
+    $("status").innerHTML = "select-all done — press Ctrl+C";
+  }
+};
+["idx","name"].forEach(id => $(id).addEventListener("input",
+  () => $("fname").textContent = `synth/patterns/${fstem()}.h`));
+
+// ── boot: restore work in progress ───────────────────────────────────────────
+refreshLib();
+try { const w = JSON.parse(localStorage.getItem(WIP));
+      if (Array.isArray(w) && w.length === NT*NS) grid = Uint8Array.from(w); } catch {}
+paintAll();
+</script>

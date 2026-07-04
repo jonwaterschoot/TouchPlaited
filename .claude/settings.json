@@ -24,7 +24,17 @@
       "Bash(python -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\('ahead_by:', d.get\\('ahead_by'\\), 'behind_by:', d.get\\('behind_by'\\)\\); [print\\(c['sha'][:10], c['commit']['message'].split\\(chr\\(10\\)\\)[0]\\) for c in d.get\\('commits',[]\\)]\")",
       "Bash(python -c \"import sys,json; t=json.load\\(sys.stdin\\); [print\\(f['path']\\) for f in t['tree'] if 'mpr' in f['path'].lower\\(\\) or 'touch' in f['path'].lower\\(\\)]\")",
       "Bash(python -c \"import sys,json; t=json.load\\(sys.stdin\\); [print\\(f['path']\\) for f in t['tree'] if 'hardware' in f['path'].lower\\(\\) or 'pad' in f['path'].lower\\(\\) or 'mpr' in f['path'].lower\\(\\) or 'touch' in f['path'].lower\\(\\) or 'hw' in f['path'].lower\\(\\)]\")",
-      "Bash(cp \"c:\\\\Users\\\\jonwa\\\\Documents\\\\GitHub\\\\TouchPlaited\\\\plan.md\" \"c:\\\\Users\\\\jonwa\\\\Documents\\\\GitHub\\\\TouchPlaited\\\\plan_archive.md\")"
+      "Bash(cp \"c:\\\\Users\\\\jonwa\\\\Documents\\\\GitHub\\\\TouchPlaited\\\\plan.md\" \"c:\\\\Users\\\\jonwa\\\\Documents\\\\GitHub\\\\TouchPlaited\\\\plan_archive.md\")",
+      "Bash(echo \"exit: $?\")",
+      "Bash(arm-none-eabi-size build/TouchPlaited.elf)",
+      "PowerShell(python --version 2>$null; python -c \"import serial; print\\('pyserial', serial.VERSION\\)\" 2>$null; [System.IO.Ports.SerialPort]::GetPortNames\\(\\))",
+      "Bash(make clean *)",
+      "Bash(xxd)",
+      "Bash(awk '{print $5, $9}')",
+      "Bash(python tools/gen_patterns.py)",
+      "Bash(python -)",
+      "Skill(artifact-design)",
+      "Skill(artifact-design:*)"
     ],
     "additionalDirectories": [
       "c:\\Users\\jonwa\\Documents\\GitHub\\TouchPlaited"

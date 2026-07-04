@@ -6,64 +6,111 @@ namespace synthux {
 
 class VoicePool {
 public:
-    static constexpr int kVoices = 4;
+    // Must match kMaxVoices in plaits_voice.cpp. 6 voices ≈ 180 KB SRAM.
+    // Sleep keeps allocated-but-silent voices free; the CPU risk is only in
+    // many *sounding* voices on expensive engines at once — watch the meter.
+    static constexpr int kVoices = 6;
 
     void Init() {
         for (int i = 0; i < kVoices; i++) {
             voices[i].Init();
-            pad_slot[i]  = -1;
-            timestamp[i] = 0;
+            pad_slot[i]    = -1;
+            timestamp[i]   = 0;
+            voice_volume[i] = 1.0f;
+            locked[i]       = false;
+            awake[i]        = false;
+            gate_held[i]    = false;
+            quiet_chunks[i] = 0;
         }
         tick         = 0;
         audition_idx = -1;
     }
 
-    void SetEngine(int e)      { for (auto& v : voices) v.SetEngine(e); }
-    void SetHarmonics(float v) { for (auto& vv : voices) vv.SetHarmonics(v); }
-    void SetTimbre(float v)    { for (auto& vv : voices) vv.SetTimbre(v); }
-    void SetMorph(float v)     { for (auto& vv : voices) vv.SetMorph(v); }
-    void SetDecay(float v)     { for (auto& vv : voices) vv.SetDecay(v); }
+    // Global setters skip param-locked voices (background drum-seq triggers) so
+    // the active playmode's knobs can't stomp a drum sound mid-decay. Each value
+    // is cached so NoteOn can rehydrate a reused voice — a voice that was locked
+    // when a global setter ran still holds stale (drum) params otherwise.
+    void SetEngine(int e)      { g_engine = e; for (int i = 0; i < kVoices; i++) if (!locked[i]) voices[i].SetEngine(e); }
+    void SetHarmonics(float v) { g_harm = v;   for (int i = 0; i < kVoices; i++) if (!locked[i]) voices[i].SetHarmonics(v); }
+    void SetTimbre(float v)    { g_timbre = v; for (int i = 0; i < kVoices; i++) if (!locked[i]) voices[i].SetTimbre(v); }
+    void SetMorph(float v)     { g_morph = v;  for (int i = 0; i < kVoices; i++) if (!locked[i]) voices[i].SetMorph(v); }
+    void SetDecay(float v)     { g_decay = v;  for (int i = 0; i < kVoices; i++) if (!locked[i]) voices[i].SetDecay(v); }
 
-    void SetLPGColour(float v) { for (auto& vv : voices) vv.SetLPGColour(v); }
-    void SetDrive(float v)     { for (auto& vv : voices) vv.SetDrive(v); }
+    void SetLPGColour(float v) { g_lpg = v;    for (int i = 0; i < kVoices; i++) if (!locked[i]) voices[i].SetLPGColour(v); }
+    void SetDrive(float v)     { g_drive = v;  for (int i = 0; i < kVoices; i++) if (!locked[i]) voices[i].SetDrive(v); }
+
+    // Group volumes: locked voices (drum seq) and pitched voices have separate
+    // output levels, so S36 in Seq mode balances the drums against the synth
+    // without touching the pitched level, and vice versa.
+    void SetSeqVolume(float v)     { vol_seq = v; }
+    void SetPitchedVolume(float v) { vol_pitched = v; }
 
     // Skip the audition voice — its FM stays at 0 for the full note duration.
     void SetFMAmount(float v) {
         for (int i = 0; i < kVoices; i++) {
-            if (i != audition_idx) voices[i].SetFMAmount(v);
+            if (i != audition_idx && !locked[i]) voices[i].SetFMAmount(v);
         }
     }
 
     // Mode 1: note only; patch params driven globally by knobs each block.
+    // Re-applies all cached globals first: the voice may have been a locked
+    // drum-seq voice that missed every global setter since its trigger.
     void NoteOn(int slot, float note) {
         int idx = find_free_or_steal();
+        voices[idx].SetEngine(g_engine);
+        voices[idx].SetHarmonics(g_harm);
+        voices[idx].SetTimbre(g_timbre);
+        voices[idx].SetMorph(g_morph);
+        voices[idx].SetDecay(g_decay);
+        voices[idx].SetLPGColour(g_lpg);
+        voices[idx].SetDrive(g_drive);
+        voices[idx].SetFMAmount(0.0f);
         voices[idx].SetNote(note);
         voices[idx].Trigger(true);
-        pad_slot[idx]  = slot;
-        timestamp[idx] = ++tick;
+        pad_slot[idx]    = slot;
+        timestamp[idx]   = ++tick;
+        voice_volume[idx] = 1.0f;
+        locked[idx]       = false;
+        wake(idx, true);
     }
 
     // Modes 2/3: note + full patch snapshot; params persist until stolen.
+    // lock_params=true isolates the voice from all global setters (drum-seq
+    // triggers playing behind a pitched mode) and pins LPG/FM to drum defaults.
     void NoteOnWithParams(int slot, float note,
                           int engine, float harmonics, float timbre,
-                          float morph, float decay) {
+                          float morph, float decay,
+                          float volume = 1.0f, float drive = 0.0f,
+                          bool lock_params = false) {
         int idx = find_free_or_steal();
         voices[idx].SetEngine(engine);
         voices[idx].SetHarmonics(harmonics);
         voices[idx].SetTimbre(timbre);
         voices[idx].SetMorph(morph);
         voices[idx].SetDecay(decay);
+        voices[idx].SetDrive(drive);
+        if (lock_params) {
+            voices[idx].SetLPGColour(0.5f);
+            voices[idx].SetFMAmount(0.0f);
+        }
         voices[idx].SetNote(note);
         voices[idx].Trigger(true);
-        pad_slot[idx]  = slot;
-        timestamp[idx] = ++tick;
+        pad_slot[idx]    = slot;
+        timestamp[idx]   = ++tick;
+        voice_volume[idx] = volume;
+        locked[idx]       = lock_params;
+        // Locked (drum-seq) voices are one-shots: no gate hold, free to sleep
+        // as soon as their tail decays.
+        wake(idx, !lock_params);
     }
 
     void NoteOff(int slot) {
         for (int i = 0; i < kVoices; i++) {
             if (pad_slot[i] == slot) {
                 voices[i].Trigger(false);
-                pad_slot[i] = -1;
+                pad_slot[i]  = -1;
+                locked[i]    = false;
+                gate_held[i] = false;   // release tail may now decay to sleep
             }
         }
     }
@@ -71,7 +118,9 @@ public:
     void AllNotesOff() {
         for (int i = 0; i < kVoices; i++) {
             voices[i].Trigger(false);
-            pad_slot[i] = -1;
+            pad_slot[i]  = -1;
+            locked[i]    = false;
+            gate_held[i] = false;
         }
         audition_idx = -1;
     }
@@ -80,37 +129,98 @@ public:
     void Audition(float note, int engine = -1) {
         int idx = find_free_or_steal();
         audition_idx = idx;
-        if (engine >= 0) voices[idx].SetEngine(engine);
+        locked[idx]  = false;
+        // engine < 0 = "current global engine" — never trust the recycled
+        // voice's own engine, it may be a stale drum-seq voice.
+        voices[idx].SetEngine(engine >= 0 ? engine : g_engine);
         voices[idx].SetHarmonics(0.5f);
         voices[idx].SetTimbre(0.5f);
         voices[idx].SetMorph(0.5f);
         voices[idx].SetDecay(0.6f);
+        voices[idx].SetLPGColour(g_lpg);
+        voices[idx].SetDrive(g_drive);
         voices[idx].SetFMAmount(0.0f);
         voices[idx].SetNote(note);
         voices[idx].Trigger(true);
-        pad_slot[idx]  = -1;
-        timestamp[idx] = ++tick;
+        pad_slot[idx]    = -1;
+        timestamp[idx]   = ++tick;
+        voice_volume[idx] = 1.0f;
+        wake(idx, false);   // auditions are one-shots — sleep after decay
     }
 
-    // Preview using a specific slot's patch — used for audible feedback during P0+P2 hold.
+    // Preview using a specific slot's patch — P0+P2 hold feedback and rec-mode
+    // auditions. volume defaults to full; rec passes the slot's stored volume
+    // so S36 edits are audible while recording, not only after confirm.
     void AuditionWithParams(float note, int engine,
-                            float harmonics, float timbre, float morph, float decay) {
+                            float harmonics, float timbre, float morph, float decay,
+                            float volume = 1.0f) {
         int idx = find_free_or_steal();
         audition_idx = idx;
+        locked[idx]  = false;
         voices[idx].SetEngine(engine);
         voices[idx].SetHarmonics(harmonics);
         voices[idx].SetTimbre(timbre);
         voices[idx].SetMorph(morph);
         voices[idx].SetDecay(decay);
+        voices[idx].SetLPGColour(g_lpg);
+        voices[idx].SetDrive(g_drive);
         voices[idx].SetFMAmount(0.0f);
         voices[idx].SetNote(note);
         voices[idx].Trigger(true);
-        pad_slot[idx]  = -1;
-        timestamp[idx] = ++tick;
+        pad_slot[idx]    = -1;
+        timestamp[idx]   = ++tick;
+        voice_volume[idx] = volume;
+        wake(idx, false);   // auditions are one-shots — sleep after decay
     }
 
+    // Sleeping voices are skipped entirely — this is what makes a bigger pool
+    // affordable: an allocated-but-silent voice costs nothing. A voice sleeps
+    // after kQuietChunks consecutive chunks below kSilenceThresh with its gate
+    // off, and wakes on the next trigger. Gate-held voices never sleep, so a
+    // held pad on a quiet engine region still responds to knob sweeps.
     void Render(float* out_left, float* out_right, size_t size) {
-        for (auto& v : voices) v.Render(out_left, out_right, size);
+        static float tmp_l[24], tmp_r[24];
+        for (int i = 0; i < kVoices; i++) {
+            if (!awake[i]) continue;
+            __builtin_memset(tmp_l, 0, size * sizeof(float));
+            __builtin_memset(tmp_r, 0, size * sizeof(float));
+            voices[i].Render(tmp_l, tmp_r, size);
+            float vol  = voice_volume[i] * (locked[i] ? vol_seq : vol_pitched);
+            float peak = 0.f;
+            for (size_t s = 0; s < size; s++) {
+                float l = tmp_l[s], r = tmp_r[s];
+                out_left[s]  += l * vol;
+                out_right[s] += r * vol;
+                float a = l < 0.f ? -l : l;
+                float b = r < 0.f ? -r : r;
+                if (a > peak) peak = a;
+                if (b > peak) peak = b;
+            }
+            if (!gate_held[i] && peak < kSilenceThresh) {
+                if (++quiet_chunks[i] >= kQuietChunks) awake[i] = false;
+            } else {
+                quiet_chunks[i] = 0;
+            }
+        }
+    }
+
+    // Emergency load shed: force-sleep the oldest awake voice that isn't
+    // gate-held. Called when the previous audio block ran too close to the
+    // budget — an early tail fade instead of a buffer overrun.
+    bool ShedVoice() {
+        int victim = -1;
+        for (int i = 0; i < kVoices; i++) {
+            if (awake[i] && !gate_held[i]) {
+                if (victim < 0 || timestamp[i] < timestamp[victim]) victim = i;
+            }
+        }
+        if (victim < 0) return false;
+        voices[victim].Trigger(false);
+        awake[victim]    = false;
+        pad_slot[victim] = -1;
+        locked[victim]   = false;
+        if (victim == audition_idx) audition_idx = -1;
+        return true;
     }
 
     // Update params on the current audition voice without retriggering.
@@ -130,10 +240,34 @@ public:
     PlaitsVoice voices[kVoices];
 
 private:
+    // Sleep tuning: chunks are 24 samples (0.5ms at 48kHz); 64 quiet chunks =
+    // 32ms of sustained silence below -80dBFS before a voice stops rendering.
+    static constexpr float    kSilenceThresh = 1e-4f;
+    static constexpr uint32_t kQuietChunks   = 64;
+
     int      pad_slot[kVoices];
     uint32_t timestamp[kVoices];
+    float    voice_volume[kVoices];
+    bool     locked[kVoices];
+    bool     awake[kVoices];
+    bool     gate_held[kVoices];
+    uint32_t quiet_chunks[kVoices];
     uint32_t tick;
     int      audition_idx;
+
+    void wake(int idx, bool hold_gate) {
+        awake[idx]        = true;
+        gate_held[idx]    = hold_gate;
+        quiet_chunks[idx] = 0;
+    }
+
+    // Cached global params — last value passed to each global setter.
+    int   g_engine = 0;
+    float g_harm  = 0.5f, g_timbre = 0.5f, g_morph = 0.5f, g_decay = 0.5f;
+    float g_lpg   = 0.5f, g_drive  = 0.0f;
+
+    // Per-group output levels (see SetSeqVolume/SetPitchedVolume).
+    float vol_seq = 1.0f, vol_pitched = 1.0f;
 
     int find_free_or_steal() {
         // Prefer a genuinely free voice (not the active audition slot).

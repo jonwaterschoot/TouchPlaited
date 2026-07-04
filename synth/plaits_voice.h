@@ -42,7 +42,7 @@ public:
 
 private:
     int      slot_;   // index into impl_storage/scratch; set at construction, never changes
-    PlaitsImpl* impl_;  // null until Init() is called after hw.Init() sets up SDRAM
+    PlaitsImpl* impl_;  // null until Init() is called (after hw.Init())
     float    drive_ = 0.0f;
 };
 

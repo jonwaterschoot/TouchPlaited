@@ -4,6 +4,10 @@ TARGET = TouchPlaited
 # Boot mode: QSPI required — Plaits binary will exceed Daisy SRAM 186 KB limit
 APP_TYPE = BOOT_QSPI
 
+# -O3 for project + Plaits DSP sources (core default is -O2; libdaisy.a is
+# prebuilt and unaffected). Flash is abundant (QSPI 7.9 MB); CPU is not.
+OPT = -O3
+
 # Sources: main entry + touch hardware layer + Plaits voice wrapper
 CPP_SOURCES = TouchPlaited.cpp \
               $(wildcard touch/*.cpp) \
@@ -54,3 +58,12 @@ vpath %.cc $(sort $(dir $(CC_SOURCES)))
 # Compilation rule for .cc -> .o (same flags as the core .cpp rule)
 $(BUILD_DIR)/%.o: %.cc Makefile | $(BUILD_DIR)
 	$(CXX) -c $(CPPFLAGS) $(CPP_STANDARD) -Wa,-a,-ad,-alms=$(BUILD_DIR)/$(notdir $(<:.cc=.lst)) $< -o $@
+
+# Drum pattern registry: synth/patterns/*.h -> synth/patterns_gen.h.
+# FORCE runs the generator every build (catches added AND deleted files);
+# the script only rewrites the header when content changed, so incremental
+# builds stay incremental.
+synth/patterns_gen.h: FORCE
+	python tools/gen_patterns.py
+FORCE:
+$(OBJECTS): synth/patterns_gen.h

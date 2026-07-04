@@ -5,7 +5,7 @@
 
 namespace {
 
-constexpr int kMaxVoices  = 4;
+constexpr int kMaxVoices  = 6;   // must match VoicePool::kVoices
 constexpr int kScratchSize = 16384;
 
 // Padé approximant for tanh — accurate to < 0.01 for |x| < 3.5, then clamped.
@@ -19,7 +19,9 @@ static inline float tanh_fast(float x) {
 // Staged warm→gritty saturator.
 //   drive 0.0 – 0.5: tanh saturation (warm, tube-like), gain 1→4
 //   drive 0.5 – 1.0: blend tanh into hard clip (fuzz), gain 4→9
-// Output is bounded to ±1 and level-compensated so perceived volume stays constant.
+// Peak-bounded to ±1, plus loudness makeup: saturation raises RMS sharply even
+// with peak compensation, so the output is pulled down as drive increases
+// (−6 dB at full drive). Tune the makeup slope by ear on hardware.
 static inline float distort(float x, float drive) {
     float gain, fuzz;
     if (drive <= 0.5f) {
@@ -29,20 +31,23 @@ static inline float distort(float x, float drive) {
         gain = 4.0f + (drive - 0.5f) * 10.0f;  // 4..9
         fuzz = (drive - 0.5f) * 2.0f;            // 0..1
     }
-    float comp = 1.0f / tanh_fast(gain);
-    float sat  = tanh_fast(x * gain) * comp;
-    if (fuzz < 0.001f) return sat;
+    float makeup = 1.0f / (1.0f + drive);   // 0 dB at drive 0 → −6 dB at drive 1
+    float comp   = 1.0f / tanh_fast(gain);
+    float sat    = tanh_fast(x * gain) * comp;
+    if (fuzz < 0.001f) return sat * makeup;
     float hard = x * gain;
     hard = hard >  1.0f ?  1.0f : hard < -1.0f ? -1.0f : hard;
     hard *= comp;
-    return sat + fuzz * (hard - sat);
+    return (sat + fuzz * (hard - sat)) * makeup;
 }
 
-// Scratch and impl storage in SDRAM as raw bytes — no C++ constructors.
-// DSY_SDRAM_BSS puts these in .sdram_bss (zeroed after SDRAM init, before main()).
-// PlaitsImpl is constructed via placement new inside Init(), which is called after
-// hw.Init() — so SDRAM is guaranteed to be ready by then.
-uint8_t scratch[kMaxVoices][kScratchSize] DSY_SDRAM_BSS;
+// Scratch and impl storage as raw bytes — no C++ constructors run here;
+// PlaitsImpl is built via placement new inside Init().
+// Placed in internal D1 SRAM (plain .bss), NOT SDRAM: the physical-modeling
+// engines walk these buffers every sample, and external SDRAM latency made
+// that the dominant CPU cost (measured ~44% idle at 4 voices from SDRAM).
+// 4 voices ≈ 100 KB of the 512 KB SRAM.
+uint8_t scratch[kMaxVoices][kScratchSize];
 
 } // namespace
 
@@ -56,9 +61,9 @@ struct PlaitsImpl {
     bool triggered;
 };
 
-// Raw aligned storage in SDRAM — sizeof/alignof PlaitsImpl resolved at compile time.
+// Raw aligned storage in internal SRAM (see note on `scratch` above).
 // No constructor runs here; placement new in Init() builds each PlaitsImpl in place.
-alignas(PlaitsImpl) static uint8_t impl_storage[kMaxVoices * sizeof(PlaitsImpl)] DSY_SDRAM_BSS;
+alignas(PlaitsImpl) static uint8_t impl_storage[kMaxVoices * sizeof(PlaitsImpl)];
 
 static int next_slot = 0;  // in regular .bss — safe to access before main()
 
