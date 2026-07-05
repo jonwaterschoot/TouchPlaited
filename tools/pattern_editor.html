@@ -42,8 +42,15 @@
   .sw { display: inline-block; width: 10px; height: 10px; margin-right: 4px;
         vertical-align: -1px; }
 
+  #bars { display: grid; grid-template-columns: 1fr; gap: 10px; margin-bottom: 14px; }
+  /* 4 bars side by side on wide screens; cells shrink to fit.
+     566px = body padding + bar gaps + 4 × (block chrome + label col + grid gaps). */
+  @media (min-width: 1500px) {
+    #bars { grid-template-columns: repeat(4, max-content); }
+    :root { --cell: clamp(12px, calc((100vw - 566px) / 64), 22px); }
+  }
   .bar-block { border: 1px solid var(--line); background: var(--panel);
-               padding: 10px 12px 12px; margin-bottom: 10px; }
+               padding: 10px 12px 12px; }
   .bar-head { display: flex; gap: 10px; align-items: baseline; margin-bottom: 8px; }
   .bar-title { letter-spacing: .2em; text-transform: uppercase; font-size: 11px; }
   .bar-title b { color: var(--w); }
@@ -62,12 +69,15 @@
   .cell { position: relative; width: var(--cell); height: var(--cell);
           border: 1px solid var(--line); background: var(--bg); padding: 0; }
   .cell:hover { border-color: var(--line2); }
-  .cell .q { position: absolute; width: 8px; height: 8px; background: transparent; }
+  .cell .q { position: absolute; width: calc(var(--cell)/2 - 3px);
+             height: calc(var(--cell)/2 - 3px); background: transparent; }
   .cell .q1 { left: 2px;  bottom: 2px; }
   .cell .q2 { right: 2px; bottom: 2px; }
   .cell .q3 { left: 2px;  top: 2px; }
   .cell .q4 { right: 2px; top: 2px; }
   .cell.muted { opacity: .22; }
+  .cell.playing { border-color: var(--dim); }
+  .cell.hit { border-color: var(--w); box-shadow: inset 0 0 0 1px var(--w); }
   .cell.chance::after { content: ""; position: absolute; inset: 0;
     background: repeating-linear-gradient(45deg, transparent 0 3px, rgba(11,12,9,.55) 3px 5px); }
 
@@ -101,6 +111,11 @@
     <input id="name" type="text" value="mypattern" spellcheck="false"></label>
   <label class="fld">density preview <span id="dval"></span>
     <input id="density" type="range" min="0" max="4" value="4"></label>
+  <label class="fld">tempo <span id="tval">(120)</span>
+    <input id="tempo" type="range" min="60" max="180" value="120"></label>
+  <label class="fld">shuffle <span id="shval">(0%)</span>
+    <input id="shuffle" type="range" min="0" max="50" value="0"></label>
+  <button id="play" title="space bar toggles playback">&#9654; play</button>
   <div class="legend">
     <span><span class="sw" style="background:var(--w)"></span>always</span>
     <span><span class="sw" style="background:var(--c1)"></span>75%</span>
@@ -111,7 +126,7 @@
 </div>
 
 <div class="status" id="status">
-  click = set / clear · drag ↑↓ = weight · drag ←→ = chance · right-click = clear
+  click = set / clear · drag ↑↓ = weight · drag ←→ = chance · right-click = clear · space = play/stop
 </div>
 
 <div class="wrap" id="bars"></div>
@@ -297,6 +312,120 @@ $("density").addEventListener("input", () => {
   $("dval").textContent = "(" + $("density").value + ")"; paintAll();
 });
 $("dval").textContent = "(4)";
+
+// ── preview sequencer — mirrors synth/sequencer.h ────────────────────────────
+// Step fires when weight + density >= 5; chance rolled after the gate with the
+// same xorshift32 + (rand & 0xFF) >= (4-c)*64 rule; odd steps delayed by
+// shuffle × step (0–50%). Preview-only: weight also scales the hit level
+// (firmware fires triggers at a fixed level).
+let ac = null, master = null, noiseBuf = null;
+let playing = false, timer = null, pStep = 0, pBar = 0, nextTime = 0;
+let phCells = [], phTimers = [];
+let prng = 0x2545F491;
+function prand(){
+  prng ^= prng << 13; prng >>>= 0;
+  prng ^= prng >>> 17;
+  prng ^= prng << 5;  prng >>>= 0;
+  return prng;
+}
+
+function initAudio(){
+  ac = new (window.AudioContext || window.webkitAudioContext)();
+  master = ac.createGain(); master.gain.value = 0.5; master.connect(ac.destination);
+  noiseBuf = ac.createBuffer(1, ac.sampleRate, ac.sampleRate);
+  const d = noiseBuf.getChannelData(0);
+  for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+}
+function tone(t, type, f0, f1, slide, v, decay){
+  const o = ac.createOscillator(), g = ac.createGain();
+  o.type = type; o.frequency.setValueAtTime(f0, t);
+  if (f1) o.frequency.exponentialRampToValueAtTime(f1, t + slide);
+  g.gain.setValueAtTime(v, t);
+  g.gain.exponentialRampToValueAtTime(0.001, t + decay);
+  o.connect(g); g.connect(master); o.start(t); o.stop(t + decay + 0.05);
+}
+function hiss(t, type, freq, q, v, decay){
+  const src = ac.createBufferSource(); src.buffer = noiseBuf;
+  const f = ac.createBiquadFilter(); f.type = type; f.frequency.value = freq; f.Q.value = q;
+  const g = ac.createGain();
+  g.gain.setValueAtTime(v, t);
+  g.gain.exponentialRampToValueAtTime(0.001, t + decay);
+  src.connect(f); f.connect(g); g.connect(master);
+  src.start(t); src.stop(t + decay + 0.05);
+}
+const VOICES = [                                             // track order = TRACKS
+  (t,v)=>tone(t, "sine", 150, 45, 0.10, v * 1.2, 0.30),                     // Kick
+  (t,v)=>{ hiss(t, "bandpass", 1800, 0.8, v * 0.9, 0.14);
+           tone(t, "triangle", 190, 120, 0.05, v * 0.5, 0.10); },           // Snare
+  (t,v)=>hiss(t, "highpass", 7000, 1, v * 0.6, 0.045),                      // CHH
+  (t,v)=>hiss(t, "highpass", 6000, 1, v * 0.5, 0.28),                       // OHH
+  (t,v)=>{ for (let i = 0; i < 3; i++)
+             hiss(t + i * 0.012, "bandpass", 1400, 2, v * 0.7, 0.05);
+           hiss(t + 0.036, "bandpass", 1400, 2, v * 0.5, 0.12); },          // Clap
+  (t,v)=>tone(t, "sine", 220, 95, 0.12, v, 0.25),                           // Tom
+  (t,v)=>tone(t, "square", 900, 700, 0.03, v * 0.35, 0.07),                 // Perc
+];
+
+function fireStep(b, s, when){
+  const d = +$("density").value;
+  let mask = 0;
+  for (let t = 0; t < NT; t++){
+    const v = grid[t*NS + b*16 + s], w = v & 15, c = v >> 4;
+    if (!w || w + d < THRESH) continue;
+    if (c > 0 && (prand() & 0xFF) >= (4 - c) * 64) continue;
+    VOICES[t](when, 0.3 + 0.175 * w);
+    mask |= 1 << t;
+  }
+  return mask;
+}
+function setPlayhead(b, s, mask){
+  phCells.forEach(c => c.classList.remove("playing", "hit"));
+  phCells = [];
+  for (let t = 0; t < NT; t++){
+    const c = cells[t*NS + b*16 + s];
+    c.classList.add(mask & (1 << t) ? "hit" : "playing");
+    phCells.push(c);
+  }
+}
+function clearPlayhead(){
+  phTimers.forEach(clearTimeout); phTimers = [];
+  phCells.forEach(c => c.classList.remove("playing", "hit"));
+  phCells = [];
+}
+
+const LOOKAHEAD = 0.12;
+function schedule(){
+  while (nextTime < ac.currentTime + LOOKAHEAD){
+    const dur   = 60 / +$("tempo").value / 4;                // 16th note
+    const swing = (pStep & 1) ? (+$("shuffle").value / 100) * dur : 0;
+    const when  = nextTime + swing, b = pBar, s = pStep;
+    const mask  = fireStep(b, s, when);
+    phTimers.push(setTimeout(() => { if (playing) setPlayhead(b, s, mask); },
+                             Math.max(0, (when - ac.currentTime) * 1000)));
+    pStep = (pStep + 1) % 16;
+    if (pStep === 0) pBar = (pBar + 1) % 4;
+    nextTime += dur;
+  }
+}
+function startSeq(){
+  if (!ac) initAudio();
+  ac.resume();
+  playing = true; pStep = 0; pBar = 0;
+  nextTime = ac.currentTime + 0.06;
+  $("play").innerHTML = "&#9632; stop"; $("play").classList.add("primary");
+  timer = setInterval(schedule, 25); schedule();
+}
+function stopSeq(){
+  playing = false; clearInterval(timer); clearPlayhead();
+  $("play").innerHTML = "&#9654; play"; $("play").classList.remove("primary");
+}
+$("play").onclick = () => playing ? stopSeq() : startSeq();
+$("tempo").addEventListener("input", () => $("tval").textContent = `(${$("tempo").value})`);
+$("shuffle").addEventListener("input", () => $("shval").textContent = `(${$("shuffle").value}%)`);
+document.addEventListener("keydown", e => {
+  if (e.code !== "Space" || /INPUT|TEXTAREA|SELECT|BUTTON/.test(e.target.tagName)) return;
+  e.preventDefault(); playing ? stopSeq() : startSeq();
+});
 
 // ── library ──────────────────────────────────────────────────────────────────
 const LS = "touchplaited_patterns", WIP = "touchplaited_wip";
