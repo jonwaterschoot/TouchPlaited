@@ -10,7 +10,7 @@
 // Bar 4: fill — kicks return to 0+12, perc explodes.
 // Step byte encoding 0xCW: W = weight 0–4, C = chance 0=always 1=75% 2=50% 3=25%.
 // Track order: 0=Kick 1=Snare 2=CHH 3=OHH 4=Clap 5=Tom 6=Perc.
-static constexpr uint8_t kPat_02_idm[7][64] = {
+static constexpr uint8_t kPat_idm_00_idm[7][64] = {
     // Kick
     { 4,0,0,0, 0,0,0,0, 0,0,0,0, 4,0,0,0,   // bar 1: steps 0 + 12
       4,0,0,0, 0,0,0,3, 0,0,0,0, 0,0,0,0,   // bar 2: steps 0 + 7 (shifted)

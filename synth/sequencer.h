@@ -22,9 +22,11 @@
 // Track order: 0=Kick 1=Snare 2=CHH 3=OHH 4=Clap 5=Tom 6=Perc
 //   (matches pad_slots[0..6])
 //
-// Pattern tables are 64 steps (4 bars × 16), one file each in synth/patterns/;
+// Pattern tables are 64 steps (4 bars × 16), one file each in a genre
+// subfolder of synth/patterns/ (techno/, electro/, idm/);
 // tools/gen_patterns.py registers them into patterns_gen.h at build time.
-// Bar 4 is always the fill bar.
+// SW1 picks the genre (SetGenre), S35 picks the variant within that genre
+// (SetVariant). Bar 4 is always the fill bar.
 // Tick() must be called once per audio block from the audio ISR.
 // Returns a 7-bit bitmask: bit i set → trigger track i this block.
 // BeatFired() returns true on the block that step fired and step % 4 == 0 (quarter notes).
@@ -36,7 +38,7 @@ public:
     static constexpr int    kSteps     = 16;
     static constexpr int    kBars      = 4;
     static constexpr int    kTracks    = 7;
-    static constexpr int    kGenres    = kNumPatterns;  // from patterns_gen.h
+    static constexpr int    kGenres    = kNumGenres;    // from patterns_gen.h
     static constexpr uint8_t kThreshold = 5;
 
     void Start() {
@@ -45,8 +47,12 @@ public:
         bar_          = 0;
         clock_        = 0;
         fire_at_      = 0;
-        fire_pending_ = true;   // fire step 0 on the very first block
+        fire_pending_ = true;   // fire step 0 on the very first block/clock tick
         beat_fired_   = false;
+        tick_in_step_      = 0;
+        ext_ticks_pending_ = 0;
+        // Master MIDI clock: emit a tick in the same block step 0 fires.
+        midi_clk_acc_ = static_cast<float>(step_blocks_);
     }
 
     void Stop() {
@@ -54,6 +60,7 @@ public:
         fire_pending_ = false;
         beat_fired_   = false;
         step_fired_   = false;
+        ext_ticks_pending_ = 0;
     }
 
     // Resume from current step/bar position (does not reset to bar 0).
@@ -64,7 +71,43 @@ public:
             clock_        = 0;
             fire_at_      = 0;
             fire_pending_ = true;
+            tick_in_step_      = 0;
+            ext_ticks_pending_ = 0;
+            midi_clk_acc_ = static_cast<float>(step_blocks_);
         }
+    }
+
+    // ── External MIDI clock (24 ppqn, 6 ticks per 16th step) ──────────────
+    // While enabled, Tick() steps on received clock ticks instead of the
+    // block counter — hard sync, no drift, and the tempo knob has no effect.
+    void SetExternalClock(bool on) {
+        if (ext_clock_ == on) return;
+        ext_clock_         = on;
+        ext_ticks_pending_ = 0;
+        tick_in_step_      = 0;
+        clock_             = 0;
+        fire_at_           = 0;   // re-phase: pending step fires on next tick/block
+    }
+    bool ExternalClocked() const { return ext_clock_; }
+
+    // One received F8. Called from the main loop with IRQs off. Only counts
+    // while playing — ticks must not pile up during Stop and burst on Resume.
+    void OnMidiClock() {
+        if (ext_clock_ && active_) ext_ticks_pending_ = ext_ticks_pending_ + 1;
+    }
+
+    // Master-mode 24 ppqn generator on the step clock's own timebase (step =
+    // 6 ticks of step_blocks_ blocks), so external gear can't drift against
+    // the drums. Call once per block, active or not; skip when following an
+    // external clock. Returns the number of clock messages to emit now.
+    int MidiClockTick() {
+        midi_clk_acc_ += 6.f;
+        int n = 0;
+        while (midi_clk_acc_ >= static_cast<float>(step_blocks_)) {
+            midi_clk_acc_ -= static_cast<float>(step_blocks_);
+            n++;
+        }
+        return n;
     }
 
     bool IsActive() const { return active_; }
@@ -87,11 +130,16 @@ public:
         density_ = static_cast<uint8_t>(d > 4 ? 4 : d);
     }
 
-    // SW1 B() → pattern index (0=Techno 1=Electro 2=IDM with the stock files).
-    // SW1 has 3 positions, so patterns beyond index 2 need another selector
-    // (planned: S35 picker in Seq mode).
+    // SW1 B() → genre (0=Techno 1=Electro 2=IDM; order fixed in gen_patterns.py).
     void SetGenre(int g) {
         if (g >= 0 && g < kGenres) genre_ = g;
+    }
+
+    // S35 0..1 → variant slot within the current genre. Stored as the raw
+    // knob value so switching to a genre with a different pattern count
+    // re-quantizes automatically.
+    void SetVariant(float v) {
+        variant_ = v < 0.f ? 0.f : (v > 1.f ? 1.f : v);
     }
 
     // Call once per audio block from the audio ISR.
@@ -103,6 +151,27 @@ public:
         beat_fired_       = false;
         step_fired_       = false;
         uint8_t triggered = 0;
+
+        // External clock: consume received ticks; 6 per step, shuffle in
+        // whole ticks (0–3 at max swing). The block counter is not consulted.
+        if (ext_clock_) {
+            while (ext_ticks_pending_ > 0) {
+                ext_ticks_pending_ = ext_ticks_pending_ - 1;
+                if (fire_pending_ && tick_in_step_ == fire_at_) {
+                    fire_pending_ = false;
+                    triggered    |= eval_step();
+                    step_fired_   = true;
+                    beat_fired_   = beat_fired_ || ((step_ % 4) == 0);
+                }
+                if (tick_in_step_ >= 5) {
+                    tick_in_step_ = 0;
+                    advance_step();
+                } else {
+                    tick_in_step_++;
+                }
+            }
+            return triggered;
+        }
 
         // Fire pending triggers at the scheduled clock offset.
         if (fire_pending_ && clock_ == fire_at_) {
@@ -137,10 +206,15 @@ private:
     int      step_         = 0;
     int      bar_          = 0;
     int      genre_        = 0;
+    float    variant_      = 0.f;
     uint32_t clock_        = 0;
     uint32_t step_blocks_  = 31;    // ~120 BPM at 4 ms/block
-    uint32_t fire_at_      = 0;
+    uint32_t fire_at_      = 0;     // blocks internally; ticks under ext clock
     bool     fire_pending_ = false;
+    bool     ext_clock_    = false;
+    volatile uint32_t ext_ticks_pending_ = 0;   // written main loop (IRQ off), read ISR
+    uint32_t tick_in_step_ = 0;     // 0–5 within the current 16th (ext clock)
+    float    midi_clk_acc_ = 0.f;   // master 24 ppqn generator phase
     uint8_t  density_      = 2;
     float    shuffle_      = 0.f;
     uint32_t rng_          = 0x2545F491;  // xorshift32 state (any non-zero seed)
@@ -156,21 +230,33 @@ private:
         step_ = (step_ + 1) % kSteps;
         // Advance bar on every bar boundary.
         if (step_ == 0) bar_ = (bar_ + 1) % kBars;
-        // Classic shuffle: even steps fire immediately, odd steps delayed.
+        // Classic shuffle: even steps fire immediately, odd steps delayed —
+        // in blocks internally, in whole clock ticks under external sync.
         if ((step_ & 1) == 0) {
             fire_at_ = 0;
+        } else if (ext_clock_) {
+            fire_at_ = static_cast<uint32_t>(shuffle_ * 6.f);
         } else {
             fire_at_ = static_cast<uint32_t>(shuffle_ * static_cast<float>(step_blocks_));
         }
         fire_pending_ = true;
     }
 
+    // Resolve genre (SW1) + variant (S35) to a flat kSeqPatterns index.
+    int pattern_index() const {
+        int n  = kGenrePatternCount[genre_];
+        int vi = static_cast<int>(variant_ * static_cast<float>(n));
+        if (vi >= n) vi = n - 1;
+        return kGenrePatternIdx[genre_][vi];
+    }
+
     // Non-const: chance steps advance the RNG.
     uint8_t eval_step() {
         uint8_t mask = 0;
         int     idx  = bar_ * kSteps + step_;
+        const uint8_t (*pat)[64] = kSeqPatterns[pattern_index()];
         for (int t = 0; t < kTracks; t++) {
-            uint8_t v = kSeqPatterns[genre_][t][idx];
+            uint8_t v = pat[t][idx];
             uint8_t w = v & 0x0F;
             if (w == 0) continue;
             if (static_cast<uint32_t>(w) + density_ < kThreshold) continue;

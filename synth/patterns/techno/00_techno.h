@@ -6,7 +6,7 @@
 // Bars 1–3 identical grid; bar 4 adds ghost snare/hat and tom fill.
 // Step byte encoding 0xCW: W = weight 0–4, C = chance 0=always 1=75% 2=50% 3=25%.
 // Track order: 0=Kick 1=Snare 2=CHH 3=OHH 4=Clap 5=Tom 6=Perc.
-static constexpr uint8_t kPat_00_techno[7][64] = {
+static constexpr uint8_t kPat_techno_00_techno[7][64] = {
     // Kick — four-on-floor every bar
     { 4,0,0,0, 4,0,0,0, 4,0,0,0, 4,0,0,0,   // bar 1
       4,0,0,0, 4,0,0,0, 4,0,0,0, 4,0,0,0,   // bar 2

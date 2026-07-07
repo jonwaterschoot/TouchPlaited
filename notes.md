@@ -13,16 +13,16 @@
 | Control | Function | In Seq mode |
 |---------|----------|-------------|
 | **S30** | Drive (soft-clip distortion 0..1) | Drive (overall; per-slot in rec mode) |
-| **S31** | LPG colour (pitched modes) / fixed 0.5 (drum) | Tempo (60–180 BPM) |
+| **S31** | Decay, unified — LPG env + model decay (morph) for engines 19–23. LPG colour retired (fixed 0.5) | Tempo (60–180 BPM) |
 | **S32** | Harmonics — live in Basic Pitch, per-slot in Random | Shuffle (0–50% swing) |
 | **S33** | Timbre — live in Basic Pitch, per-slot in Random | Density (0–4 weight threshold) |
 | **S34** | Morph — live in Basic Pitch, per-slot in Random | Kick punch (timbre boost) |
 | **S35** | Model select (P0=bank 0–11 / P2=bank 12–23, pickup) | — disabled |
-| **S36** | Pitched volume (live). Per-slot volume in recording mode | Seq/drum volume (pickup; independent of pitched volume) |
-| **S37** | Decay / tail (→ patch.morph for drum engines 21–23) | Tightness (drum morph scale) |
+| **S36** | Pitched volume (pickup). Per-slot volume in recording mode | Seq/drum volume (pickup) |
+| **S37** | Blend: OUT↔AUX mono mix (0=OUT, 1=AUX). Per-slot blend in recording. **P0 held → stereo width** (0 = mono; group × per-slot multiply, MoveCatch) | Tightness (morph-decay scale, engines 19–23). **P0 held → drum-group stereo width** |
 | **SW1** | Scale: Center=Chromatic / Left=Major / Right=Minor | Genre: Center=Techno / Left=Electro / Right=Ambient |
 | **SW2** | Playmode: Down=Basic Pitch / Center=Random / Up=Seq | — |
-| **P0** | Modifier A — hold + S35 → model 0–11; hold + P10/P11 → root note | — |
+| **P0** | Modifier A — hold + S35 → model 0–11; hold + P10/P11 → root note; hold + S37 → stereo width | hold + S37 → drum-group stereo width |
 | **P2** | Modifier B — hold + S35 → model 12–23 | — |
 | **P0 + P2** | Re-randomize — hold stages 1s/2s (Basic Pitch: soft tight/wide same engine; Random: full random) | Re-randomize drum sounds — stages 1s/2s (soft variance / full new models) |
 | **P3–P9** | Note pads / drum triggers | Drum pads (play kit; manual triggers on top of running seq) |
@@ -87,7 +87,7 @@ All rec knobs use **true pickup**: each pot takes effect only when it reaches th
 **Drum editing/controls are exclusively here**, but the sequencer itself runs independently of SW2:
 
 - First SW2-Up entry (or boot with SW2 Up): kit generated + seq auto-starts, knobs live immediately. Later entries keep the last play/pause state.
-- Flipping SW2 away from Up does **not** stop the seq — drums keep playing behind Basic Pitch / Random with all seq settings (tempo, shuffle, density, punch, tightness, drive, genre) locked at their last SW2-Up values.
+- Flipping SW2 away from Up does **not** stop the seq — drums keep playing behind Basic Pitch / Random with all seq settings (tempo, shuffle, density, punch, tightness, drive, genre, pattern) locked at their last SW2-Up values.
 - **Pickup on re-entry:** every seq pot (S30–S34, S36, S37) must reach its stored value before it takes effect again — using a pot in another mode (or during recording, which borrows most of them) never jumps a seq setting. Pickups re-arm on Seq entry and on recording exit. Values at the pot extremes (0.0/1.0) are reachable — inclusive comparison + near-window.
 - **P2+P11** (P2 first) toggles play/pause from any playmode. While P2 is held, P11's octave function is disabled.
 - Seq-triggered voices are param-locked in the voice pool (slot ids 16+i), so pitched-mode global knobs (live Basic Pitch params, drive, LPG) can't stomp drum sounds mid-decay.
@@ -102,7 +102,7 @@ All rec knobs use **true pickup**: each pot takes effect only when it reaches th
 | **S32** | Shuffle (0–50% swing) |
 | **S33** | Density (0–4) |
 | **S34** | Kick punch (timbre boost for kick slot) |
-| **S35** | — (disabled in seq mode) |
+| **S35** | Pattern select within the SW1 genre (pickup; range splits across the genre's pattern count) |
 | **S36** | Seq volume — drum group only; pitched-mode volume untouched |
 | **S37** | Tightness (scales morph of drum engine slots 21–23 globally; lower = shorter tail) |
 | **P3–P9** | Manual trigger on top of running seq |
@@ -289,8 +289,8 @@ Decay (S37) routes to `patch.decay` for 0–20, `patch.morph` for 21–23.
 | 16 | Swarm            | Spread        | N voices   | Density   | Env decay |
 | 17 | Noise            | Filter color  | Bandwidth  | Saturate  | Env decay |
 | 18 | Particle         | Density       | Size       | Backgnd   | Env decay |
-| 19 | String           | Brightness    | Damping    | Position  | Env decay |
-| 20 | Modal            | Brightness    | N modes    | Position  | Env decay |
+| 19 | String           | Inharmonicity | Brightness | **→ S31 (= morph: damping/decay)** | Env decay |
+| 20 | Modal            | Material      | Brightness | **→ S31 (= morph: damping/decay)** | Env decay |
 | 21 | Bass Drum        | Pitch drop    | FM punch   | **→ S37** | **= morph: tail** |
 | 22 | Snare Drum       | Noise freq    | Noise/body | **→ S37** | **= morph: char+tail** |
 | 23 | Hi-Hat           | Freq spread   | Metallic   | **→ S37** | **= morph: tail** |
@@ -322,7 +322,7 @@ GM ref: 36=Kick · 38=Snare · 42=CHH · 46=OHH · 39=Clap · 41=Low Tom
 
 ### Per-role engine pool + param ranges
 
-`slot.decay` = tail time. For engines 21–23 this routes to `patch.morph` at playback.
+`slot.decay` = tail time. For engines 19–23 this routes to `patch.morph` at playback (their morph is the model's damping/decay — verified in string_voice.cc/modal_voice.cc); S34 morph has no effect on them.
 
 **P3 — Kick**
 
@@ -343,14 +343,16 @@ GM ref: 36=Kick · 38=Snare · 42=CHH · 46=OHH · 39=Clap · 41=Low Tom
 
 | Engine | Morph→decay (slot.decay) | Timbre | Harmonics | Note |
 |--------|--------------------------|--------|-----------|------|
-| 23 HiHat | 0.00–0.15 | 0.30–0.80 | 0.30–0.80 | 60–84 |
-| 17 Noise | 0.00–0.12 | 0.65–0.95 | 0.25–0.65 | 60–84 |
+| 23 HiHat | 0.02–0.12 | 0.50–0.90 | 0.40–0.80 | 84–100 |
+| 17 Noise | 0.02–0.10 | 0.65–0.95 | 0.45–0.75 | 84–100 |
+
+Hats moved out of the melodic register (was 60–84): note is the pitch center (23) / filter center (17), and low centers read as tonal noise instead of metal. Timbre floor raised — engine 23's timbre is the metallic ratio.
 
 **P6 — Open Hi-Hat**
 
 | Engine | Morph→decay (slot.decay) | Timbre | Harmonics | Note |
 |--------|--------------------------|--------|-----------|------|
-| 23 HiHat | 0.40–0.85 | 0.30–0.70 | 0.30–0.80 | 60–84 |
+| 23 HiHat | 0.35–0.60 | 0.45–0.85 | 0.40–0.80 | 80–96 |
 
 **P7 — Clap**
 
@@ -371,12 +373,14 @@ GM ref: 36=Kick · 38=Snare · 42=CHH · 46=OHH · 39=Clap · 41=Low Tom
 
 | Engine | Morph→decay (slot.decay) | Timbre | Harmonics | Note |
 |--------|--------------------------|--------|-----------|------|
-| 19 String | 0.05–0.25 | 0.30–0.70 | 0.20–0.60 | 55–79 |
-| 20 Modal | 0.40–0.90 | 0.30–0.70 | 0.20–0.60 | 60–84 |
-| 23 HiHat | 0.15–0.40 | 0.50–0.90 | 0.50–1.00 | 72–96 |
-| 18 Particle | 0.20–0.50 | 0.30–0.70 | 0.30–0.70 | 60–80 |
+| 20 Modal | 0.10–0.30 | 0.20–0.55 | 0.30–0.60 | 60–84 |
+| 23 HiHat | 0.10–0.30 | 0.50–0.90 | 0.50–1.00 | 76–96 |
+| 18 Particle | 0.10–0.30 | 0.30–0.70 | 0.30–0.70 | 60–80 |
+| 22 SnareDrum | 0.05–0.20 | 0.05–0.35 | 0.30–0.60 | 66–80 |
 
-Default per-slot volumes at randomize time (tuning targets): Kick 0.9, Snare 0.8, CHH 0.55, OHH 0.65, Clap 0.75, Tom 0.7, Perc 0.6.
+String (19) removed from the Perc pool — Karplus-Strong reads as a loud melodic pluck, not percussion. Modal tail capped (was 0.40–0.90). Snare engine pitched high with body-heavy timbre = rim/wood tick.
+
+Default per-slot volumes at randomize time (tuning targets): Kick 0.9, Snare 0.8, CHH 0.55, OHH 0.65, Clap 0.75, Tom 0.7, Perc 0.5 (was 0.6 — perc sat too far forward).
 
 ---
 
@@ -503,21 +507,123 @@ MIDI itself is **CPU-negligible** (<1%): even a dense DAW stream is a few hundre
 
 ---
 
+## MIDI implementation (2026-07-07) — phase 1 + CC map, both transports
+
+`midi/midi_io.{h,cpp}` owns the transports; TouchPlaited.cpp owns the handlers. Needs hardware test.
+
+### Transports
+- **TRS/DIN (always built):** `MidiUartHandler` defaults = exactly the mod's wiring: USART1, **D13 TX / D14 RX**, 31250 baud. Initialized unconditionally — an idle UART is free, so unmodded boards lose nothing.
+- **USB device (default build):** `-DUSB_MIDI` in the Makefile. That same define suppresses `startLog` and the CPU print (the pre-existing guards) — one USB port, one owner. Comment the define out for a measurement build; TRS MIDI keeps working there.
+
+### Threading model (the part to remember)
+- **In:** transports parse in their own IRQs into per-handler FIFOs. `MidiIO::Service()` (main loop) pops events and runs the handlers inside a short `__disable_irq()` section — handlers write pool/pickup state the audio ISR owns. Never pop in the audio ISR: FIFO push (UART IRQ) vs pop (audio ISR) can tear.
+- **Out:** UART TX is blocking `PollTx` — ~1 ms per 3-byte message, a quarter of the block budget — so the ISR never sends. Pad/seq events push into a 64-deep single-producer ring; `Service()` drains ≤4 messages per call to both transports.
+- **Main-loop latency:** the LED helpers block for up to seconds (`blink_numbered`), which would starve MIDI both ways — all LED delays now go through `delay_serviced()`, which services MIDI every 1 ms. MIDI jitter is therefore ~1 ms plus at most one in-flight TX.
+
+### In mapping (as sketched, phase 1)
+- **ch1 notes:** note number = pitch (scale/octave/root bypassed). Voice slot id = 32+note (pads 0–6, drums 16–22 — no collisions), so NoteOff matches exactly and chords steal like pads. Velocity → `p.volume`, linear. Sound = current mode: BP live = eff params (globals keep refreshing held notes, knobs stay live); Random / BP-snapshots = `slots[note % 7]` — stable multi-timbral cycling per key. In Seq mode ch1 plays the last pitched mode's sound (synth over the drum machine).
+- **ch10 drums:** GM → slot with aliases (35/36 kick, 38/40 snare, 42/44 CHH, 46 OHH, 39 clap, 41/43/45/47/48/50 tom, 37/54/56/75/76 perc); unknown notes ignored. Phase 1: slot's stored pitch. Kit auto-generates if not ready. Velocity scales the slot volume via a new `trigger_drum(i, vel)` arg.
+- **CC20–31 (any channel):** 20 harmonics, 21 timbre, 22 morph, 23 decay, 24 drive, 25 LPG colour, 26 pitched volume, 27 tempo, 28 shuffle, 29 density, 30 punch, 31 tightness. Every CC write re-arms the corresponding pot pickup. CC24 drive sets **both** pitched drive and `seq_drive_lk` (one function, two stored values). CC25 is the only LPG writer (pot retired; was hardcoded 0.5). CC27–29 also push into the Sequencer directly so tempo/shuffle/density respond while it plays in the background of a pitched mode.
+
+### The eff_* layer (CC ↔ pot arbitration)
+The pitched timbral knobs were raw per-block reads, so a CC write would have been stomped one block later. New layer: `eff_h/t/m/d/drive` = what actually sounds. Pot feeds eff through `cc_pu_*` pickups (force-caught at boot = pots live); a CC write sets eff and re-arms, pot must cross to take over — same rule as every mode hand-off. `last_*` stay raw pot reads because the BP snapshot escape watches pot *movement* (a CC write must not fake a grab). All sound-generating sites (BP live setters, soft-random anchors, stage-3 restore, model-select regen) now read eff_*.
+
+### Out
+- Pads in pitched modes → ch1 NoteOn/Off vel 100; the sent note is remembered per pad (`midi_pad_note_out`) so the Off matches even if octave/root moved mid-hold, and it fires even if rec mode swallowed the release.
+- Seq steps + Seq-mode pad hits → ch10 GM one-shots (`kDrumSlotGm` = 36/38/42/46/39/45/37), NoteOn+NoteOff queued together.
+- No CC out; auditions not sent. Incoming notes/CCs are never echoed — only clock and transport pass through (below).
+
+### Clock + transport (2026-07-08) — hardware test pending
+- **External clock in (F8 on either port) = hard tick sync**: `Sequencer::SetExternalClock` switches `Tick()` to consuming received ticks (6 per 16th step, `OnMidiClock` from the handler with IRQs off, `ext_ticks_pending_` volatile). No BPM estimation, no drift; shuffle quantizes to whole ticks (0–3 at max swing). The tempo knob and CC27 go inert automatically — the block counter isn't consulted — and still hold the fallback tempo. Ticks only count while playing, so they can't pile up during Stop and burst on Resume.
+- **Clock detection**: first F8 flips `midi_ext_clock`; 500 ms without one (checked per block in the ISR) reverts to internal clock at the knob tempo.
+- **Transport in**: FA = `seq.Start()` (step 0 fires on the next tick, per spec; kit auto-generates), FB = `seq.Resume()`, FC = `seq.Stop()`. Works with both DAW styles: clock-always (FA arrives inside a running tick stream) and clock-while-playing (FA may precede the first F8 — seq starts internal, first tick re-phases).
+- **Clock out**: when external clock is present, incoming F8/FA/FB/FC pass through to the output. Otherwise TouchPlaited is master: `Sequencer::MidiClockTick()` emits 24 ppqn on the step clock's own timebase (`step_blocks_/6`, fractional accumulator — average rate exactly matches the drums, so synced gear can't drift), continuously from boot, phase-reset on Start/Resume so tick 1 lands with step 0. Local start/pause sends FA (SW2 first entry, kit regen) / FB (P2+P11 resume) / FC (P2+P11 pause) — suppressed while following an external clock.
+- Realtime bytes are 1-byte queue entries now (`OutMsg{len, b[3]}`); ~48 msgs/s at 120 BPM ≈ 1.5% UART duty, nothing.
+- libDaisy parser caveat: a realtime byte interleaved *mid-message* aborts that message (parser limitation). USB MIDI can't interleave (4-byte packets); TRS from typical interfaces inserts between messages — watch for dropped notes under heavy TRS clock+notes if it ever comes up.
+
+---
+
+## Reverb / delay FX send — resource analysis (2026-07-08)
+
+Question: is there room for a reverb and/or delay, ideally as a per-slot FX
+send (drums dry-ish while the seq runs, Basic Pitch with a long tail)?
+Answer: **memory is a non-issue, CPU fits on average but eats into peak
+headroom** — pair it with the ITCM move. Implement on a branch when picked up.
+
+### Memory budget (measured from build/TouchPlaited.map, current build)
+
+| Resource | Total | Used | Free |
+|---|---|---|---|
+| QSPI flash (code, BOOT_QSPI) | 7.75 MB | ~318 KB | ~7.4 MB |
+| AXI SRAM D1 (voices live here) | 512 KB | ~260 KB | ~250 KB |
+| SDRAM (external) | 64 MB | **0 bytes** | 64 MB |
+| ITCM RAM | 64 KB | 0 | 64 KB |
+
+SDRAM has been completely empty since voice memory moved to internal SRAM.
+Reverb/delay buffers are the textbook use for it: unlike the physical-model
+engines that thrashed SDRAM per-sample from multiple voices, a delay line is
+one sequential read + write per sample — cache-friendly. DaisySP `ReverbSc`
+(~390 KB buffer) is normally placed in SDRAM on Daisy anyway; seconds of
+stereo delay are a rounding error there. A hand-rolled Dattorro / small FDN
+would even fit in the free internal SRAM if SDRAM latency ever shows up.
+
+### CPU budget
+
+Baseline at 6 voices (2026-07-03 measurements): idle ~3%, heavy 50–70% avg,
+windowed max 96–98%, shed guard at 90%, rare 111–115% single-block spikes
+absorbed by DMA double-buffering.
+
+- Stereo delay: ~1–2% per block.
+- ReverbSc-class reverb: ~6–10% per block (SDRAM-resident).
+
+FX render **every block** regardless of voice activity — a fixed +8–12% on
+top of every block, including the worst-case ones already touching 100%. So:
+works today, but expect `shed N` to climb during dense seq + busy Random
+moments (earlier tail fades — the guard already keeps that inaudible).
+Levers to buy the headroom back:
+
+1. **ITCM placement** (already on the optimization list, 64 KB at 0% used) —
+   moving the hottest Plaits render paths out of QSPI likely recovers more
+   than the reverb costs. Do this alongside or before the FX.
+2. **FX sleep**, same trick as voice sleep: skip the reverb render when the
+   send bus has been silent and the tail has decayed below threshold — keeps
+   idle at ~3% instead of ~13%.
+
+### Per-slot send — design sketch (fits the existing architecture)
+
+`VoicePool::Render` already applies per-voice `volume`/`blend`/`width` with
+per-group (seq vs. pitched) multipliers — an FX send is the same pattern:
+
+- Add `send` to `PadSlot` / `VoiceParams` (+ `voice_send[i]` in the pool);
+  accumulate `l * send` into a second stereo bus inside the same render loop.
+- Multiply by per-group send levels (`send_seq`, `send_pitched`) mirroring
+  `vol_seq`/`vol_pitched`. That gives the target behavior directly: drums at
+  zero-to-slight send in Seq, pitched group cranked with a long tail in Basic
+  Pitch — independent state that survives mode flicks, like the volume/width
+  pairs.
+- In `AudioCallback` after `pool.Render`: run the reverb on the send bus, sum
+  into `left`/`right` **before** the soft-clip.
+- Per-slot send edits in recording mode (like drive/volume now); randomize it
+  in the kit/slot generators.
+
+Open design decision: one shared reverb with per-group send levels (cheap —
+**recommended**, the usual hardware-box answer) vs. different reverb
+*character* per mode (short room for drums, long hall for pitched). The
+latter means either morphing time/damping on mode switch (retimes the old
+mode's tails) or two instances (~double CPU). Delay can be a second, much
+cheaper send alongside.
+
+---
+
 ## Feature Ideas / Parking Lot
 
-- **Sequencer on any playmode (melodic seq)** — seq fires against active Random/Basic Pitch mode, following scale. Makes drum weight tables apply to scale degrees. Big change, design first.
-- **Density + chance axis** — S32 split: 0–0.45 = less density, 0.5 = normal, 0.55–1 = more mutation/chance per step.
-- **Rhythm mutation** — P0+P2 second gesture mutates weight tables (changes rhythm, not just sounds). No current gesture available; needs hardware button combo or context-dependent.
-- **Live record into pattern** — two routes: audio buffer loop (complex controls) or live trigger capture (simpler; can't layer on top). Not designed yet.
-- **4-bar fill** — P1 held in seq mode triggers max-density bar then returns to normal.
-- **OLED screen** — I2C 128×32/64 add-on; shows engine name, params, mode, root note. V2 hardware.
-- **Persistent state** — libDaisy `PersistentStorage` for last model + pad slots across power cycles.
-- **USB MIDI** — NoteOn/NoteOff from DAW via `MidiUsbHandler`.
-- **Chord mode** — single pad triggers multiple Plaits voices at scale intervals.
-- **Expand voice pool to 7** — after CPU headroom confirmed on in-use engines.
-- **Phase 8F retry** — controls out of ISR; needs `__disable_irq()` / `__enable_irq()` wrapping all `generate_*()` calls. Only if crackle returns at kBlockSize=192.
-- **TRS MIDI** — for hardware-modded Simple Touch boards.
-- **Per-track pattern variants — S35 in Seq mode** (feasibility decided 2026-07-03, see ROADMAP Priority 2): S35 is free in Seq mode (model select is disabled there). Hold a pad + turn S35 → pick that track's pattern **variant** from a small hand-authored bank. Variant bank beats a generative method on feasibility: the sequencer is already a `[genre][track][64]` weight-table lookup, so variants are just extra rows (4 variants × 7 tracks × 3 genres × 64 bytes ≈ 5 KB flash — nothing); hand-authored rows keep the genre feel that made the templates work; and an S35 position is repeatable — you can get back to a pattern you liked, which a continuous generative morph can't do without seed quantization anyway. A generative option (e.g. Euclidean E(k,16) with rotation) can slot in later as the *last* variant per track, giving both worlds. Main work is authoring (63 new rows for a full bank — phase it: 2 variants per track first) plus one UI guard: an S35 move past its deadzone while a pad is held must reset the rec-entry hold counter, or picking patterns turns into accidental Recording at 1.2 s.
+**Moved to `ROADMAP.md` (2026-07-08).** The roadmap is the single owner of
+future work — every idea that used to live in this list (melodic seq, density
++ chance axis, rhythm mutation, live record, 4-bar fill, OLED, persistent
+state, chord mode, voice pool 7, ITCM placement, Phase 8F retry, MIDI phase-2
+ideas, per-track pattern variants, FX send) was carried over there with its
+details. This file keeps the design record and analyses; a roadmap item links
+back here when an analysis exists.
 
 
 
@@ -525,14 +631,16 @@ MIDI itself is **CPU-negligible** (<1%): even a dense DAW stream is a few hundre
 
 ## Drum pattern system (2026-07-04)
 
-Patterns live in **`synth/patterns/NN_name.h`** — one file per pattern, defining
-`static constexpr uint8_t kPat_NN_name[7][64]`. `tools/gen_patterns.py` (run by
-`make` on every build, rewrites only on change) registers them sorted by the
-numeric prefix into the generated `synth/patterns_gen.h` (gitignored):
-`kNumPatterns`, `kSeqPatterns[]`, `kSeqPatternNames[]`. Drop a new file in the
-folder → next `make` embeds it. `Sequencer::kGenres` now comes from
-`kNumPatterns`; SW1 (3 positions) reaches only patterns 0–2 — more patterns
-need the planned S35 picker.
+Patterns live in **`synth/patterns/<genre>/NN_name.h`** — one file per pattern
+in a genre subfolder (`techno/`, `electro/`, `idm/`), defining
+`static constexpr uint8_t kPat_<genre>_NN_name[7][64]`. `tools/gen_patterns.py`
+(run by `make` on every build, rewrites only on change; genre order hardcoded
+to match SW1) registers them sorted by filename within each genre into the
+generated `synth/patterns_gen.h` (gitignored): `kNumGenres`, `kNumPatterns`,
+`kSeqPatterns[]`, `kGenrePatternCount[]`, `kGenrePatternIdx[][]`. Drop a new
+file in a genre folder → next `make` embeds it. SW1 picks the genre
+(`SetGenre`), S35 picks the pattern within it (`SetVariant`, pickup-protected,
+knob range split evenly across the genre's pattern count) — added 2026-07-06.
 
 **Step byte encoding 0xCW:** low nibble W = weight 0–4 (unchanged semantics);
 high nibble C = chance rolled after the density threshold passes — 0 = always,

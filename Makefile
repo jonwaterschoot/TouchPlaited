@@ -8,9 +8,15 @@ APP_TYPE = BOOT_QSPI
 # prebuilt and unaffected). Flash is abundant (QSPI 7.9 MB); CPU is not.
 OPT = -O3
 
-# Sources: main entry + touch hardware layer + Plaits voice wrapper
+# USB port owner: defined = USB device MIDI; commented out = measurement
+# build (USB serial logging + CPU meter prints return, USB MIDI disabled).
+# TRS MIDI (USART1, D13/D14) is always built either way.
+C_DEFS += -DUSB_MIDI
+
+# Sources: main entry + touch hardware layer + MIDI I/O + Plaits voice wrapper
 CPP_SOURCES = TouchPlaited.cpp \
               $(wildcard touch/*.cpp) \
+              midi/midi_io.cpp \
               synth/plaits_voice.cpp
 
 # Plaits DSP sources (.cc extension — compiled as C++)

@@ -4,6 +4,21 @@
 
 namespace synthux {
 
+// Full per-voice patch snapshot for NoteOnWithParams / AuditionWithParams.
+// Passed as a struct — the positional-parameter version grew past ten args
+// and call sites were becoming error-prone.
+struct VoiceParams {
+    int   engine    = 0;
+    float harmonics = 0.5f;
+    float timbre    = 0.5f;
+    float morph     = 0.5f;
+    float decay     = 0.5f;
+    float volume    = 1.0f;
+    float drive     = 0.0f;
+    float blend     = 0.5f;   // OUT↔AUX mono mix: 0 = OUT only, 1 = AUX only
+    float width     = 1.0f;   // this voice's share of the group stereo width
+};
+
 class VoicePool {
 public:
     // Must match kMaxVoices in plaits_voice.cpp. 6 voices ≈ 180 KB SRAM.
@@ -17,6 +32,8 @@ public:
             pad_slot[i]    = -1;
             timestamp[i]   = 0;
             voice_volume[i] = 1.0f;
+            voice_blend[i]  = 0.5f;
+            voice_width[i]  = 1.0f;
             locked[i]       = false;
             awake[i]        = false;
             gate_held[i]    = false;
@@ -35,6 +52,7 @@ public:
     void SetTimbre(float v)    { g_timbre = v; for (int i = 0; i < kVoices; i++) if (!locked[i]) voices[i].SetTimbre(v); }
     void SetMorph(float v)     { g_morph = v;  for (int i = 0; i < kVoices; i++) if (!locked[i]) voices[i].SetMorph(v); }
     void SetDecay(float v)     { g_decay = v;  for (int i = 0; i < kVoices; i++) if (!locked[i]) voices[i].SetDecay(v); }
+    void SetBlend(float v)     { g_blend = v;  for (int i = 0; i < kVoices; i++) if (!locked[i]) voice_blend[i] = v; }
 
     void SetLPGColour(float v) { g_lpg = v;    for (int i = 0; i < kVoices; i++) if (!locked[i]) voices[i].SetLPGColour(v); }
     void SetDrive(float v)     { g_drive = v;  for (int i = 0; i < kVoices; i++) if (!locked[i]) voices[i].SetDrive(v); }
@@ -44,6 +62,10 @@ public:
     // without touching the pitched level, and vice versa.
     void SetSeqVolume(float v)     { vol_seq = v; }
     void SetPitchedVolume(float v) { vol_pitched = v; }
+
+    // Group stereo width (see Render): 1 = natural OUT/AUX split, 0 = mono.
+    void SetSeqWidth(float v)     { width_seq = v; }
+    void SetPitchedWidth(float v) { width_pitched = v; }
 
     // Skip the audition voice — its FM stays at 0 for the full note duration.
     void SetFMAmount(float v) {
@@ -70,6 +92,8 @@ public:
         pad_slot[idx]    = slot;
         timestamp[idx]   = ++tick;
         voice_volume[idx] = 1.0f;
+        voice_blend[idx]  = g_blend;
+        voice_width[idx]  = 1.0f;
         locked[idx]       = false;
         wake(idx, true);
     }
@@ -77,18 +101,15 @@ public:
     // Modes 2/3: note + full patch snapshot; params persist until stolen.
     // lock_params=true isolates the voice from all global setters (drum-seq
     // triggers playing behind a pitched mode) and pins LPG/FM to drum defaults.
-    void NoteOnWithParams(int slot, float note,
-                          int engine, float harmonics, float timbre,
-                          float morph, float decay,
-                          float volume = 1.0f, float drive = 0.0f,
+    void NoteOnWithParams(int slot, float note, const VoiceParams& p,
                           bool lock_params = false) {
         int idx = find_free_or_steal();
-        voices[idx].SetEngine(engine);
-        voices[idx].SetHarmonics(harmonics);
-        voices[idx].SetTimbre(timbre);
-        voices[idx].SetMorph(morph);
-        voices[idx].SetDecay(decay);
-        voices[idx].SetDrive(drive);
+        voices[idx].SetEngine(p.engine);
+        voices[idx].SetHarmonics(p.harmonics);
+        voices[idx].SetTimbre(p.timbre);
+        voices[idx].SetMorph(p.morph);
+        voices[idx].SetDecay(p.decay);
+        voices[idx].SetDrive(p.drive);
         if (lock_params) {
             voices[idx].SetLPGColour(0.5f);
             voices[idx].SetFMAmount(0.0f);
@@ -97,7 +118,9 @@ public:
         voices[idx].Trigger(true);
         pad_slot[idx]    = slot;
         timestamp[idx]   = ++tick;
-        voice_volume[idx] = volume;
+        voice_volume[idx] = p.volume;
+        voice_blend[idx]  = p.blend;
+        voice_width[idx]  = p.width;
         locked[idx]       = lock_params;
         // Locked (drum-seq) voices are one-shots: no gate hold, free to sleep
         // as soon as their tail decays.
@@ -145,23 +168,23 @@ public:
         pad_slot[idx]    = -1;
         timestamp[idx]   = ++tick;
         voice_volume[idx] = 1.0f;
+        voice_blend[idx]  = g_blend;
+        voice_width[idx]  = 1.0f;
         wake(idx, false);   // auditions are one-shots — sleep after decay
     }
 
     // Preview using a specific slot's patch — P0+P2 hold feedback and rec-mode
     // auditions. volume defaults to full; rec passes the slot's stored volume
     // so S36 edits are audible while recording, not only after confirm.
-    void AuditionWithParams(float note, int engine,
-                            float harmonics, float timbre, float morph, float decay,
-                            float volume = 1.0f) {
+    void AuditionWithParams(float note, const VoiceParams& p) {
         int idx = find_free_or_steal();
         audition_idx = idx;
         locked[idx]  = false;
-        voices[idx].SetEngine(engine);
-        voices[idx].SetHarmonics(harmonics);
-        voices[idx].SetTimbre(timbre);
-        voices[idx].SetMorph(morph);
-        voices[idx].SetDecay(decay);
+        voices[idx].SetEngine(p.engine);
+        voices[idx].SetHarmonics(p.harmonics);
+        voices[idx].SetTimbre(p.timbre);
+        voices[idx].SetMorph(p.morph);
+        voices[idx].SetDecay(p.decay);
         voices[idx].SetLPGColour(g_lpg);
         voices[idx].SetDrive(g_drive);
         voices[idx].SetFMAmount(0.0f);
@@ -169,7 +192,9 @@ public:
         voices[idx].Trigger(true);
         pad_slot[idx]    = -1;
         timestamp[idx]   = ++tick;
-        voice_volume[idx] = volume;
+        voice_volume[idx] = p.volume;
+        voice_blend[idx]  = p.blend;
+        voice_width[idx]  = p.width;
         wake(idx, false);   // auditions are one-shots — sleep after decay
     }
 
@@ -186,9 +211,18 @@ public:
             __builtin_memset(tmp_r, 0, size * sizeof(float));
             voices[i].Render(tmp_l, tmp_r, size);
             float vol  = voice_volume[i] * (locked[i] ? vol_seq : vol_pitched);
+            // Plaits renders two different signals per engine (OUT and AUX).
+            // Blend picks the mono mix between them; width crossfades from
+            // that mono mix (0) toward the raw OUT-left/AUX-right split (1).
+            // Per-voice and group widths multiply, so a slot set to mono
+            // stays dead center whatever the group width does.
+            float b    = voice_blend[i];
+            float w    = voice_width[i] * (locked[i] ? width_seq : width_pitched);
             float peak = 0.f;
             for (size_t s = 0; s < size; s++) {
-                float l = tmp_l[s], r = tmp_r[s];
+                float m = tmp_l[s] + b * (tmp_r[s] - tmp_l[s]);
+                float l = m + w * (tmp_l[s] - m);
+                float r = m + w * (tmp_r[s] - m);
                 out_left[s]  += l * vol;
                 out_right[s] += r * vol;
                 float a = l < 0.f ? -l : l;
@@ -237,6 +271,14 @@ public:
         if (audition_idx >= 0) voices[audition_idx].SetEngine(engine);
     }
 
+    // Live blend/width edits on the current audition voice (rec mode S37 / P0+S37).
+    void UpdateAuditionBlend(float b) {
+        if (audition_idx >= 0) voice_blend[audition_idx] = b;
+    }
+    void UpdateAuditionWidth(float w) {
+        if (audition_idx >= 0) voice_width[audition_idx] = w;
+    }
+
     PlaitsVoice voices[kVoices];
 
 private:
@@ -248,6 +290,8 @@ private:
     int      pad_slot[kVoices];
     uint32_t timestamp[kVoices];
     float    voice_volume[kVoices];
+    float    voice_blend[kVoices];
+    float    voice_width[kVoices];
     bool     locked[kVoices];
     bool     awake[kVoices];
     bool     gate_held[kVoices];
@@ -264,10 +308,12 @@ private:
     // Cached global params — last value passed to each global setter.
     int   g_engine = 0;
     float g_harm  = 0.5f, g_timbre = 0.5f, g_morph = 0.5f, g_decay = 0.5f;
-    float g_lpg   = 0.5f, g_drive  = 0.0f;
+    float g_lpg   = 0.5f, g_drive  = 0.0f, g_blend = 0.5f;
 
     // Per-group output levels (see SetSeqVolume/SetPitchedVolume).
     float vol_seq = 1.0f, vol_pitched = 1.0f;
+    // Per-group stereo width (see SetSeqWidth/SetPitchedWidth).
+    float width_seq = 1.0f, width_pitched = 1.0f;
 
     int find_free_or_steal() {
         // Prefer a genuinely free voice (not the active audition slot).

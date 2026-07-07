@@ -10,6 +10,7 @@
     --c2: #dd7f2f;           /* chance 2 — 50%      */
     --c3: #d5503a;           /* chance 3 — 25%      */
     --cell: 22px;
+    --beatgap: 4px; --bargap: 12px; --side: 138px;
   }
   * { box-sizing: border-box; border-radius: 0 !important; }
   html, body { margin: 0; background: var(--bg); color: var(--txt);
@@ -22,6 +23,7 @@
   .top { display: flex; flex-wrap: wrap; gap: 10px 24px; align-items: flex-end;
          border: 1px solid var(--line); background: var(--panel);
          padding: 12px 14px; margin: 14px 0; }
+  .top.slim { gap: 8px; margin: 0 0 14px; padding: 8px 14px; align-items: center; }
   label.fld { display: flex; flex-direction: column; gap: 4px; color: var(--dim);
               text-transform: uppercase; letter-spacing: .12em; font-size: 10px; }
   input[type=text], input[type=number], select, textarea, button {
@@ -35,6 +37,7 @@
   textarea:focus-visible, .cell:focus-visible { outline: 2px solid var(--w); outline-offset: -1px; }
   button.primary { border-color: var(--w); color: var(--bg); background: var(--w); font-weight: 700; }
   button.primary:hover { filter: brightness(1.1); color: var(--bg); }
+  button.on { border-color: var(--w); color: var(--bg); background: var(--w); }
 
   .legend { display: flex; gap: 14px; align-items: center; flex-wrap: wrap;
             color: var(--dim); font-size: 10px; letter-spacing: .08em;
@@ -42,31 +45,54 @@
   .sw { display: inline-block; width: 10px; height: 10px; margin-right: 4px;
         vertical-align: -1px; }
 
-  #bars { display: grid; grid-template-columns: 1fr; gap: 10px; margin-bottom: 14px; }
-  /* 4 bars side by side on wide screens; cells shrink to fit.
-     566px = body padding + bar gaps + 4 × (block chrome + label col + grid gaps). */
-  @media (min-width: 1500px) {
-    #bars { grid-template-columns: repeat(4, max-content); }
-    :root { --cell: clamp(12px, calc((100vw - 566px) / 64), 22px); }
-  }
-  .bar-block { border: 1px solid var(--line); background: var(--panel);
-               padding: 10px 12px 12px; }
-  .bar-head { display: flex; gap: 10px; align-items: baseline; margin-bottom: 8px; }
-  .bar-title { letter-spacing: .2em; text-transform: uppercase; font-size: 11px; }
-  .bar-title b { color: var(--w); }
-  .bar-copy { color: var(--dim); font-size: 10px; letter-spacing: .08em; }
-  .bar-copy button { padding: 1px 6px; font-size: 10px; }
+  .status { border: 1px solid var(--line); background: var(--panel);
+            padding: 6px 14px; color: var(--dim); letter-spacing: .06em;
+            min-height: 30px; margin-bottom: 14px; }
+  .status b { color: var(--txt); }
 
-  .grid { display: grid; grid-template-columns: 52px repeat(16, var(--cell));
-          gap: 2px; width: max-content; }
-  .grid .gp { margin-left: 6px; }             /* beat group spacing */
-  .tl { color: var(--dim); font-size: 10px; letter-spacing: .1em;
-        text-transform: uppercase; align-self: center; }
-  .sn { color: var(--dim); font-size: 9px; text-align: center;
-        font-variant-numeric: tabular-nums; }
+  /* ── timeline ────────────────────────────────────────────────────────── */
+  #wrap { max-width: 100%; overflow-x: auto; border: 1px solid var(--line);
+          background: var(--panel); padding: 10px 10px 12px 0; margin-bottom: 14px; }
+  #tgrid { display: grid; gap: 2px; width: max-content; }
+  .corner, .side { position: sticky; left: 0; z-index: 3; background: var(--panel);
+                   padding-left: 10px; }
+  .corner { grid-column: 1; grid-row: 1 / 3; display: flex; align-items: flex-end; }
+  .corner .mini { display: flex; gap: 4px; align-items: center; color: var(--dim);
+                  font-size: 8px; letter-spacing: .05em; text-transform: uppercase; }
+  .corner .mini .lb { width: 34px; }
+  .corner .mini .cc { width: 16px; text-align: center; }
+  .corner .mini .vv { width: 12px; text-align: center; }
+
+  .barseg { display: flex; gap: 6px; align-items: center; flex-wrap: wrap;
+            grid-row: 1; border: 1px solid var(--line); background: var(--bg);
+            padding: 2px 6px; margin-bottom: 2px; }
+  .barseg .handle { cursor: grab; color: var(--dim); user-select: none; }
+  .barseg .handle:active { cursor: grabbing; }
+  .barseg .bar-title { letter-spacing: .15em; text-transform: uppercase; font-size: 10px;
+                       white-space: nowrap; }
+  .barseg .bar-title b { color: var(--w); }
+  .barseg button { padding: 0 5px; font-size: 9px; }
+  .barseg .cpy { color: var(--dim); font-size: 9px; letter-spacing: .05em;
+                 display: flex; gap: 3px; align-items: center; white-space: nowrap; }
+
+  .sn { grid-row: 2; color: var(--dim); font-size: 9px; text-align: center;
+        font-variant-numeric: tabular-nums; align-self: end; }
   .sn.beat { color: var(--txt); }
 
-  .cell { position: relative; width: var(--cell); height: var(--cell);
+  .side { display: flex; gap: 4px; align-items: center; height: 20px; align-self: center;
+          font-size: 9px; letter-spacing: .05em; text-transform: uppercase;
+          color: var(--dim); }
+  .side .lb { width: 34px; overflow: hidden; white-space: nowrap; color: var(--txt); }
+  .side .lockb { width: 16px; height: 16px; padding: 0; font-size: 9px; line-height: 1;
+                 flex: none; color: var(--dim); }
+  .side .lockb.l1 { color: var(--bg); background: var(--c2); border-color: var(--c2); }
+  .side .lockb.l2 { color: var(--bg); background: var(--c3); border-color: var(--c3); }
+  .vf { position: relative; width: 12px; height: 16px; flex: none; overflow: hidden;
+        border: 1px solid var(--line2); background: var(--bg); cursor: ns-resize; }
+  .vf .fill { position: absolute; left: 0; right: 0; bottom: 0; background: var(--w); }
+  .vf.dice .fill { opacity: .35; border-top: 2px solid var(--w); }
+
+  .cell { position: relative; width: var(--cell); height: var(--cell); align-self: center;
           border: 1px solid var(--line); background: var(--bg); padding: 0; }
   .cell:hover { border-color: var(--line2); }
   .cell .q { position: absolute; width: calc(var(--cell)/2 - 3px);
@@ -78,13 +104,11 @@
   .cell.muted { opacity: .22; }
   .cell.playing { border-color: var(--dim); }
   .cell.hit { border-color: var(--w); box-shadow: inset 0 0 0 1px var(--w); }
+  .cell.sel { border-color: var(--txt); box-shadow: inset 0 0 0 1px var(--txt); }
+  .cell.ghost { outline: 1px dashed var(--w); outline-offset: -2px; }
   .cell.chance::after { content: ""; position: absolute; inset: 0;
     background: repeating-linear-gradient(45deg, transparent 0 3px, rgba(11,12,9,.55) 3px 5px); }
-
-  .status { border: 1px solid var(--line); background: var(--panel);
-            padding: 6px 14px; color: var(--dim); letter-spacing: .06em;
-            min-height: 30px; margin-bottom: 14px; }
-  .status b { color: var(--txt); }
+  #tgrid.stamping .cell { cursor: copy; }
 
   .panel { border: 1px solid var(--line); background: var(--panel);
            padding: 12px 14px; margin-bottom: 12px; }
@@ -97,20 +121,49 @@
             overflow-x: auto; font-size: 11px; margin: 8px 0 0; user-select: all; }
   .hint { color: var(--dim); font-size: 11px; margin: 6px 0 0; }
   .hint code { color: var(--w); }
-  .wrap { max-width: 100%; overflow-x: auto; }
   input[type=range] { accent-color: var(--w); width: 140px; }
+
+  #pool { min-height: 44px; }
+  .pool-tile { position: relative; border: 1px solid var(--line2); background: var(--bg);
+               padding: 4px; cursor: pointer; min-width: 34px; min-height: 30px;
+               display: flex; align-items: center; justify-content: center; }
+  .pool-tile.bar { cursor: grab; }
+  .pool-tile.bar:active { cursor: grabbing; }
+  .pool-tile .del { position: absolute; top: -7px; right: -7px; width: 14px; height: 14px;
+                     padding: 0; font-size: 9px; line-height: 1; }
+  .pool-tile .kind { position: absolute; bottom: -1px; right: 2px; font-size: 7px;
+                     color: var(--dim); letter-spacing: .1em; }
+  .poolgrid { display: grid; grid-auto-rows: 4px; gap: 1px; }
+  .poolgrid .pc { width: 4px; height: 4px; background: var(--line); }
 </style>
 
 <h1>TOUCH<span class="px">PLAITED</span> PATTERN EDITOR</h1>
 <p class="sub">7 tracks × 4 bars × 16 steps · step byte 0xCW · W weight 0–4 · C chance 0=always 1=75% 2=50% 3=25%</p>
 
 <div class="top">
+  <label class="fld">genre
+    <select id="genre">
+      <option value="techno">techno</option>
+      <option value="electro" selected>electro</option>
+      <option value="idm">idm</option>
+    </select></label>
   <label class="fld">index
     <input id="idx" type="number" min="0" max="99" value="3"></label>
   <label class="fld">name
     <input id="name" type="text" value="mypattern" spellcheck="false"></label>
-  <label class="fld">density preview <span id="dval"></span>
+  <label class="fld">preview density <span id="dval"></span>
     <input id="density" type="range" min="0" max="4" value="4"></label>
+  <label class="fld">zoom <span id="zval"></span>
+    <span class="row" style="gap:4px">
+      <input id="zoom" type="range" min="8" max="34" value="22">
+      <button id="fit" title="fit all 64 steps in view">FIT</button>
+    </span></label>
+  <label class="fld">kit
+    <select id="kit">
+      <option value="synth">Synth</option>
+      <option value="808">808</option>
+      <option value="acoustic">Acoustic</option>
+    </select></label>
   <label class="fld">tempo <span id="tval">(120)</span>
     <input id="tempo" type="range" min="60" max="180" value="120"></label>
   <label class="fld">shuffle <span id="shval">(0%)</span>
@@ -125,11 +178,29 @@
   </div>
 </div>
 
-<div class="status" id="status">
-  click = set / clear · drag ↑↓ = weight · drag ←→ = chance · right-click = clear · space = play/stop
+<div class="top slim">
+  <button id="copysel" title="Ctrl+C">Copy selected</button>
+  <button id="paste" title="Ctrl+V pastes at hovered cell; this button stamps with the mouse">Paste (stamp)</button>
+  <button id="park" title="park the copied clip in the pool">Park selection</button>
+  <button id="delsel" title="Delete key">Delete</button>
+  <button id="desel" title="Esc">Deselect</button>
+  <span class="legend">
+    <span>right-click / drag = select · shift = range · ctrl = add</span>
+    <span>left-drag a selection = move · alt = duplicate · arrows nudge</span>
+  </span>
 </div>
 
-<div class="wrap" id="bars"></div>
+<div class="status" id="status">
+  left click = set / clear · left drag ↑↓ weight ←→ chance · right click / drag = select ·
+  sidebar: lock · W weight · C chance · R random · space = play/stop
+</div>
+
+<div id="wrap"><div id="tgrid"></div></div>
+
+<div class="panel">
+  <h2>Pool — park ideas (drag a bar's ✥ handle here, or Park selection · click a tile to stamp it · drag a bar tile onto a bar header)</h2>
+  <div id="pool" class="row"></div>
+</div>
 
 <div class="panel">
   <h2>Library — copy previous patterns</h2>
@@ -143,20 +214,41 @@
 </div>
 
 <div class="panel">
-  <h2>Import — paste a kPat_ table (decimal or 0x values)</h2>
-  <div class="row"><textarea id="imp" spellcheck="false"
-    placeholder="paste the 7×64 initializer here…"></textarea></div>
-  <div class="row" style="margin-top:8px"><button id="doimp">Parse &amp; load</button></div>
+  <h2>Pattern folder — load/save .h files directly in synth/patterns/&lt;genre&gt;/</h2>
+  <div class="row">
+    <button id="fconnect">Connect folder…</button>
+    <select id="fsel"></select>
+    <button id="fload">Load</button>
+    <button id="fsaveh" class="primary">Save .h</button>
+    <button id="frefresh">Refresh</button>
+  </div>
+  <p class="hint" id="fstat">not connected — pick your <code>synth/patterns</code> folder
+    (Chrome/Edge; picking the repo root also works). Saves as
+    <code>&lt;genre&gt;/NN_name.h</code> from the fields above; run <code>make</code> to embed.</p>
 </div>
 
 <div class="panel">
-  <h2>Export — pattern file for synth/patterns/</h2>
+  <h2>Import — paste a kPat_ table (decimal or 0x values), or load a MIDI file</h2>
+  <div class="row"><textarea id="imp" spellcheck="false"
+    placeholder="paste the 7×64 initializer here…"></textarea></div>
+  <div class="row" style="margin-top:8px">
+    <button id="doimp">Parse &amp; load</button>
+    <button id="midiimpbtn">Import MIDI…</button>
+    <input id="midifile" type="file" accept=".mid,audio/midi" style="display:none">
+  </div>
+</div>
+
+<div class="panel">
+  <h2>Export — pattern file for synth/patterns/&lt;genre&gt;/</h2>
   <div class="row">
     <button id="gen" class="primary">Generate code</button>
     <button id="copy">Copy to clipboard</button>
+    <button id="midiexp">Export MIDI</button>
   </div>
-  <p class="hint">Save as <code id="fname">synth/patterns/03_mypattern.h</code> —
-    the next <code>make</code> registers it automatically.</p>
+  <p class="hint">Save as <code id="fname">synth/patterns/electro/03_mypattern.h</code> —
+    the next <code>make</code> registers it into that genre (SW1 picks the genre,
+    S35 picks the pattern within it; index sets the S35 order). MIDI export/import maps
+    step weight to note velocity (chance is not preserved).</p>
   <pre class="out" id="out">…</pre>
 </div>
 
@@ -209,39 +301,146 @@ let grid = new Uint8Array(NT * NS);
 let brush = 4;
 const cells = [];   // [t*64+s] -> button element
 const $ = id => document.getElementById(id);
+function status(html){ $("status").innerHTML = html; }
 
-// ── build the four bar blocks ────────────────────────────────────────────────
-const barsEl = $("bars");
-for (let b = 0; b < 4; b++) {
-  const blk = document.createElement("div"); blk.className = "bar-block";
-  const head = document.createElement("div"); head.className = "bar-head";
-  head.innerHTML = `<span class="bar-title">BAR <b>${b+1}</b>${b===3?" · FILL":""}</span>
-    <span class="bar-copy">copy to
-      ${[0,1,2,3].filter(x=>x!==b).map(x=>`<button data-from="${b}" data-to="${x}">${x+1}</button>`).join(" ")}
-    </span>`;
-  blk.appendChild(head);
-  const g = document.createElement("div"); g.className = "grid";
-  g.appendChild(el("span",""));                       // corner
-  for (let s = 0; s < 16; s++) {
-    const n = el("span", String(s+1)); n.className = "sn" + (s%4===0 ? " beat":"");
-    if (s%4===0 && s) n.classList.add("gp");
-    g.appendChild(n);
+// display order: Kick at the bottom (DAW pianoroll convention). Data order unchanged.
+const dispRow = t => NT - 1 - t;
+const trackOfRow = r => NT - 1 - r;
+
+// selection / clipboard / stamp state
+let sel = new Set();          // data indices
+let lastAnchor = null;        // data index of last selection anchor
+let clip = null;              // { w, h, cells: [{dP, dR, v}] } — dR in display rows
+let stamp = false;
+let hoverIdx = null;
+let ghostSet = [];
+
+// per-track tool state: lock 0=free 1=positions locked 2=fully locked
+const LOCK_GLYPH = ["○","◑","●"];
+const LOCK_TITLE = [
+  "free — tools may add/remove/edit steps",
+  "position lock — hit pattern frozen; weight/chance still adjustable",
+  "full lock — row immune to all bulk tools (manual clicks still work)"];
+let trackLock = new Array(NT).fill(0);
+let trackW = new Array(NT).fill(1);      // last weight-fader fraction (display only)
+let trackC = new Array(NT).fill(0);      // last chance-fader fraction
+let trackD = new Array(NT).fill(0.5);    // last dice fraction
+let loopBar = null;                      // bar 0-3 currently looping, or null
+let dragPayload = null;                  // HTML5 DnD: {type:"bar",bar} | {type:"pooltile",id}
+
+// ── build the timeline grid ──────────────────────────────────────────────────
+const tg = $("tgrid");
+const colOf = p => 2 + p + Math.floor(p/4);   // spacer column after every beat group
+{
+  const cols = ["var(--side)"];
+  for (let g = 0; g < 16; g++){
+    cols.push("repeat(4, var(--cell))");
+    if (g < 15) cols.push(g % 4 === 3 ? "var(--bargap)" : "var(--beatgap)");
   }
-  for (let t = 0; t < NT; t++) {
-    const l = el("span", TRACKS[t].toUpperCase()); l.className = "tl"; g.appendChild(l);
-    for (let s = 0; s < 16; s++) {
-      const c = document.createElement("button");
-      c.type = "button"; c.className = "cell";
-      if (s%4===0 && s) c.classList.add("gp");
-      c.dataset.i = t*NS + b*16 + s;
-      for (let q = 1; q <= 4; q++) { const d = document.createElement("span");
-        d.className = "q q"+q; c.appendChild(d); }
-      g.appendChild(c); cells[t*NS + b*16 + s] = c;
-    }
-  }
-  blk.appendChild(g); barsEl.appendChild(blk);
+  tg.style.gridTemplateColumns = cols.join(" ");
+  tg.style.gridTemplateRows = "auto auto repeat(7, minmax(20px, auto))";
 }
-function el(tag, txt){ const e = document.createElement(tag); e.textContent = txt; return e; }
+function el(tag, txt, cls){ const e = document.createElement(tag);
+  if (txt) e.textContent = txt; if (cls) e.className = cls; return e; }
+
+// corner (sticky, mini column headers for the track tools)
+{
+  const c = el("div", "", "corner");
+  const mini = el("div", "", "mini");
+  mini.append(el("span","track","lb"), el("span","lk","cc"),
+              el("span","w","vv"), el("span","c","vv"), el("span","r","vv"));
+  c.appendChild(mini); tg.appendChild(c);
+}
+
+// bar strip
+const barSegs = [];
+for (let b = 0; b < 4; b++){
+  const seg = el("div", "", "barseg");
+  seg.style.gridColumn = `${colOf(b*16)} / ${colOf(b*16+15)+1}`;
+  seg.dataset.bar = b;
+  seg.innerHTML = `<span class="handle" draggable="true"
+      title="drag onto another bar to reorder, or onto the pool to park">&#10021;</span>
+    <span class="bar-title">BAR <b>${b+1}</b>${b===3?" · FILL":""}</span>
+    <button type="button" class="loopbtn" title="loop this bar during playback">LOOP</button>
+    <span class="cpy">copy to
+      ${[0,1,2,3].filter(x=>x!==b).map(x=>`<button data-from="${b}" data-to="${x}">${x+1}</button>`).join("")}
+    </span>`;
+  seg.querySelector(".handle").addEventListener("dragstart", e => {
+    dragPayload = { type: "bar", bar: b };
+    e.dataTransfer.effectAllowed = "copyMove";
+    e.dataTransfer.setData("text/plain", String(b));
+  });
+  seg.querySelector(".handle").addEventListener("dragend", () => { dragPayload = null; });
+  seg.querySelector(".loopbtn").addEventListener("click", () => {
+    loopBar = (loopBar === b ? null : b);
+    barSegs.forEach((s,i) => s.querySelector(".loopbtn").classList.toggle("on", loopBar === i));
+  });
+  seg.addEventListener("dragover", e => { if (dragPayload) e.preventDefault(); });
+  seg.addEventListener("drop", e => {
+    if (!dragPayload) return; e.preventDefault();
+    if (dragPayload.type === "bar") reorderBar(dragPayload.bar, b);
+    else if (dragPayload.type === "pooltile"){
+      const tile = pool.find(p => p.id === dragPayload.id);
+      if (tile && tile.kind === "bar") loadBarTile(tile, b);
+    }
+    dragPayload = null;
+  });
+  tg.appendChild(seg); barSegs.push(seg);
+}
+
+// step numbers
+for (let p = 0; p < NS; p++){
+  const n = el("span", String(p%16+1), "sn" + (p%4===0 ? " beat":""));
+  n.style.gridColumn = colOf(p);
+  tg.appendChild(n);
+}
+
+// sidebar rows + cells (rendered in display order, top row = Perc, bottom = Kick)
+const sideEls = [];
+for (let r = 0; r < NT; r++){
+  const t = trackOfRow(r);
+  const side = el("div", "", "side");
+  side.style.gridRow = 3 + r; side.style.gridColumn = 1;
+  const lb = el("span", TRACKS[t].toUpperCase(), "lb");
+  const lock = el("button", LOCK_GLYPH[0], "lockb");
+  lock.type = "button"; lock.title = LOCK_TITLE[0];
+  lock.addEventListener("click", () => {
+    trackLock[t] = (trackLock[t] + 1) % 3; renderSide(t);
+  });
+  const mk = kind => { const f = el("div", "", "vf" + (kind==="d" ? " dice":""));
+    f.dataset.t = t; f.dataset.kind = kind; f.title = {
+      w: "drag: set weight of filled steps (selection-scoped if a selection exists)",
+      c: "drag: set chance of filled steps",
+      d: "drag: randomize (free rows: pattern+values · pos-locked: values only)"}[kind];
+    f.appendChild(el("span", "", "fill")); return f; };
+  const fw = mk("w"), fc = mk("c"), fd = mk("d");
+  side.append(lb, lock, fw, fc, fd);
+  tg.appendChild(side);
+  sideEls[t] = { lock, fw, fc, fd };
+
+  for (let s = 0; s < NS; s++){
+    const c = document.createElement("button");
+    c.type = "button"; c.className = "cell";
+    c.dataset.i = t*NS + s;
+    c.style.gridRow = 3 + r; c.style.gridColumn = colOf(s);
+    for (let q = 1; q <= 4; q++) c.appendChild(el("span", "", "q q"+q));
+    tg.appendChild(c); cells[t*NS + s] = c;
+  }
+}
+
+function renderSide(t){
+  const e = sideEls[t];
+  e.lock.textContent = LOCK_GLYPH[trackLock[t]];
+  e.lock.title = LOCK_TITLE[trackLock[t]];
+  e.lock.classList.toggle("l1", trackLock[t] === 1);
+  e.lock.classList.toggle("l2", trackLock[t] === 2);
+  e.fw.querySelector(".fill").style.height = Math.round(trackW[t]*100) + "%";
+  const c = Math.min(3, Math.max(0, Math.round(trackC[t]*3)));
+  const fcf = e.fc.querySelector(".fill");
+  fcf.style.height = Math.round(trackC[t]*100) + "%";
+  fcf.style.background = `var(${CCOL[c]})`;
+  e.fd.querySelector(".fill").style.height = Math.round(trackD[t]*100) + "%";
+}
 
 // ── rendering ────────────────────────────────────────────────────────────────
 function paint(i){
@@ -256,56 +455,335 @@ function paint(i){
     (w ? `weight ${w}, ${CPCT[c]}` : "rest"));
 }
 function paintAll(){ for (let i = 0; i < grid.length; i++) paint(i); persist(); }
+function applySel(){ for (let i = 0; i < NT*NS; i++) cells[i].classList.toggle("sel", sel.has(i)); }
+function setGhost(list){
+  ghostSet.forEach(i => cells[i].classList.remove("ghost"));
+  ghostSet = list.filter(i => i != null);
+  ghostSet.forEach(i => cells[i].classList.add("ghost"));
+}
 
-// ── cell interaction: click toggles, drag sets weight (↑↓) / chance (←→) ────
+// ── lock-aware bulk writes (used by every tool except direct cell edits) ─────
+function bulkWrite(i, v){
+  const t = Math.floor(i/NS);
+  if (trackLock[t] === 2) return false;
+  if (trackLock[t] === 1 && ((grid[i] & 15) === 0) !== ((v & 15) === 0)) return false;
+  grid[i] = v; paint(i); return true;
+}
+function bulkClear(i){
+  const t = Math.floor(i/NS);
+  if (trackLock[t] !== 0 && (grid[i] & 15)) return false;
+  grid[i] = 0; paint(i); return true;
+}
+
+// ── track tools (faders + dice), selection-scoped ────────────────────────────
+function scopeCells(t){
+  const idxs = [];
+  for (let s = 0; s < NS; s++){
+    const i = t*NS + s;
+    if (sel.size && !sel.has(i)) continue;
+    idxs.push(i);
+  }
+  return idxs;
+}
+function fWeight(t, frac){
+  trackW[t] = frac; renderSide(t);
+  if (trackLock[t] === 2) return;
+  const w = Math.min(4, Math.max(1, Math.ceil(frac*4)));
+  for (const i of scopeCells(t)) if (grid[i] & 15){ grid[i] = (grid[i] & 0xF0) | w; paint(i); }
+}
+function fChance(t, frac){
+  trackC[t] = frac; renderSide(t);
+  if (trackLock[t] === 2) return;
+  const c = Math.min(3, Math.max(0, Math.round(frac*3)));
+  for (const i of scopeCells(t)) if (grid[i] & 15){ grid[i] = (c << 4) | (grid[i] & 15); paint(i); }
+}
+function fDice(t, frac){
+  trackD[t] = frac; renderSide(t);
+  if (trackLock[t] === 2) return;
+  for (const i of scopeCells(t)){
+    if (trackLock[t] === 1){
+      if ((grid[i] & 15) && Math.random() < frac)
+        grid[i] = (Math.floor(Math.random()*4) << 4) | (1 + Math.floor(Math.random()*4));
+    } else {
+      grid[i] = Math.random() < frac
+        ? (Math.floor(Math.random()*4) << 4) | (1 + Math.floor(Math.random()*4))
+        : 0;
+    }
+    paint(i);
+  }
+}
+
+// ── selection helpers ────────────────────────────────────────────────────────
+function rectSel(a, b){
+  const set = new Set();
+  const pa = a%NS, pb = b%NS, ra = dispRow(Math.floor(a/NS)), rb = dispRow(Math.floor(b/NS));
+  for (let p = Math.min(pa,pb); p <= Math.max(pa,pb); p++)
+    for (let r = Math.min(ra,rb); r <= Math.max(ra,rb); r++)
+      set.add(trackOfRow(r)*NS + p);
+  return set;
+}
+function moveTargets(dP, dR){
+  return [...sel].map(i => {
+    const p = i%NS + dP, r = dispRow(Math.floor(i/NS)) + dR;
+    return (p < 0 || p >= NS || r < 0 || r >= NT) ? null : trackOfRow(r)*NS + p;
+  });
+}
+function moveSel(dP, dR, dup){
+  if (!sel.size || (!dP && !dR)) return;
+  const entries = [...sel].map(i => ({ i, v: grid[i] }));
+  const targets = moveTargets(dP, dR);
+  if (!dup) entries.forEach(({i, v}) => { if (v & 15) bulkClear(i); });
+  const newSel = new Set();
+  entries.forEach(({v}, k) => {
+    const ti = targets[k]; if (ti == null) return;
+    if (v & 15) bulkWrite(ti, v);
+    newSel.add(ti);
+  });
+  sel = newSel; applySel(); persist();
+}
+function copySel(){
+  if (!sel.size){ status("nothing selected — right-click/drag to select"); return; }
+  let minP = 99, maxP = -1, minR = 99, maxR = -1;
+  const items = [];
+  for (const i of sel){
+    if (!(grid[i] & 15)) continue;
+    const p = i%NS, r = dispRow(Math.floor(i/NS));
+    items.push({ p, r, v: grid[i] });
+    minP = Math.min(minP,p); maxP = Math.max(maxP,p);
+    minR = Math.min(minR,r); maxR = Math.max(maxR,r);
+  }
+  if (!items.length){ status("selection has no hits to copy"); return; }
+  clip = { w: maxP-minP+1, h: maxR-minR+1,
+           cells: items.map(o => ({ dP: o.p-minP, dR: o.r-minR, v: o.v })) };
+  status(`copied <b>${items.length}</b> steps (${clip.w}×${clip.h}) — Ctrl+V at hover, Paste to stamp`);
+}
+function clipTargets(anchor){
+  if (!clip || anchor == null) return [];
+  const aP = anchor%NS, aR = dispRow(Math.floor(anchor/NS));
+  return clip.cells.map(c => {
+    const p = aP + c.dP, r = aR + c.dR;
+    return (p < 0 || p >= NS || r < 0 || r >= NT) ? null : trackOfRow(r)*NS + p;
+  });
+}
+function pasteClip(anchor){
+  if (!clip){ status("clipboard empty — copy a selection first"); return; }
+  if (anchor == null) return;
+  const targets = clipTargets(anchor);
+  clip.cells.forEach((c, k) => { if (targets[k] != null) bulkWrite(targets[k], c.v); });
+  persist();
+}
+function enterStamp(){
+  if (!clip){ status("clipboard empty — copy a selection first"); return; }
+  stamp = true; tg.classList.add("stamping");
+  status("stamp mode — left-click places the clip · Esc or right-click exits");
+}
+function exitStamp(){ stamp = false; tg.classList.remove("stamping"); setGhost([]); }
+
+// ── pointer interaction (cells, faders, selection, move, stamp) ──────────────
 let drag = null;
-barsEl.addEventListener("pointerdown", e => {
-  const cell = e.target.closest(".cell"); if (!cell || e.button === 2) return;
-  const i = +cell.dataset.i, v0 = grid[i];
+tg.addEventListener("contextmenu", e => e.preventDefault());
+tg.addEventListener("pointerdown", e => {
+  const cell = e.target.closest(".cell");
+  const vf = e.target.closest(".vf");
+  if (stamp){
+    if (e.button === 0 && cell){ pasteClip(+cell.dataset.i); e.preventDefault(); }
+    else if (e.button === 2) exitStamp();
+    return;
+  }
+  if (vf){
+    const t = +vf.dataset.t, kind = vf.dataset.kind;
+    drag = { kind: "fader", ftype: kind, t, el: vf };
+    vf.setPointerCapture(e.pointerId);
+    faderApply(drag, e.clientY);
+    e.preventDefault(); return;
+  }
+  if (!cell) return;
+  const i = +cell.dataset.i;
+  if (e.button === 2){                                    // selection
+    if (e.ctrlKey && !e.shiftKey){
+      const had = sel.has(i);
+      drag = { kind: "rubber", anchor: i, base: new Set(sel), toggleCandidate: had ? i : null, moved: false };
+      if (!had) sel.add(i);
+      lastAnchor = i;
+    } else if (e.shiftKey && lastAnchor != null){
+      sel = rectSel(lastAnchor, i);
+      drag = { kind: "rubber", anchor: lastAnchor, base: new Set(), moved: true };
+    } else {
+      drag = { kind: "rubber", anchor: i, base: new Set(), moved: false };
+      sel = rectSel(i, i);
+      lastAnchor = i;
+    }
+    cell.setPointerCapture(e.pointerId);
+    applySel(); e.preventDefault(); return;
+  }
+  if (e.button !== 0) return;
+  if (sel.has(i)){                                        // move / duplicate selection
+    drag = { kind: "move", from: i, dup: e.altKey, dP: 0, dR: 0, moved: false };
+    cell.setPointerCapture(e.pointerId);
+    e.preventDefault(); return;
+  }
+  if (sel.size){ sel.clear(); applySel(); }               // click outside = deselect
+  const v0 = grid[i];
   const w0 = v0 & 15 || brush & 15, c0 = v0 & 15 ? v0 >> 4 : brush >> 4;
-  drag = { i, x: e.clientX, y: e.clientY, w0, c0, was: v0, moved: false };
+  drag = { kind: "cell", i, x: e.clientX, y: e.clientY, w0, c0, was: v0, moved: false };
   cell.setPointerCapture(e.pointerId);
   grid[i] = (c0 << 4) | w0; paint(i); say(i);
   e.preventDefault();
 });
-barsEl.addEventListener("pointermove", e => {
+function cellAtPoint(x, y){
+  const elp = document.elementFromPoint(x, y);
+  const c = elp && elp.closest ? elp.closest(".cell") : null;
+  return c ? +c.dataset.i : null;
+}
+function faderApply(d, clientY){
+  const r = d.el.getBoundingClientRect();
+  const frac = Math.min(1, Math.max(0, (r.bottom - clientY) / r.height));
+  if (d.ftype === "w") fWeight(d.t, frac);
+  else if (d.ftype === "c") fChance(d.t, frac);
+  else fDice(d.t, frac);
+}
+tg.addEventListener("pointermove", e => {
+  if (stamp && !drag){
+    const i = cellAtPoint(e.clientX, e.clientY);
+    if (i != null) hoverIdx = i;
+    setGhost(clipTargets(hoverIdx));
+    return;
+  }
   if (!drag) return;
-  const dw = Math.round((drag.y - e.clientY) / 14);
-  const dc = Math.round((e.clientX - drag.x) / 18);
-  if (dw || dc) drag.moved = true;
-  const w = Math.min(4, Math.max(1, drag.w0 + dw));
-  const c = Math.min(3, Math.max(0, drag.c0 + dc));
-  grid[drag.i] = (c << 4) | w; paint(drag.i); say(drag.i);
+  if (drag.kind === "cell"){
+    const dw = Math.round((drag.y - e.clientY) / 14);
+    const dc = Math.round((e.clientX - drag.x) / 18);
+    if (dw || dc) drag.moved = true;
+    const w = Math.min(4, Math.max(1, drag.w0 + dw));
+    const c = Math.min(3, Math.max(0, drag.c0 + dc));
+    grid[drag.i] = (c << 4) | w; paint(drag.i); say(drag.i);
+  } else if (drag.kind === "fader"){
+    faderApply(drag, e.clientY);
+  } else if (drag.kind === "rubber"){
+    const i = cellAtPoint(e.clientX, e.clientY);
+    if (i == null) return;
+    if (i !== drag.anchor) drag.moved = true;
+    sel = new Set(drag.base);
+    rectSel(drag.anchor, i).forEach(x => sel.add(x));
+    applySel();
+  } else if (drag.kind === "move"){
+    const i = cellAtPoint(e.clientX, e.clientY);
+    if (i == null) return;
+    drag.dP = i%NS - drag.from%NS;
+    drag.dR = dispRow(Math.floor(i/NS)) - dispRow(Math.floor(drag.from/NS));
+    if (drag.dP || drag.dR) drag.moved = true;
+    setGhost(moveTargets(drag.dP, drag.dR));
+  }
 });
-barsEl.addEventListener("pointerup", () => {
+tg.addEventListener("pointerup", () => {
   if (!drag) return;
-  if (!drag.moved && (drag.was & 15)) grid[drag.i] = 0;   // click on filled = clear
-  else brush = grid[drag.i];                              // remember as brush
-  paint(drag.i); persist(); drag = null;
+  if (drag.kind === "cell"){
+    if (!drag.moved && (drag.was & 15)) grid[drag.i] = 0;   // click on filled = clear
+    else brush = grid[drag.i];                              // remember as brush
+    paint(drag.i);
+  } else if (drag.kind === "rubber"){
+    if (!drag.moved && drag.toggleCandidate != null){ sel.delete(drag.toggleCandidate); applySel(); }
+  } else if (drag.kind === "move"){
+    setGhost([]);
+    moveSel(drag.dP, drag.dR, drag.dup);
+  }
+  persist(); drag = null;
 });
-barsEl.addEventListener("contextmenu", e => {
-  const cell = e.target.closest(".cell"); if (!cell) return;
-  e.preventDefault(); grid[+cell.dataset.i] = 0; paint(+cell.dataset.i); persist();
+tg.addEventListener("pointerover", e => {
+  const cell = e.target.closest(".cell");
+  if (cell){ hoverIdx = +cell.dataset.i; if (!drag && !stamp) say(hoverIdx); }
 });
-barsEl.addEventListener("pointerover", e => {
-  const cell = e.target.closest(".cell"); if (cell && !drag) say(+cell.dataset.i);
-});
-barsEl.addEventListener("click", e => {                    // bar copy buttons
+tg.addEventListener("click", e => {                        // bar copy buttons
   const b = e.target.closest("button[data-from]"); if (!b) return;
   const f = +b.dataset.from * 16, to = +b.dataset.to * 16;
   for (let t = 0; t < NT; t++) for (let s = 0; s < 16; s++)
-    grid[t*NS + to + s] = grid[t*NS + f + s];
-  paintAll();
+    bulkWrite(t*NS + to + s, grid[t*NS + f + s]);
+  persist();
 });
 function say(i){
   const v = grid[i], w = v & 15, c = v >> 4;
   const t = Math.floor(i/NS), s = i%NS;
-  $("status").innerHTML = `<b>${TRACKS[t].toUpperCase()}</b> · bar ${Math.floor(s/16)+1} ·
+  status(`<b>${TRACKS[t].toUpperCase()}</b> · bar ${Math.floor(s/16)+1} ·
     step ${s%16+1} — ` + (w
       ? `weight <b>${w}</b> · chance <b>${CPCT[c]}</b> · byte <b>${c ? "0x"+c+""+w : w}</b>
          · audible from density <b>${Math.max(1, THRESH - w)}</b>`
-      : "rest");
+      : "rest"));
 }
+
+// ── keyboard ─────────────────────────────────────────────────────────────────
+document.addEventListener("keydown", e => {
+  const tag = e.target.tagName;
+  if (/INPUT|TEXTAREA|SELECT/.test(tag)) return;
+  if (e.code === "Space"){
+    if (tag === "BUTTON") return;
+    e.preventDefault(); playing ? stopSeq() : startSeq(); return;
+  }
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "c" && sel.size){
+    e.preventDefault(); copySel(); return;
+  }
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "v"){
+    e.preventDefault(); pasteClip(hoverIdx); return;
+  }
+  if (e.key === "Escape"){ stamp ? exitStamp() : (sel.clear(), applySel()); return; }
+  if (!sel.size) return;
+  if (e.key === "Delete" || e.key === "Backspace"){
+    e.preventDefault(); sel.forEach(i => bulkClear(i)); persist(); return;
+  }
+  const step = e.shiftKey ? 4 : 1;
+  if (e.key === "ArrowLeft"){ e.preventDefault(); moveSel(-step, 0, false); }
+  else if (e.key === "ArrowRight"){ e.preventDefault(); moveSel(step, 0, false); }
+  else if (e.key === "ArrowUp"){ e.preventDefault(); moveSel(0, -1, false); }
+  else if (e.key === "ArrowDown"){ e.preventDefault(); moveSel(0, 1, false); }
+});
+
+// edit toolbar
+$("copysel").onclick = copySel;
+$("paste").onclick = enterStamp;
+$("park").onclick = () => {
+  if (!clip && sel.size) copySel();
+  if (!clip){ status("nothing to park — select and copy first"); return; }
+  pool.push({ id: Date.now() + Math.random(), kind: "clip",
+              w: clip.w, h: clip.h, cells: clip.cells.map(c => ({...c})) });
+  savePool(); renderPool();
+  status("parked clip in pool");
+};
+$("delsel").onclick = () => { sel.forEach(i => bulkClear(i)); persist(); };
+$("desel").onclick = () => { sel.clear(); applySel(); };
+
+// ── bar reorder (physically permutes grid data) ──────────────────────────────
+function reorderBar(from, to){
+  if (from === to) return;
+  const order = [0,1,2,3];
+  order.splice(from, 1);
+  order.splice(to, 0, from);          // insert at the target bar's position
+  const ng = new Uint8Array(NT*NS);
+  order.forEach((slot, pos) => {
+    for (let t = 0; t < NT; t++) for (let s = 0; s < 16; s++)
+      ng[t*NS + pos*16 + s] = grid[t*NS + slot*16 + s];
+  });
+  grid = ng;
+  sel.clear(); applySel();
+  paintAll();
+  status(`moved bar ${from+1} to position ${order.indexOf(from)+1}`);
+}
+
+// ── zoom / fit ───────────────────────────────────────────────────────────────
+function setCell(px){
+  px = Math.min(34, Math.max(8, Math.round(px)));
+  document.documentElement.style.setProperty("--cell", px + "px");
+  $("zoom").value = px; $("zval").textContent = `(${px}px)`;
+}
+$("zoom").addEventListener("input", () => setCell(+$("zoom").value));
+function fitZoom(){
+  const cs = getComputedStyle(document.documentElement);
+  const side = parseFloat(cs.getPropertyValue("--side"));
+  const spacers = 12 * parseFloat(cs.getPropertyValue("--beatgap"))
+                +  3 * parseFloat(cs.getPropertyValue("--bargap"));
+  const gaps = 79 * 2;                       // 2px grid gap between 80 columns
+  const avail = $("wrap").clientWidth - 10 - side - spacers - gaps - 4;
+  setCell(Math.floor(avail / 64));
+}
+$("fit").onclick = fitZoom;
 
 // ── density preview ──────────────────────────────────────────────────────────
 $("density").addEventListener("input", () => {
@@ -353,18 +831,46 @@ function hiss(t, type, freq, q, v, decay){
   src.connect(f); f.connect(g); g.connect(master);
   src.start(t); src.stop(t + decay + 0.05);
 }
-const VOICES = [                                             // track order = TRACKS
-  (t,v)=>tone(t, "sine", 150, 45, 0.10, v * 1.2, 0.30),                     // Kick
-  (t,v)=>{ hiss(t, "bandpass", 1800, 0.8, v * 0.9, 0.14);
-           tone(t, "triangle", 190, 120, 0.05, v * 0.5, 0.10); },           // Snare
-  (t,v)=>hiss(t, "highpass", 7000, 1, v * 0.6, 0.045),                      // CHH
-  (t,v)=>hiss(t, "highpass", 6000, 1, v * 0.5, 0.28),                       // OHH
-  (t,v)=>{ for (let i = 0; i < 3; i++)
-             hiss(t + i * 0.012, "bandpass", 1400, 2, v * 0.7, 0.05);
-           hiss(t + 0.036, "bandpass", 1400, 2, v * 0.5, 0.12); },          // Clap
-  (t,v)=>tone(t, "sine", 220, 95, 0.12, v, 0.25),                           // Tom
-  (t,v)=>tone(t, "square", 900, 700, 0.03, v * 0.35, 0.07),                 // Perc
-];
+const KITS = {                                                // track order = TRACKS
+  synth: [
+    (t,v)=>tone(t, "sine", 150, 45, 0.10, v * 1.2, 0.30),                     // Kick
+    (t,v)=>{ hiss(t, "bandpass", 1800, 0.8, v * 0.9, 0.14);
+             tone(t, "triangle", 190, 120, 0.05, v * 0.5, 0.10); },           // Snare
+    (t,v)=>hiss(t, "highpass", 7000, 1, v * 0.6, 0.045),                      // CHH
+    (t,v)=>hiss(t, "highpass", 6000, 1, v * 0.5, 0.28),                       // OHH
+    (t,v)=>{ for (let i = 0; i < 3; i++)
+               hiss(t + i * 0.012, "bandpass", 1400, 2, v * 0.7, 0.05);
+             hiss(t + 0.036, "bandpass", 1400, 2, v * 0.5, 0.12); },          // Clap
+    (t,v)=>tone(t, "sine", 220, 95, 0.12, v, 0.25),                           // Tom
+    (t,v)=>tone(t, "square", 900, 700, 0.03, v * 0.35, 0.07),                 // Perc
+  ],
+  "808": [
+    (t,v)=>tone(t, "sine", 65, 32, 0.35, v * 1.4, 0.55),
+    (t,v)=>{ hiss(t, "bandpass", 2200, 0.6, v * 0.8, 0.10);
+             tone(t, "triangle", 210, 140, 0.04, v * 0.45, 0.08); },
+    (t,v)=>hiss(t, "highpass", 9000, 1.2, v * 0.5, 0.02),
+    (t,v)=>hiss(t, "highpass", 8000, 1, v * 0.45, 0.45),
+    (t,v)=>{ for (let i = 0; i < 3; i++)
+               hiss(t + i * 0.01, "bandpass", 1600, 2.5, v * 0.6, 0.04);
+             hiss(t + 0.03, "bandpass", 1600, 2.5, v * 0.45, 0.10); },
+    (t,v)=>tone(t, "sine", 180, 70, 0.15, v, 0.35),
+    (t,v)=>tone(t, "square", 1200, 900, 0.02, v * 0.3, 0.05),
+  ],
+  acoustic: [
+    (t,v)=>{ tone(t, "sine", 95, 55, 0.06, v * 1.1, 0.18);
+             hiss(t, "bandpass", 120, 3, v * 0.3, 0.04); },
+    (t,v)=>{ hiss(t, "bandpass", 2600, 0.7, v, 0.16);
+             tone(t, "triangle", 240, 150, 0.06, v * 0.6, 0.12); },
+    (t,v)=>hiss(t, "highpass", 8000, 0.8, v * 0.55, 0.06),
+    (t,v)=>hiss(t, "highpass", 7000, 0.8, v * 0.55, 0.32),
+    (t,v)=>{ for (let i = 0; i < 4; i++)
+               hiss(t + i * 0.01, "bandpass", 1700, 1.6, v * 0.55, 0.06); },
+    (t,v)=>tone(t, "sine", 260, 130, 0.10, v * 0.9, 0.30),
+    (t,v)=>tone(t, "triangle", 1000, 750, 0.025, v * 0.3, 0.08),
+  ],
+};
+let VOICES = KITS.synth;
+$("kit").addEventListener("change", () => { VOICES = KITS[$("kit").value]; });
 
 function fireStep(b, s, when){
   const d = +$("density").value;
@@ -398,7 +904,8 @@ function schedule(){
   while (nextTime < ac.currentTime + LOOKAHEAD){
     const dur   = 60 / +$("tempo").value / 4;                // 16th note
     const swing = (pStep & 1) ? (+$("shuffle").value / 100) * dur : 0;
-    const when  = nextTime + swing, b = pBar, s = pStep;
+    const when  = nextTime + swing, s = pStep;
+    const b     = loopBar !== null ? loopBar : pBar;
     const mask  = fireStep(b, s, when);
     phTimers.push(setTimeout(() => { if (playing) setPlayhead(b, s, mask); },
                              Math.max(0, (when - ac.currentTime) * 1000)));
@@ -422,68 +929,156 @@ function stopSeq(){
 $("play").onclick = () => playing ? stopSeq() : startSeq();
 $("tempo").addEventListener("input", () => $("tval").textContent = `(${$("tempo").value})`);
 $("shuffle").addEventListener("input", () => $("shval").textContent = `(${$("shuffle").value}%)`);
-document.addEventListener("keydown", e => {
-  if (e.code !== "Space" || /INPUT|TEXTAREA|SELECT|BUTTON/.test(e.target.tagName)) return;
-  e.preventDefault(); playing ? stopSeq() : startSeq();
+
+// ── pool — bar tiles (7×16) and clip tiles (arbitrary rectangles) ────────────
+const POOL_LS = "touchplaited_pool";
+let pool = [];
+function loadPoolFromStorage(){
+  try {
+    pool = (JSON.parse(localStorage.getItem(POOL_LS)) || []).map(p =>
+      p.kind === "clip"
+        ? { id: p.id, kind: "clip", w: p.w, h: p.h, cells: p.cells }
+        : { id: p.id, kind: "bar", data: Uint8Array.from(p.data) });  // incl. old format
+  } catch { pool = []; }
+}
+function savePool(){
+  localStorage.setItem(POOL_LS, JSON.stringify(pool.map(p =>
+    p.kind === "clip" ? p : { id: p.id, kind: "bar", data: Array.from(p.data) })));
+}
+function poolThumb(p){
+  const wrapEl = el("div", "", "poolgrid");
+  const w = p.kind === "bar" ? 16 : p.w, h = p.kind === "bar" ? NT : p.h;
+  wrapEl.style.gridTemplateColumns = `repeat(${w}, 4px)`;
+  const vals = Array.from({length: h}, () => new Array(w).fill(0));
+  if (p.kind === "bar")
+    for (let t = 0; t < NT; t++) for (let s = 0; s < 16; s++)
+      vals[dispRow(t)][s] = p.data[t*16 + s];
+  else p.cells.forEach(c => { if (c.dR < h && c.dP < w) vals[c.dR][c.dP] = c.v; });
+  for (let r = 0; r < h; r++) for (let cix = 0; cix < w; cix++){
+    const v = vals[r][cix], pc = el("span", "", "pc");
+    if (v & 15) pc.style.background = `var(${CCOL[v >> 4]})`;
+    wrapEl.appendChild(pc);
+  }
+  return wrapEl;
+}
+function barToClip(p){
+  const cellsOut = [];
+  for (let t = 0; t < NT; t++) for (let s = 0; s < 16; s++)
+    if (p.data[t*16+s] & 15) cellsOut.push({ dP: s, dR: dispRow(t), v: p.data[t*16+s] });
+  return { w: 16, h: NT, cells: cellsOut };
+}
+function loadBarTile(tile, bar){
+  for (let t = 0; t < NT; t++) for (let s = 0; s < 16; s++)
+    bulkWrite(t*NS + bar*16 + s, tile.data[t*16 + s]);
+  persist();
+  status(`loaded pool bar into bar ${bar+1}`);
+}
+const poolEl = $("pool");
+function renderPool(){
+  poolEl.innerHTML = "";
+  pool.forEach(p => {
+    const tile = el("div", "", "pool-tile" + (p.kind === "bar" ? " bar" : ""));
+    tile.title = p.kind === "bar"
+      ? "click to stamp · drag onto a bar header to replace that bar"
+      : "click to stamp this clip";
+    tile.appendChild(poolThumb(p));
+    tile.appendChild(el("span", p.kind === "bar" ? "BAR" : "CLIP", "kind"));
+    const del = el("button", "×", "del"); del.type = "button";
+    del.addEventListener("click", e => {
+      e.stopPropagation(); pool = pool.filter(x => x.id !== p.id); savePool(); renderPool();
+    });
+    tile.appendChild(del);
+    tile.addEventListener("click", () => {
+      clip = p.kind === "bar" ? barToClip(p) : { w: p.w, h: p.h, cells: p.cells.map(c => ({...c})) };
+      enterStamp();
+    });
+    if (p.kind === "bar"){
+      tile.draggable = true;
+      tile.addEventListener("dragstart", () => { dragPayload = { type: "pooltile", id: p.id }; });
+      tile.addEventListener("dragend", () => { dragPayload = null; });
+    }
+    poolEl.appendChild(tile);
+  });
+}
+poolEl.addEventListener("dragover", e => { if (dragPayload && dragPayload.type === "bar") e.preventDefault(); });
+poolEl.addEventListener("drop", e => {
+  if (!dragPayload || dragPayload.type !== "bar") return;
+  e.preventDefault();
+  const b = dragPayload.bar;
+  const data = new Uint8Array(NT*16);
+  for (let t = 0; t < NT; t++) for (let s = 0; s < 16; s++) data[t*16+s] = grid[t*NS + b*16 + s];
+  pool.push({ id: Date.now() + Math.random(), kind: "bar", data });
+  savePool(); renderPool();
+  dragPayload = null;
 });
 
 // ── library ──────────────────────────────────────────────────────────────────
 const LS = "touchplaited_patterns", WIP = "touchplaited_wip";
 function saved(){ try { return JSON.parse(localStorage.getItem(LS)) || {}; } catch { return {}; } }
 function refreshLib(){
-  const sel = $("lib"); sel.innerHTML = "";
+  const s2 = $("lib"); s2.innerHTML = "";
   const og1 = document.createElement("optgroup"); og1.label = "BUILT-IN";
   Object.keys(BUILTIN).forEach(k => og1.appendChild(new Option(k)));
-  sel.appendChild(og1);
+  s2.appendChild(og1);
   const s = saved(), ks = Object.keys(s);
   if (ks.length){ const og2 = document.createElement("optgroup"); og2.label = "SAVED";
-    ks.forEach(k => og2.appendChild(new Option(k))); sel.appendChild(og2); }
+    ks.forEach(k => og2.appendChild(new Option(k))); s2.appendChild(og2); }
 }
 $("load").onclick = () => {
   const k = $("lib").value;
   const src = BUILTIN[k] ? BUILTIN[k].flat() : saved()[k];
   if (!src) return;
-  grid = Uint8Array.from(src); paintAll();
+  grid = Uint8Array.from(src); loopBar = null;
+  barSegs.forEach(s => s.querySelector(".loopbtn").classList.remove("on"));
+  sel.clear(); applySel(); paintAll();
   if (!BUILTIN[k]) $("name").value = k;
-  $("status").innerHTML = `loaded <b>${k}</b>`;
+  status(`loaded <b>${k}</b>`);
 };
 $("save").onclick = () => {
   const k = cname(); const s = saved(); s[k] = Array.from(grid);
   localStorage.setItem(LS, JSON.stringify(s)); refreshLib();
-  $("lib").value = k; $("status").innerHTML = `saved <b>${k}</b>`;
+  $("lib").value = k; status(`saved <b>${k}</b>`);
 };
 $("del").onclick = () => {
   const k = $("lib").value; if (BUILTIN[k]) return;
   const s = saved(); delete s[k]; localStorage.setItem(LS, JSON.stringify(s));
-  refreshLib(); $("status").innerHTML = `deleted <b>${k}</b>`;
+  refreshLib(); status(`deleted <b>${k}</b>`);
 };
-$("clear").onclick = () => { grid.fill(0); paintAll(); };
+$("clear").onclick = () => { grid.fill(0); sel.clear(); applySel(); paintAll(); };
 function persist(){ localStorage.setItem(WIP, JSON.stringify(Array.from(grid))); }
 
 // ── import ───────────────────────────────────────────────────────────────────
-$("doimp").onclick = () => {
-  const txt = $("imp").value.replace(/\/\/[^\n]*/g, "");
-  const nums = (txt.match(/0x[0-9a-fA-F]+|\d+/g) || [])
+// Parse a kPat_ table out of C header text; returns Uint8Array(NT*NS) or null.
+function parseTable(txt){
+  const nums = (txt.replace(/\/\/[^\n]*/g, "").match(/0x[0-9a-fA-F]+|\d+/g) || [])
     .map(x => parseInt(x, x.startsWith("0x") ? 16 : 10))
     .filter(x => x <= 0x34);
   // drop the leading 7 and 64 of a "[7][64]" declaration if present
   const vals = nums.length >= NT*NS + 2 && nums[0] === 7 && nums[1] === 64
     ? nums.slice(2) : nums;
   if (vals.length < NT*NS){
-    $("status").innerHTML = `import: found only <b>${vals.length}</b> of ${NT*NS} values`; return;
+    status(`import: found only <b>${vals.length}</b> of ${NT*NS} values`); return null;
   }
-  grid = Uint8Array.from(vals.slice(0, NT*NS)); paintAll();
-  $("status").innerHTML = `imported <b>${NT*NS}</b> steps`;
+  return Uint8Array.from(vals.slice(0, NT*NS));
+}
+$("doimp").onclick = () => {
+  const vals = parseTable($("imp").value);
+  if (!vals) return;
+  grid = vals;
+  sel.clear(); applySel(); paintAll();
+  status(`imported <b>${NT*NS}</b> steps`);
 };
 
 // ── export ───────────────────────────────────────────────────────────────────
 function cname(){ return ($("name").value || "pattern").toLowerCase().replace(/\W+/g, "_"); }
 function fstem(){ return String(+$("idx").value || 0).padStart(2, "0") + "_" + cname(); }
+function fgenre(){ return $("genre").value; }
+function fpath(){ return `synth/patterns/${fgenre()}/${fstem()}.h`; }
 function fmt(v){ const w = v & 15, c = v >> 4; return c ? "0x" + c + "" + w : String(w); }
 function genCode(){
-  const stem = fstem(), sym = "kPat_" + stem;
+  const sym = "kPat_" + fgenre() + "_" + fstem();
   let out = `#pragma once\n#include <cstdint>\n\n`;
-  out += `// ${cname()} — authored in tools/pattern_editor.html\n`;
+  out += `// ${fgenre()}/${cname()} — authored in tools/pattern_editor.html\n`;
   out += `// Step byte encoding 0xCW: W = weight 0–4, C = chance 0=always 1=75% 2=50% 3=25%.\n`;
   out += `// Track order: 0=Kick 1=Snare 2=CHH 3=OHH 4=Clap 5=Tom 6=Perc.\n`;
   out += `static constexpr uint8_t ${sym}[7][64] = {\n`;
@@ -494,30 +1089,249 @@ function genCode(){
       for (let g = 0; g < 4; g++)
         parts.push([0,1,2,3].map(s => fmt(grid[t*NS + b*16 + g*4 + s])).join(","));
       out += (b === 0 ? "    { " : "      ") + parts.join(", ")
-           + (b === 3 ? (t === NT-1 ? " },\n" : " },\n") : ",\n");
+           + (b === 3 ? " },\n" : ",\n");
     }
   }
   out += `};\n`;
   return out;
 }
 $("gen").onclick = () => { $("out").textContent = genCode();
-  $("fname").textContent = `synth/patterns/${fstem()}.h`; };
+  $("fname").textContent = fpath(); };
 $("copy").onclick = async () => {
   const txt = genCode(); $("out").textContent = txt;
-  $("fname").textContent = `synth/patterns/${fstem()}.h`;
-  try { await navigator.clipboard.writeText(txt); $("status").innerHTML = "copied to clipboard"; }
+  $("fname").textContent = fpath();
+  try { await navigator.clipboard.writeText(txt); status("copied to clipboard"); }
   catch {
     const r = document.createRange(); r.selectNodeContents($("out"));
     const s = getSelection(); s.removeAllRanges(); s.addRange(r);
-    $("status").innerHTML = "select-all done — press Ctrl+C";
+    status("select-all done — press Ctrl+C");
   }
 };
-["idx","name"].forEach(id => $(id).addEventListener("input",
-  () => $("fname").textContent = `synth/patterns/${fstem()}.h`));
+["idx","name","genre"].forEach(id => $(id).addEventListener("input",
+  () => $("fname").textContent = fpath()));
+
+// ── pattern folder — direct load/save via the File System Access API ────────
+// Chrome/Edge only; the handle is persisted in IndexedDB so reconnecting
+// after a reload is a single click (the browser requires a fresh gesture).
+const GENRES = ["techno", "electro", "idm"];
+let patDir = null, loadedKey = null;
+
+function idbOp(write, fn){
+  return new Promise((res, rej) => {
+    const r = indexedDB.open("touchplaited_fs", 1);
+    r.onupgradeneeded = () => r.result.createObjectStore("handles");
+    r.onerror = () => rej(r.error);
+    r.onsuccess = () => {
+      const q = fn(r.result.transaction("handles", write ? "readwrite" : "readonly")
+        .objectStore("handles"));
+      q.onsuccess = () => res(q.result); q.onerror = () => rej(q.error);
+    };
+  });
+}
+const idbGet = k => idbOp(false, s => s.get(k));
+const idbSet = (k, v) => idbOp(true, s => s.put(v, k));
+
+// Accept the repo root or synth/ too — descend to synth/patterns/.
+async function normalizeDir(dir){
+  try { dir = await dir.getDirectoryHandle("synth"); } catch {}
+  try { dir = await dir.getDirectoryHandle("patterns"); } catch {}
+  return dir;
+}
+
+async function refreshFiles(){
+  const s = $("fsel"); s.innerHTML = "";
+  let any = false;
+  for (const g of GENRES){
+    let dir; try { dir = await patDir.getDirectoryHandle(g); } catch { continue; }
+    const names = [];
+    for await (const e of dir.values())
+      if (e.kind === "file" && e.name.endsWith(".h")) names.push(e.name);
+    names.sort();
+    if (names.length){
+      const og = document.createElement("optgroup"); og.label = g;
+      names.forEach(n => og.appendChild(new Option(`${g}/${n}`)));
+      s.appendChild(og); any = true;
+    }
+  }
+  $("fstat").innerHTML = any
+    ? `connected: <code>${patDir.name}/</code>`
+    : `connected: <code>${patDir.name}/</code> — no ${GENRES.join("/")} subfolders found;
+       did you pick <code>synth/patterns</code>? (Save .h creates them)`;
+}
+
+async function setDir(dir){
+  patDir = await normalizeDir(dir);
+  try { await idbSet("patterns", patDir); } catch {}
+  await refreshFiles();
+}
+
+$("fconnect").onclick = async () => {
+  if (!window.showDirectoryPicker){
+    status("folder access needs Chrome/Edge — use the copy/paste export instead"); return;
+  }
+  try {  // one-click re-authorize of the remembered folder
+    const h = await idbGet("patterns");
+    if (h && !patDir &&
+        await h.requestPermission({ mode: "readwrite" }) === "granted"){
+      await setDir(h); return;
+    }
+  } catch {}
+  try { await setDir(await showDirectoryPicker({ id: "tp-patterns", mode: "readwrite" })); }
+  catch (e){ if (e.name !== "AbortError") status("folder access failed: " + e.message); }
+};
+
+$("frefresh").onclick = () => patDir ? refreshFiles() : $("fconnect").onclick();
+
+$("fload").onclick = async () => {
+  if (!patDir) return status("connect the folder first");
+  const key = $("fsel").value; if (!key) return;
+  const [g, fn] = key.split("/");
+  let txt;
+  try {
+    const dir = await patDir.getDirectoryHandle(g);
+    txt = await (await (await dir.getFileHandle(fn)).getFile()).text();
+  } catch (e){ return status(`load failed: ${e.message}`); }
+  const vals = parseTable(txt);
+  if (!vals) return;
+  grid = vals; loopBar = null;
+  barSegs.forEach(s => s.querySelector(".loopbtn").classList.remove("on"));
+  sel.clear(); applySel(); paintAll();
+  $("genre").value = g;
+  const m = fn.match(/^(\d+)_(.*)\.h$/);
+  if (m){ $("idx").value = +m[1]; $("name").value = m[2]; }
+  $("fname").textContent = fpath();
+  loadedKey = key;
+  status(`loaded <b>${key}</b>`);
+};
+
+$("fsaveh").onclick = async () => {
+  if (!patDir) return status("connect the folder first");
+  const g = fgenre(), fn = fstem() + ".h", key = `${g}/${fn}`;
+  try {
+    const dir = await patDir.getDirectoryHandle(g, { create: true });
+    let exists = true;
+    try { await dir.getFileHandle(fn); } catch { exists = false; }
+    if (exists && key !== loadedKey &&
+        !confirm(`${key} already exists and is not the file you loaded — overwrite?`))
+      return;
+    const w = await (await dir.getFileHandle(fn, { create: true })).createWritable();
+    await w.write(genCode()); await w.close();
+  } catch (e){ return status(`save failed: ${e.message}`); }
+  loadedKey = key;
+  await refreshFiles(); $("fsel").value = key;
+  $("out").textContent = genCode(); $("fname").textContent = fpath();
+  status(`wrote <b>synth/patterns/${key}</b> — run <b>make</b> to embed`);
+};
+
+// Silent restore on startup: list files if permission survived, otherwise
+// show that one click on Connect brings the remembered folder back.
+(async () => {
+  if (!window.showDirectoryPicker){
+    $("fstat").textContent = "folder access unavailable in this browser (Chrome/Edge only) — use copy/paste export";
+    return;
+  }
+  try {
+    const h = await idbGet("patterns");
+    if (!h) return;
+    if (await h.queryPermission({ mode: "readwrite" }) === "granted"){
+      patDir = h; await refreshFiles();
+    } else {
+      $("fstat").innerHTML = `click <b>Connect folder…</b> to re-authorize <code>${h.name}/</code>`;
+    }
+  } catch {}
+})();
+
+// ── MIDI import/export — velocity encodes weight tier, chance is not kept ────
+const GM_NOTE = [36,38,42,46,39,45,37];                       // Kick..Perc, General MIDI drum map
+function weightToVel(w){ return [0,32,64,96,127][w]; }
+function velToWeight(v){ return v<=16 ? 0 : v<=48 ? 1 : v<=80 ? 2 : v<=112 ? 3 : 4; }
+function vlq(n){ const b=[n&0x7f]; n>>>=7; while(n>0){ b.unshift((n&0x7f)|0x80); n>>>=7; } return b; }
+function u32(n){ return [(n>>>24)&255,(n>>>16)&255,(n>>>8)&255,n&255]; }
+function u16(n){ return [(n>>>8)&255, n&255]; }
+
+function exportMidi(){
+  const ppq = 96, stepTicks = ppq/4, gate = Math.max(1, Math.floor(stepTicks*0.5));
+  const usPerQuarter = Math.round(60000000 / (+$("tempo").value));
+  const events = [{ tick: 0, bytes: [0xFF,0x51,0x03,(usPerQuarter>>16)&255,(usPerQuarter>>8)&255,usPerQuarter&255] }];
+  for (let bs = 0; bs < NS; bs++) for (let t = 0; t < NT; t++) {
+    const w = grid[t*NS + bs] & 15; if (!w) continue;
+    const tick = bs * stepTicks, note = GM_NOTE[t], vel = weightToVel(w);
+    events.push({ tick, bytes: [0x99, note, vel] });
+    events.push({ tick: tick + gate, bytes: [0x89, note, 0] });
+  }
+  events.sort((a,b) => a.tick - b.tick);
+  events.push({ tick: NS*stepTicks, bytes: [0xFF,0x2F,0x00] });
+  let track = [], last = 0;
+  for (const e of events) { track.push(...vlq(e.tick-last), ...e.bytes); last = e.tick; }
+  const mthd = [0x4D,0x54,0x68,0x64, ...u32(6), ...u16(0), ...u16(1), ...u16(ppq)];
+  const mtrk = [0x4D,0x54,0x72,0x6B, ...u32(track.length), ...track];
+  const blob = new Blob([new Uint8Array([...mthd, ...mtrk])], { type: "audio/midi" });
+  const a = document.createElement("a"); a.href = URL.createObjectURL(blob);
+  a.download = `${fgenre()}_${fstem()}.mid`; a.click(); URL.revokeObjectURL(a.href);
+}
+function importMidiFile(file){
+  const reader = new FileReader();
+  reader.onload = () => {
+    try {
+      const buf = new Uint8Array(reader.result);
+      let p = 0;
+      const str = n => { let s=""; for(let i=0;i<n;i++) s+=String.fromCharCode(buf[p++]); return s; };
+      const ru32 = () => { const v=(buf[p]<<24|buf[p+1]<<16|buf[p+2]<<8|buf[p+3])>>>0; p+=4; return v; };
+      const ru16 = () => { const v=(buf[p]<<8|buf[p+1]); p+=2; return v; };
+      if (str(4) !== "MThd") throw new Error("not a .mid file");
+      ru32(); ru16(); const ntrks = ru16(); const ppq = ru16();
+      const newGrid = new Uint8Array(NT*NS);
+      for (let tk = 0; tk < ntrks; tk++) {
+        if (str(4) !== "MTrk") throw new Error("bad track header");
+        const len = ru32(), end = p + len;
+        let tick = 0, running = 0;
+        while (p < end) {
+          let delta = 0, byte;
+          do { byte = buf[p++]; delta = (delta<<7) | (byte & 0x7f); } while (byte & 0x80);
+          tick += delta;
+          let st = buf[p];
+          if (st & 0x80) { st = buf[p++]; running = st; } else st = running;
+          if (st === 0xFF) {
+            p++; let ln=0,b2; do{b2=buf[p++]; ln=(ln<<7)|(b2&0x7f);}while(b2&0x80); p += ln;
+          } else if (st === 0xF0 || st === 0xF7) {
+            let ln=0,b2; do{b2=buf[p++]; ln=(ln<<7)|(b2&0x7f);}while(b2&0x80); p += ln;
+          } else {
+            const kind = st & 0xF0;
+            const n1 = buf[p++];
+            const n2 = (kind === 0xC0 || kind === 0xD0) ? undefined : buf[p++];
+            if (kind === 0x90 && n2 > 0) {
+              const step = Math.round(tick / (ppq/4));
+              if (step >= 0 && step < NS) {
+                let bestT = 0, bestD = Infinity;
+                for (let t = 0; t < NT; t++) { const d = Math.abs(GM_NOTE[t]-n1); if (d < bestD) { bestD = d; bestT = t; } }
+                newGrid[bestT*NS + step] = velToWeight(n2);
+              }
+            }
+          }
+        }
+      }
+      grid = newGrid; loopBar = null;
+      barSegs.forEach(s => s.querySelector(".loopbtn").classList.remove("on"));
+      sel.clear(); applySel(); paintAll();
+      status("imported MIDI file");
+    } catch (err) {
+      status("MIDI import failed: " + err.message);
+    }
+  };
+  reader.readAsArrayBuffer(file);
+}
+$("midiexp").onclick = exportMidi;
+$("midiimpbtn").onclick = () => $("midifile").click();
+$("midifile").addEventListener("change", () => {
+  const f = $("midifile").files[0]; if (f) importMidiFile(f); $("midifile").value = "";
+});
 
 // ── boot: restore work in progress ───────────────────────────────────────────
 refreshLib();
 try { const w = JSON.parse(localStorage.getItem(WIP));
       if (Array.isArray(w) && w.length === NT*NS) grid = Uint8Array.from(w); } catch {}
 paintAll();
+for (let t = 0; t < NT; t++) renderSide(t);
+loadPoolFromStorage(); renderPool();
+fitZoom();
 </script>
