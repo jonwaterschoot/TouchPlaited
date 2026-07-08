@@ -2,46 +2,33 @@
 
 ## Controls at a glance
 
-### Basic Pitch (SW2 Down)
+### Basic Pitch (SW2 Down) · Random (SW2 Center)
 
-| Control | Function | MIDI CC |
-|---------|----------|---------|
-| S30 | Drive | 24 |
-| S31 | Decay | 23 |
-| S32 | Harmonics | 20 |
-| S33 | Timbre | 21 |
-| S34 | Morph (no effect on engines 19–23) | 22 |
-| S36 | Output level | 26 |
-| S37 | Model mix — OUT↔AUX blend | — |
-| — | LPG colour (no knob) | 25 |
-| P0 + S35 | Model select, bank 0 (engines 0–11) | — |
-| P2 + S35 | Model select, bank 1 (engines 12–23) | — |
-| P0 + S37 | Stereo width | — |
-| P3–P9 | Play notes | notes in, ch 1 |
-| P10 / P11 | Octave down / up | — |
-| P0 + P10 / P11 | Root semitone down / up | — |
-| P0 + P2 hold 1 s / 2 s / 3 s | Randomize tight / randomize wide / back to clean | — |
-| P2 (hold) + P11 | Drum seq play / pause | Start/Continue/Stop |
-| SW1 | Scale: minor (left) / chromatic (center) / major (right) | — |
+The two pitched modes share the same layout — one table, one column per mode. *same* = identical to Basic Pitch; — = no function.
 
-### Random (SW2 Center)
-
-| Control | Function | MIDI CC |
-|---------|----------|---------|
-| S30 | Drive (global) | 24 |
-| S31 | Decay anchor for randomize | 23 |
-| S32 / S33 / S34 | Harmonics / timbre / morph centers for S35 engine force | 20 / 21 / 22 |
-| S35 | Force chosen engine onto all 7 slots (spread around S31–S34) | — |
-| S36 | Output level | 26 |
-| S37 | Blend center | — |
-| P0 + S37 | Stereo width (all pitched voices) | — |
-| P3–P9 | Play the 7 slot sounds | notes in, ch 1 |
-| Hold P3–P9 for 1.2 s | Enter Recording for that slot | — |
-| P10 / P11 | Octave down / up | — |
-| P0 + P10 / P11 | Root semitone down / up | — |
-| P0 + P2 hold 1 s / 2 s | Full random / full random with decay spread | — |
-| P2 (hold) + P11 | Drum seq play / pause | Start/Continue/Stop |
-| SW1 | Scale: minor (left) / chromatic (center) / major (right) | — |
+| Control | Basic Pitch | Random | MIDI CC |
+|---------|-------------|--------|---------|
+| S30 | Drive | Drive (global) | 24 |
+| S31 | Decay | Decay anchor for randomize | 23 |
+| S32 | Harmonics | Harmonics center (for P0/P2 + S35 engine force) | 20 |
+| S33 | Timbre | Timbre center | 21 |
+| S34 | Morph (no effect on engines 19–23) | Morph center | 22 |
+| S35 | — *(only active with P0/P2 held)* | *same* | — |
+| S36 | Output level | *same* | 26 |
+| S37 | Model mix — OUT↔AUX blend | Blend center | — |
+| — | LPG colour (no knob) | *same* | 25 |
+| SW1 | Scale: minor (left) / chromatic (center) / major (right) | *same* | — |
+| P3–P9 | Play notes | Play the 7 slot sounds | notes in, ch 1 |
+| Hold P3–P9 1.2 s | — | Enter Recording for that slot | — |
+| P10 / P11 | Octave down / up | *same* | — |
+| **Hold P0 (shift)** | | | |
+| P0 + S35 | Model select, bank 0 (engines 0–11) | Force bank-0 engine onto all 7 slots (spread around the S31–S34 centers) | — |
+| P0 + S37 | Stereo width | Stereo width (all pitched voices) | — |
+| P0 + P10 / P11 | Root semitone down / up | *same* | — |
+| P0 + P2 hold 1 s / 2 s / 3 s | Randomize tight / randomize wide / back to clean | Full random / full random with decay spread / — | — |
+| **Hold P2 (shift)** | | | |
+| P2 + S35 | Model select, bank 1 (engines 12–23) | Force bank-1 engine onto all 7 slots | — |
+| P2 (hold) + P11 | Drum seq play / pause | *same* | Start/Continue/Stop |
 
 ### Seq (SW2 Up)
 
@@ -211,12 +198,12 @@ Each of the 7 pads plays its own stored snapshot (engine, harmonics, timbre, mor
 |------|----------|---------|
 | S30 | Drive — soft-clip saturation (global) | 24 |
 | S31 | Decay anchor — P0+P2 stage 1 locks every slot's decay to this value; stage 2 spreads around it | 23 |
-| S32 | Harmonics center — used when S35 forces a new engine onto all slots | 20 |
-| S33 | Timbre center — used when S35 forces a new engine onto all slots | 21 |
-| S34 | Morph center — used when S35 forces a new engine onto all slots | 22 |
-| S35 | Model select — forces the chosen engine onto all 7 slots with a soft spread around the S31–S34 centers; blend taken from S37 | — |
+| S32 | Harmonics center — used when P0/P2 + S35 forces a new engine onto all slots | 20 |
+| S33 | Timbre center — used when P0/P2 + S35 forces a new engine onto all slots | 21 |
+| S34 | Morph center — used when P0/P2 + S35 forces a new engine onto all slots | 22 |
+| S35 | Model select — hold P0 (bank 0, engines 0–11) or P2 (bank 1, engines 12–23) while turning; forces the chosen engine onto all 7 slots with a soft spread around the S31–S34 centers; blend taken from S37. Bare S35 does nothing | — |
 | S36 | Output level (pitched voices only - the drum seq keeps its own volume) | 26 |
-| S37 | Blend center — stamped onto all slots when S35 forces a new engine; refine per slot in Recording. Hold P0: stereo width for all pitched voices (0 = mono, 1 = raw OUT/AUX split) | — |
+| S37 | Blend center — stamped onto all slots when P0/P2 + S35 forces a new engine; refine per slot in Recording. Hold P0: stereo width for all pitched voices (0 = mono, 1 = raw OUT/AUX split) | — |
 
 ### Seq (SW2 Up)
 

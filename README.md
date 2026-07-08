@@ -18,46 +18,33 @@ Still working on this, so things might move around.
 
 ## Controls at a glance
 
-### Basic Pitch (SW2 Down)
+### Basic Pitch (SW2 Down) · Random (SW2 Center)
 
-| Control | Function | MIDI CC |
-|---------|----------|---------|
-| S30 | Drive | 24 |
-| S31 | Decay | 23 |
-| S32 | Harmonics | 20 |
-| S33 | Timbre | 21 |
-| S34 | Morph (no effect on engines 19–23) | 22 |
-| S36 | Output level | 26 |
-| S37 | Model mix — OUT↔AUX blend | — |
-| — | LPG colour (no knob) | 25 |
-| P0 + S35 | Model select, bank 0 (engines 0–11) | — |
-| P2 + S35 | Model select, bank 1 (engines 12–23) | — |
-| P0 + S37 | Stereo width | — |
-| P3–P9 | Play notes | notes in, ch 1 |
-| P10 / P11 | Octave down / up | — |
-| P0 + P10 / P11 | Root semitone down / up | — |
-| P0 + P2 hold 1 s / 2 s / 3 s | Randomize tight / randomize wide / back to clean | — |
-| P2 (hold) + P11 | Drum seq play / pause | Start/Continue/Stop |
-| SW1 | Scale: minor (left) / chromatic (center) / major (right) | — |
+The two pitched modes share the same layout — one table, one column per mode. *same* = identical to Basic Pitch; — = no function.
 
-### Random (SW2 Center)
-
-| Control | Function | MIDI CC |
-|---------|----------|---------|
-| S30 | Drive (global) | 24 |
-| S31 | Decay anchor for randomize | 23 |
-| S32 / S33 / S34 | Harmonics / timbre / morph centers for S35 engine force | 20 / 21 / 22 |
-| S35 | Force chosen engine onto all 7 slots (spread around S31–S34) | — |
-| S36 | Output level | 26 |
-| S37 | Blend center | — |
-| P0 + S37 | Stereo width (all pitched voices) | — |
-| P3–P9 | Play the 7 slot sounds | notes in, ch 1 |
-| Hold P3–P9 for 1.2 s | Enter Recording for that slot | — |
-| P10 / P11 | Octave down / up | — |
-| P0 + P10 / P11 | Root semitone down / up | — |
-| P0 + P2 hold 1 s / 2 s | Full random / full random with decay spread | — |
-| P2 (hold) + P11 | Drum seq play / pause | Start/Continue/Stop |
-| SW1 | Scale: minor (left) / chromatic (center) / major (right) | — |
+| Control | Basic Pitch | Random | MIDI CC |
+|---------|-------------|--------|---------|
+| S30 | Drive | Drive (global) | 24 |
+| S31 | Decay | Decay anchor for randomize | 23 |
+| S32 | Harmonics | Harmonics center (for P0/P2 + S35 engine force) | 20 |
+| S33 | Timbre | Timbre center | 21 |
+| S34 | Morph (no effect on engines 19–23) | Morph center | 22 |
+| S35 | — *(only active with P0/P2 held)* | *same* | — |
+| S36 | Output level | *same* | 26 |
+| S37 | Model mix — OUT↔AUX blend | Blend center | — |
+| — | LPG colour (no knob) | *same* | 25 |
+| SW1 | Scale: minor (left) / chromatic (center) / major (right) | *same* | — |
+| P3–P9 | Play notes | Play the 7 slot sounds | notes in, ch 1 |
+| Hold P3–P9 1.2 s | — | Enter Recording for that slot | — |
+| P10 / P11 | Octave down / up | *same* | — |
+| **Hold P0 (shift)** | | | |
+| P0 + S35 | Model select, bank 0 (engines 0–11) | Force bank-0 engine onto all 7 slots (spread around the S31–S34 centers) | — |
+| P0 + S37 | Stereo width | Stereo width (all pitched voices) | — |
+| P0 + P10 / P11 | Root semitone down / up | *same* | — |
+| P0 + P2 hold 1 s / 2 s / 3 s | Randomize tight / randomize wide / back to clean | Full random / full random with decay spread / — | — |
+| **Hold P2 (shift)** | | | |
+| P2 + S35 | Model select, bank 1 (engines 12–23) | Force bank-1 engine onto all 7 slots | — |
+| P2 (hold) + P11 | Drum seq play / pause | *same* | Start/Continue/Stop |
 
 ### Seq (SW2 Up)
 
@@ -136,15 +123,14 @@ See [MANUAL.md](MANUAL.md) for the full per-mode knob maps, recording mode, gest
 
 The firmware runs from QSPI flash (`APP_TYPE = BOOT_QSPI` — it's too big for Daisy's internal SRAM), so the **Daisy bootloader must be on the Seed first**. That's a one-time step per device.
 
-### Option A — flash a release .bin
+### Option A — easy install (release .bin + Web Programmer)
 
 1. Download `TouchPlaited.bin` from the [releases page](../../releases).
-2. Make sure the Daisy bootloader is installed (once per device): connect the Seed over USB, enter DFU mode (hold BOOT, tap RESET), and flash the bootloader with the [Daisy Web Programmer](https://flash.daisy.audio/) — or from a repo checkout with `make program-boot`.
-3. Put the Seed in bootloader mode (tap RESET; the LED pulses while the bootloader waits) and upload `TouchPlaited.bin` with the Web Programmer, or via dfu-util:
+2. **Once per device:** install the Daisy bootloader. Connect the Seed over USB, put it in DFU mode (hold **BOOT**, tap **RESET**, release BOOT), open the [Daisy Web Programmer](https://flash.daisy.audio/) and flash the bootloader.
+3. **Enter the Daisy bootloader:** tap **RESET** (or power up), then press **BOOT** while the LED is doing its slow "breathing" pulse. The bootloader only waits about 2 seconds before launching the app — pressing BOOT during that window makes it wait indefinitely, so you can take your time.
+4. Upload `TouchPlaited.bin` with the Web Programmer.
 
-   ```bash
-   dfu-util -a 0 -s 0x90040000:leave -D TouchPlaited.bin
-   ```
+> **Two different button dances.** Hold-BOOT-tap-RESET enters the chip's built-in *DFU mode* — used only for installing the bootloader itself (step 2). Tap-RESET-then-BOOT enters the *Daisy bootloader* — used every time you flash the app (step 3).
 
 ### Option B — build from source with make
 
@@ -168,6 +154,14 @@ make program-dfu
 ```
 
 The build output is `build/TouchPlaited.bin`. See [thirdparty/README.md](thirdparty/README.md) for the full setup details.
+
+If you prefer flashing a `.bin` from the command line instead of the Web Programmer (with the Seed in the Daisy bootloader, as in Option A step 3):
+
+```bash
+dfu-util -a 0 -s 0x90040000:leave -D TouchPlaited.bin
+```
+
+`-D` downloads the file to the device, `-a 0` selects the flash interface, and `-s 0x90040000` is where to write it: the Seed's QSPI flash is memory-mapped at `0x90000000` and the bootloader reserves the first 256 KB (`0x40000`) for itself, so apps live at `0x90000000 + 0x40000`. The `:leave` suffix reboots into the app when the transfer finishes.
 
 ## Drum pattern editor
 

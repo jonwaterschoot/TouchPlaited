@@ -41,6 +41,7 @@ per-step lists are in the archive.
 
 ## Parking Lot
 
+- **Bare S35 + P1 kept free — earmarked for melodic/arp or FX** (2026-07-09) — bare S35 does nothing in Basic Pitch / Random today. Rather than more model-select surface, spend these on the **melodic seq trigger** (P1 toggle, Priority 3) or the **reverb/delay FX send** (Priority 3) — e.g. bare S35 as send level in the pitched modes: continuous, non-destructive, and a natural knob-shaped parameter. **Ergonomics constraint: P1 is hard to reach without modding the device** — suit it to set-and-forget toggles only (mode arm, FX on/off), never held or performative gestures. ⚠ The *4-bar fill* idea above assumes holding P1 in Seq — reconsider that gesture. Shelved ideas for the record: all 24 engines on bare S35 (~4% travel per engine, jitter-prone, destructive in Random where an engine change regenerates all 7 slots), P1 + P10/P11 model ±1 stepping, hold-P1 + S35 as a third knob layer.
 - **ITCM placement** — move the hottest Plaits render paths into ITCMRAM (64 KB, 0% used); code currently executes from QSPI. Enabler for both the FX send and a 7th voice.
 - **Expand voice pool to 7** — after ITCM placement confirms the headroom on in-use engines.
 - **OLED screen** — I2C 128×32/64 add-on; shows engine name, params, mode, root note. V2 hardware.
