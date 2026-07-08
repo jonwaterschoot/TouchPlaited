@@ -155,10 +155,8 @@ git clone https://github.com/jonwaterschoot/TouchPlaited.git
 cd TouchPlaited
 
 # Pull in libDaisy + stmlib
+# (the Plaits DSP source is already vendored in thirdparty/plaits/ — nothing to copy)
 git submodule update --init --recursive
-
-# Populate thirdparty/plaits/ from the Mutable Instruments eurorack repo
-# (one-time copy — see thirdparty/README.md for the exact commands)
 
 # Build libDaisy once, then the firmware
 cd lib/libDaisy && make && cd ../..

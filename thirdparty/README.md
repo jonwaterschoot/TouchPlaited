@@ -1,32 +1,39 @@
-# thirdparty/ — Setup Required Before Building
+# thirdparty/ — Dependencies
 
-The project will not compile until these two source trees are present.
+Two kinds of third-party code live here:
+
+- **`thirdparty/plaits/`** — vendored (committed to this repo). Nothing to install.
+- **`thirdparty/stmlib/`** and **`lib/libDaisy/`** — git submodules. One command to fetch (step 2).
 
 ---
 
-## 1. Plaits DSP source (`thirdparty/plaits/`)
+## 1. Plaits DSP source (`thirdparty/plaits/`) — vendored, no setup needed
 
-Clone the Mutable Instruments eurorack repo and copy the `plaits/` subtree here,
-excluding hardware-specific files that don't apply to Daisy.
+The Plaits DSP code is committed directly to this repository, so a fresh clone
+already contains everything. Do **not** copy files from the eurorack repo over it.
 
-Run these in a **bash** shell (Git Bash on Windows — brace expansion won't work in plain `sh`):
+### Provenance
 
-```bash
-# Clone somewhere temporarily
-git clone https://github.com/pichenettes/eurorack.git /tmp/eurorack
+- **Upstream:** https://github.com/pichenettes/eurorack (Mutable Instruments, discontinued — no further updates expected)
+- **Vendored from commit:** `08460a69a7e1f7a81c5a2abcc7189c9a6b7208d4` (2023-08-16, final state of `master`)
+- **Subtree copied:** `plaits/dsp/`, `plaits/resources.h`, `plaits/resources.cc`
+- **Excluded:** `plaits.cc`, `ui.cc`, `settings.cc`, `drivers/` — STM32F37x
+  hardware-specific code that does not apply to Daisy
+- **Local modifications:** `user_data.h` only. The upstream version writes custom
+  wavetables to STM32F37x internal flash; ours is a Daisy-compatible stub whose
+  `ptr()` returns `nullptr`, so the engines fall back to their built-in wavetables.
+  Every other file is byte-identical to upstream.
 
-# Create destination and copy in one block
-mkdir -p thirdparty/plaits && \
-cp -r /tmp/eurorack/plaits/dsp thirdparty/plaits/dsp && \
-cp /tmp/eurorack/plaits/resources.{h,cc} thirdparty/plaits/
+### License
 
-# Excludes plaits.cc, ui.cc, settings.cc, drivers/ — STM32F37x-specific
-# user_data.h is NOT copied — a Daisy-compatible stub is already in thirdparty/plaits/
-```
+The Plaits code is MIT-licensed by Emilie Gillet — see `plaits/LICENSE` and the
+header in each source file. Note that "Mutable Instruments" is a registered
+trademark and must not be used to name or market derivative works.
 
-**Expected layout after copy:**
+**Expected layout:**
 ```
 thirdparty/plaits/
+├── LICENSE
 ├── dsp/
 │   ├── voice.h
 │   ├── voice.cc
@@ -35,7 +42,8 @@ thirdparty/plaits/
 │   ├── speech/
 │   └── physical_modelling/
 ├── resources.h
-└── resources.cc
+├── resources.cc
+└── user_data.h          (Daisy stub — local modification)
 ```
 
 ---
