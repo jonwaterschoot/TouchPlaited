@@ -195,17 +195,24 @@ public:
     // Preview using a specific slot's patch — P0+P2 hold feedback and rec-mode
     // auditions. volume defaults to full; rec passes the slot's stored volume
     // so S36 edits are audible while recording, not only after confirm.
-    void AuditionWithParams(float note, const VoiceParams& p) {
+    // seq_group routes the voice through the drum group's volume/width/FX
+    // sends in Render — drum-slot auditions must sound like seq triggers, and
+    // the pitched fader may be sitting at zero. It rides on `locked`, which
+    // also shields the voice from the global setters (like any drum voice).
+    // Drive is taken from the params, not the global cache: for unlocked
+    // (pitched) auditions the per-block SetDrive overwrites it anyway, and a
+    // locked drum audition must keep the drive its params were shaped with.
+    void AuditionWithParams(float note, const VoiceParams& p, bool seq_group = false) {
         int idx = find_free_or_steal();
         audition_idx = idx;
-        locked[idx]  = false;
+        locked[idx]  = seq_group;
         voices[idx].SetEngine(p.engine);
         voices[idx].SetHarmonics(p.harmonics);
         voices[idx].SetTimbre(p.timbre);
         voices[idx].SetMorph(p.morph);
         voices[idx].SetDecay(p.decay);
         voices[idx].SetLPGColour(g_lpg);
-        voices[idx].SetDrive(g_drive);
+        voices[idx].SetDrive(p.drive);
         voices[idx].SetFMAmount(0.0f);
         voices[idx].SetNote(note);
         voices[idx].Trigger(true);

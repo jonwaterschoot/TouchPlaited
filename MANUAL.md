@@ -19,7 +19,7 @@ The two pitched modes share the same layout — one table, one column per mode. 
 | — | LPG colour (no knob) | *same* | 25 |
 | SW1 | Scale: minor (left) / chromatic (center) / major (right) | *same* | — |
 | P3–P9 | Play notes | Play the 7 slot sounds | notes in, ch 1 |
-| Hold P3–P9 1.2 s | — | Enter Recording for that slot | — |
+| Hold P3–P9 2 s | — | Enter Recording for that slot | — |
 | P10 / P11 | Octave down / up | *same* | — |
 | **Hold P0 (shift)** | | | |
 | P0 + S35 | Model select, bank 0 (engines 0–11) | Force bank-0 engine onto all 7 slots (spread around the S31–S34 centers) | — |
@@ -49,12 +49,12 @@ The two pitched modes share the same layout — one table, one column per mode. 
 | P1 + S30 | Reverb (drum group) — center = off; room ◄ · ► hall | — |
 | P1 + S35 | Delay (drum group) — center = off; slapback ◄ · ► dotted 1/8 | — |
 | P3–P9 | Play drums: kick / snare / cl. hat / op. hat / clap / tom / perc | notes in/out, ch 10 (GM) |
-| Hold P3–P9 for 1.2 s | Enter Recording for that drum | — |
+| Hold P3–P9 for 2 s | Enter Recording for that drum | — |
 | P0 + P2 hold 1 s / 2 s | Vary current kit / generate new kit | — |
 | P2 (hold) + P11 | Play / pause | Start/Continue/Stop |
 | SW1 | Genre: IDM (left) / techno (center) / electro (right) | — |
 
-### Recording (hold a musical pad 1.2 s in Random or Seq)
+### Recording (hold a musical pad 2 s in Random or Seq)
 
 | Control | Function |
 |---------|----------|
@@ -91,7 +91,7 @@ Two toggles, eight knobs, twelve touch pads. **SW2** (right toggle) picks the pl
 3. **Add a synth on top.** Flick **SW2 Down** (Basic Pitch) — the drums keep playing. P3–P9 now play notes; **P10 / P11** shift the octave down / up, and SW1 picks the scale (minor / chromatic / major).
 4. **Shape the sound.** **S32** harmonics, **S33** timbre, **S34** morph, **S31** decay, **S30** drive, **S37** OUT↔AUX blend. Choose an engine by holding **P0** (bank 0) or **P2** (bank 1) while turning **S35**.
 5. **Get surprised.** Flick **SW2 Center** (Random), then hold **P0 + P2**: after ~1 s every pad gets its own random sound; keep holding to ~2 s for a wilder spread. The same gesture in Seq mode re-randomizes the drum kit.
-6. **Fine-tune one sound.** Hold any musical pad for 1.2 s to enter **Recording** — the knobs now edit just that slot. Hold the same pad 1.2 s again to save.
+6. **Fine-tune one sound.** Hold any musical pad for 2 s to enter **Recording** — the LED counts down with an accelerating blink, then the knobs edit just that slot. Release, then hold the same pad 1.2 s to save.
 7. **Pause / resume the drums** from any mode: hold **P2**, then tap **P11**.
 
 Everything below is the full reference.
@@ -260,9 +260,9 @@ Recording lets you edit a single slot's parameters while hearing it in real time
 
 ### Entering recording
 
-One gesture everywhere: hold a musical pad (P3–P9) for **1.2 s** — in Seq mode *and* in Random mode. The threshold is deliberately long so holding a sustained note in Random doesn't enter recording by accident.
+One gesture everywhere: hold a musical pad (P3–P9) for **2 s** — in Seq mode *and* in Random mode. The threshold is deliberately long so holding a sustained note in Random doesn't enter recording by accident, and the LED shows where you are in it: from ~0.2 s into the hold it blinks with steadily accelerating speed, ending very fast as the 2 s mark lands. Release at any point before that to abort. When the threshold is reached the LED plays a short rapid burst — you're in.
 
-The LED blinks steadily while in Recording mode.
+While in Recording mode the LED shows a **fast double blink on every audible hit** of the slot being edited (each forced seq step while playing, each 0.5 s audition while paused) — locked to the audio and clearly distinct from the sequencer's single beat flash. Keeping the pad held past the 2 s entry does nothing further; confirm requires releasing first.
 
 ### Knobs while recording
 
@@ -282,7 +282,7 @@ All six timbral knobs are per-slot and require pickup before changing the slot.
 
 In Seq mode the tempo (S31's idle role) stays frozen at its entry value while recording and is pickup-protected afterwards.
 
-In **Seq** mode the sequencer keeps running and fires the slot being edited every other step (8th notes), so you hear changes in rhythmic context without it dominating the mix. In **Random** mode — and in Seq while the sequencer is paused — the slot re-auditions at a steady pulse every 0.5 s from the moment you enter, playing at the slot's stored volume.
+In **Seq** mode the sequencer keeps running and fires the slot being edited every other step (8th notes), so you hear changes in rhythmic context without it dominating the mix. In **Random** mode — and in Seq while the sequencer is paused — the slot re-auditions at a steady pulse every 0.5 s from the moment you enter, playing at the slot's stored volume. Paused-seq drum auditions go through the drum group's level, width and FX sends and carry the full seq-trigger shaping (punch, tightness, overall drive × slot ratio), so what you hear while tweaking is exactly what the pattern will play.
 
 ### Drum pitch (Seq recording only)
 
@@ -295,9 +295,9 @@ In **Seq** mode the sequencer keeps running and fires the slot being edited ever
 
 | Gesture | Result |
 |---------|--------|
-| Hold the *source pad* alone for **1.2 s** | **Confirm** — saves edits, exits recording (3 rapid blinks) |
+| Hold the *source pad* alone for **1.2 s** | **Confirm** — saves edits, exits recording (3 rapid blinks). Keeping the pad held after the save is ignored — it can't re-enter recording or copy; release everything and start a fresh 2 s hold to edit again |
 | Tap any *other* pad (0.05–1.2 s) then release | **Cancel** — restores original slot, exits recording |
-| Hold *source pad* + hold *another pad* for **1.2 s** | **Copy** — clones the edited slot to the other pad; the copied sound plays on the target as audible confirmation (plus 3 blinks); repeat to copy to more pads |
+| Hold *source pad* + hold *another pad* for **1.2 s** | **Copy** — the accelerating countdown animation restarts while both pads are down, then the clone lands with an affirmation on both channels: the copied sound plays on the target and the LED gives 3 rapid blinks; repeat to copy to more pads |
 
 ---
 
@@ -452,7 +452,9 @@ TouchPlaited always puts a clock on its MIDI outputs, and follows one when you g
 | 3 blinks | Mode / scale position 3 (SW2 Up or SW1 left flick); also: Seq resumed |
 | 3 rapid blinks | Confirm — recording saved, copy completed, or Seq entered/re-randomized |
 | 3 fast triple | At octave/root limit |
-| Steady slow blink | Recording mode active |
+| Accelerating blink | Hold in progress — recording entry (2 s) or copy (1.2 s); speeds up as the threshold nears |
+| Short rapid burst | Recording entered (the 2 s hold landed) |
+| Fast double blink | Recording mode active — one double blink per audible hit of the slot being edited, in sync with the audio (unlike the single beat flash) |
 | Single flash on beat | Quarter-note pulse from the sequencer — lowest priority: shows only when the LED is otherwise idle, and stays off during Recording, for ~2 s after leaving it (so the confirm blink is clearly visible), and around any other blink |
 
 ---
