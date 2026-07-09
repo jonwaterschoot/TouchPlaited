@@ -17,6 +17,8 @@ struct VoiceParams {
     float drive     = 0.0f;
     float blend     = 0.5f;   // OUT↔AUX mono mix: 0 = OUT only, 1 = AUX only
     float width     = 1.0f;   // this voice's share of the group stereo width
+    float rev_send  = 1.0f;   // per-voice trim on the group FX sends —
+    float dly_send  = 1.0f;   // multiplies like volume/width; 1 = follow fully
 };
 
 class VoicePool {
@@ -34,6 +36,8 @@ public:
             voice_volume[i] = 1.0f;
             voice_blend[i]  = 0.5f;
             voice_width[i]  = 1.0f;
+            voice_rev_send[i] = 1.0f;
+            voice_dly_send[i] = 1.0f;
             locked[i]       = false;
             awake[i]        = false;
             gate_held[i]    = false;
@@ -67,6 +71,15 @@ public:
     void SetSeqWidth(float v)     { width_seq = v; }
     void SetPitchedWidth(float v) { width_pitched = v; }
 
+    // Per-group FX send levels (see Render): each voice's post-volume/width
+    // output also feeds the reverb and delay send buses, scaled by its
+    // group's send × the voice's own send trim — dry drums under a wet
+    // synth for free, like the volume/width pairs.
+    void SetSeqReverbSend(float v)     { rev_send_seq = v; }
+    void SetPitchedReverbSend(float v) { rev_send_pitched = v; }
+    void SetSeqDelaySend(float v)      { dly_send_seq = v; }
+    void SetPitchedDelaySend(float v)  { dly_send_pitched = v; }
+
     // Skip the audition voice — its FM stays at 0 for the full note duration.
     void SetFMAmount(float v) {
         for (int i = 0; i < kVoices; i++) {
@@ -94,6 +107,8 @@ public:
         voice_volume[idx] = 1.0f;
         voice_blend[idx]  = g_blend;
         voice_width[idx]  = 1.0f;
+        voice_rev_send[idx] = 1.0f;
+        voice_dly_send[idx] = 1.0f;
         locked[idx]       = false;
         wake(idx, true);
     }
@@ -121,6 +136,8 @@ public:
         voice_volume[idx] = p.volume;
         voice_blend[idx]  = p.blend;
         voice_width[idx]  = p.width;
+        voice_rev_send[idx] = p.rev_send;
+        voice_dly_send[idx] = p.dly_send;
         locked[idx]       = lock_params;
         // Locked (drum-seq) voices are one-shots: no gate hold, free to sleep
         // as soon as their tail decays.
@@ -170,23 +187,32 @@ public:
         voice_volume[idx] = 1.0f;
         voice_blend[idx]  = g_blend;
         voice_width[idx]  = 1.0f;
+        voice_rev_send[idx] = 1.0f;
+        voice_dly_send[idx] = 1.0f;
         wake(idx, false);   // auditions are one-shots — sleep after decay
     }
 
     // Preview using a specific slot's patch — P0+P2 hold feedback and rec-mode
     // auditions. volume defaults to full; rec passes the slot's stored volume
     // so S36 edits are audible while recording, not only after confirm.
-    void AuditionWithParams(float note, const VoiceParams& p) {
+    // seq_group routes the voice through the drum group's volume/width/FX
+    // sends in Render — drum-slot auditions must sound like seq triggers, and
+    // the pitched fader may be sitting at zero. It rides on `locked`, which
+    // also shields the voice from the global setters (like any drum voice).
+    // Drive is taken from the params, not the global cache: for unlocked
+    // (pitched) auditions the per-block SetDrive overwrites it anyway, and a
+    // locked drum audition must keep the drive its params were shaped with.
+    void AuditionWithParams(float note, const VoiceParams& p, bool seq_group = false) {
         int idx = find_free_or_steal();
         audition_idx = idx;
-        locked[idx]  = false;
+        locked[idx]  = seq_group;
         voices[idx].SetEngine(p.engine);
         voices[idx].SetHarmonics(p.harmonics);
         voices[idx].SetTimbre(p.timbre);
         voices[idx].SetMorph(p.morph);
         voices[idx].SetDecay(p.decay);
         voices[idx].SetLPGColour(g_lpg);
-        voices[idx].SetDrive(g_drive);
+        voices[idx].SetDrive(p.drive);
         voices[idx].SetFMAmount(0.0f);
         voices[idx].SetNote(note);
         voices[idx].Trigger(true);
@@ -195,6 +221,8 @@ public:
         voice_volume[idx] = p.volume;
         voice_blend[idx]  = p.blend;
         voice_width[idx]  = p.width;
+        voice_rev_send[idx] = p.rev_send;
+        voice_dly_send[idx] = p.dly_send;
         wake(idx, false);   // auditions are one-shots — sleep after decay
     }
 
@@ -203,7 +231,9 @@ public:
     // after kQuietChunks consecutive chunks below kSilenceThresh with its gate
     // off, and wakes on the next trigger. Gate-held voices never sleep, so a
     // held pad on a quiet engine region still responds to knob sweeps.
-    void Render(float* out_left, float* out_right, size_t size) {
+    void Render(float* out_left, float* out_right,
+                float* rev_left, float* rev_right,
+                float* dly_left, float* dly_right, size_t size) {
         static float tmp_l[24], tmp_r[24];
         for (int i = 0; i < kVoices; i++) {
             if (!awake[i]) continue;
@@ -218,13 +248,21 @@ public:
             // stays dead center whatever the group width does.
             float b    = voice_blend[i];
             float w    = voice_width[i] * (locked[i] ? width_seq : width_pitched);
+            float rs   = locked[i] ? rev_send_seq : rev_send_pitched;
+            float ds   = locked[i] ? dly_send_seq : dly_send_pitched;
             float peak = 0.f;
+            float rsv = rs * voice_rev_send[i] * vol;
+            float dsv = ds * voice_dly_send[i] * vol;
             for (size_t s = 0; s < size; s++) {
                 float m = tmp_l[s] + b * (tmp_r[s] - tmp_l[s]);
                 float l = m + w * (tmp_l[s] - m);
                 float r = m + w * (tmp_r[s] - m);
                 out_left[s]  += l * vol;
                 out_right[s] += r * vol;
+                rev_left[s]  += l * rsv;
+                rev_right[s] += r * rsv;
+                dly_left[s]  += l * dsv;
+                dly_right[s] += r * dsv;
                 float a = l < 0.f ? -l : l;
                 float b = r < 0.f ? -r : r;
                 if (a > peak) peak = a;
@@ -278,6 +316,12 @@ public:
     void UpdateAuditionWidth(float w) {
         if (audition_idx >= 0) voice_width[audition_idx] = w;
     }
+    void UpdateAuditionSends(float rev, float dly) {
+        if (audition_idx >= 0) {
+            voice_rev_send[audition_idx] = rev;
+            voice_dly_send[audition_idx] = dly;
+        }
+    }
 
     PlaitsVoice voices[kVoices];
 
@@ -292,6 +336,8 @@ private:
     float    voice_volume[kVoices];
     float    voice_blend[kVoices];
     float    voice_width[kVoices];
+    float    voice_rev_send[kVoices];
+    float    voice_dly_send[kVoices];
     bool     locked[kVoices];
     bool     awake[kVoices];
     bool     gate_held[kVoices];
@@ -314,6 +360,9 @@ private:
     float vol_seq = 1.0f, vol_pitched = 1.0f;
     // Per-group stereo width (see SetSeqWidth/SetPitchedWidth).
     float width_seq = 1.0f, width_pitched = 1.0f;
+    // Per-group FX send levels (see SetSeqReverbSend etc.). 0 = dry.
+    float rev_send_seq = 0.0f, rev_send_pitched = 0.0f;
+    float dly_send_seq = 0.0f, dly_send_pitched = 0.0f;
 
     int find_free_or_steal() {
         // Prefer a genuinely free voice (not the active audition slot).

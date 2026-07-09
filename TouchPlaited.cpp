@@ -3,6 +3,7 @@
 #include "touch/touch.h"
 #include "synth/voice_pool.h"
 #include "synth/sequencer.h"
+#include "synth/fx.h"
 #include "midi/midi_io.h"
 #include "log.h"
 #include <algorithm>
@@ -47,6 +48,7 @@ static float seq_punch_lk = 0.0f;
 static float seq_tight_lk = 0.5f;
 static float seq_drive_lk = 0.0f;
 static float seq_var_lk   = 0.0f;   // S35 in Seq = pattern variant within genre
+static int   seq_genre_lk = 0;      // SW1 in Seq = genre; change-latched (see SW1 handler)
 static float seq_vol_lk   = 1.0f;   // S36 in Seq = drum group volume
 static float seq_width_lk = 0.0f;   // P0+S37 in Seq = drum-group stereo width (0 = mono)
 
@@ -58,10 +60,38 @@ static float pitched_vol_lk   = 1.0f;
 static float pitched_blend_lk = 0.5f;
 static float pitched_width_lk = 0.0f;
 
-// Unified long-hold threshold for recording enter / confirm / copy in every
-// mode. 1200 ms: long enough that holding a sustained note in Random doesn't
-// trip recording by accident.
+// FX mirror knobs (P1+S30 = reverb, P1+S35 = delay), stored per group like
+// the volume/width pairs so drums and synth keep independent wet levels.
+// Encoding: 0.5 = off (center dead zone); left of center = character A, wet
+// grows toward 0.0; right of center = character B, wet grows toward 1.0.
+// Reverb: room | hall. Delay: slapback | synced dotted 1/8.
+// The *_char values remember the last edit from either group — the shared
+// FX instance takes its character (side + coupled params) from there.
+// Drum recording adds a per-slot trim on top of the drum-group send (PadSlot
+// rev_send/dly_send, edited with the same P1 combo): group send × slot trim,
+// so the mirror knob stays the master wet and the trims fine-balance the kit.
+static float fx_rev_seq_lk = 0.5f, fx_rev_pitched_lk = 0.5f, fx_rev_char_lk = 0.5f;
+static float fx_dly_seq_lk = 0.5f, fx_dly_pitched_lk = 0.5f, fx_dly_char_lk = 0.5f;
+
+// Mirror-knob decode: side -1/0/+1 and wet 0..1 (distance from the dead zone).
+static constexpr float kFxDeadZone = 0.06f;
+static int fx_decode(float v, float* wet) {
+    const float half = 0.5f - kFxDeadZone;
+    if (v < half)        { *wet = (half - v) / half;         return -1; }
+    if (v > 1.f - half)  { *wet = (v - (1.f - half)) / half; return  1; }
+    *wet = 0.f;
+    return 0;
+}
+
+// Unified long-hold threshold for recording confirm / copy in every mode.
+// 1200 ms: long enough that holding a sustained note in Random doesn't trip
+// it by accident.
 static constexpr uint32_t kLongHoldBlocks = 300;  // 1200 ms at 4 ms/block
+
+// Recording *entry* is longer still: 2 s, with an accelerating LED countdown
+// (main loop) from ~0.2 s in so the wait reads as intentional, not dead.
+static constexpr uint32_t kRecEntryHoldBlocks = 500;  // 2000 ms at 4 ms/block
+static constexpr uint32_t kRecEntryAnimStart  = 50;   // countdown visible from 200 ms
 
 // ─── Random ───────────────────────────────────────────────────────────────────
 static uint32_t rng = 1;
@@ -90,6 +120,8 @@ struct PadSlot {
     float drive     = 0.0f;
     float blend     = 0.5f;   // OUT↔AUX mono mix: 0 = OUT only, 1 = AUX only
     float width     = 1.0f;   // this slot's share of the group stereo width
+    float rev_send  = 1.0f;   // per-slot trim on the group FX sends (P1+S30 /
+    float dly_send  = 1.0f;   // P1+S35 in drum recording); 1 = follow fully
 };
 
 // Engines whose internal decay lives on MORPH: String and Modal route it to
@@ -110,6 +142,9 @@ static VoiceParams slot_params(const PadSlot& s, float tight = -1.f) {
     p.drive     = s.drive;
     p.blend     = s.blend;
     p.width     = s.width;
+    // Squared like the group sends (audio taper — see the fx_decode block).
+    p.rev_send  = s.rev_send * s.rev_send;
+    p.dly_send  = s.dly_send * s.dly_send;
     if (morph_is_decay(s.engine))
         p.morph = (tight < 0.f) ? s.decay : s.decay * (0.2f + tight * 0.8f);
     return p;
@@ -187,10 +222,12 @@ static const DrumOpt kDrumKick[]  = {
     { 21, 0.05f,0.30f, 0.20f,0.65f, 0.20f,0.55f, 0.4f,0.8f, 36.f,48.f },
     { 10, 0.10f,0.30f, 0.00f,0.30f, 0.10f,0.40f, 0.3f,0.6f, 36.f,48.f },
 };
+// Particle (18) is excluded from every drum table: its intentionally sporadic
+// crackle reads as a hardware fault when it lands in a random kit. Noise (17)
+// covers the same ground and stays.
 static const DrumOpt kDrumSnare[] = {
     { 22, 0.10f,0.60f, 0.30f,0.80f, 0.30f,0.70f, 0.4f,0.8f, 48.f,60.f },
     { 17, 0.05f,0.20f, 0.55f,0.90f, 0.30f,0.70f, 0.3f,0.6f, 48.f,60.f },
-    { 18, 0.05f,0.20f, 0.40f,0.80f, 0.10f,0.50f, 0.3f,0.6f, 48.f,60.f },
 };
 // Hats live high: note is the pitch center (engine 23) / filter center (17).
 // 60–84 sat in the melodic register and read as tonal noise, not metal.
@@ -204,7 +241,6 @@ static const DrumOpt kDrumOHH[]   = {
 static const DrumOpt kDrumClap[]  = {
     { 22, 0.55f,0.90f, 0.65f,0.95f, 0.50f,0.90f, 0.4f,0.7f, 48.f,62.f },
     { 17, 0.05f,0.20f, 0.70f,1.00f, 0.40f,0.80f, 0.3f,0.5f, 55.f,70.f },
-    { 18, 0.05f,0.20f, 0.50f,0.90f, 0.10f,0.50f, 0.3f,0.5f, 55.f,70.f },
 };
 static const DrumOpt kDrumTom[]   = {
     { 21, 0.30f,0.65f, 0.10f,0.40f, 0.30f,0.60f, 0.4f,0.8f, 48.f,72.f },
@@ -217,7 +253,6 @@ static const DrumOpt kDrumTom[]   = {
 static const DrumOpt kDrumPerc[]  = {
     { 20, 0.10f,0.30f, 0.20f,0.55f, 0.30f,0.60f, 0.4f,0.8f, 60.f,84.f },
     { 23, 0.10f,0.30f, 0.50f,0.90f, 0.50f,1.00f, 0.4f,0.7f, 76.f,96.f },
-    { 18, 0.10f,0.30f, 0.30f,0.70f, 0.30f,0.70f, 0.3f,0.6f, 60.f,80.f },
     { 22, 0.05f,0.20f, 0.05f,0.35f, 0.30f,0.60f, 0.3f,0.5f, 66.f,80.f },
 };
 
@@ -233,33 +268,45 @@ static void fill_drum_slot(PadSlot& s, const DrumOpt* opts, int n) {
 
 static void generate_drum_random() {
     fill_drum_slot(drum_slots[0], kDrumKick,  2); drum_slots[0].volume = 0.90f;
-    fill_drum_slot(drum_slots[1], kDrumSnare, 3); drum_slots[1].volume = 0.80f;
+    fill_drum_slot(drum_slots[1], kDrumSnare, 2); drum_slots[1].volume = 0.80f;
     fill_drum_slot(drum_slots[2], kDrumCHH,   2); drum_slots[2].volume = 0.55f;
     fill_drum_slot(drum_slots[3], kDrumOHH,   1); drum_slots[3].volume = 0.65f;
-    fill_drum_slot(drum_slots[4], kDrumClap,  3); drum_slots[4].volume = 0.75f;
+    fill_drum_slot(drum_slots[4], kDrumClap,  2); drum_slots[4].volume = 0.75f;
     fill_drum_slot(drum_slots[5], kDrumTom,   2); drum_slots[5].volume = 0.70f;
-    fill_drum_slot(drum_slots[6], kDrumPerc,  4); drum_slots[6].volume = 0.50f;
+    fill_drum_slot(drum_slots[6], kDrumPerc,  3); drum_slots[6].volume = 0.50f;
     // slot.drive is a ratio of the overall S30 drive in seq mode; 1.0 = follow fully.
-    // Blend/width reset with the kit: a mono flag or AUX-only blend from an old
-    // kit shouldn't silently reshape whatever new engine lands on the slot.
+    // Blend/width/FX-send trims reset with the kit: a mono flag, AUX-only blend
+    // or dry-trimmed send from an old kit shouldn't silently reshape whatever
+    // new engine lands on the slot.
     for (int i = 0; i < kPadSlots; i++) {
-        drum_slots[i].drive = 1.0f;
-        drum_slots[i].blend = 0.5f;
-        drum_slots[i].width = 1.0f;
+        drum_slots[i].drive    = 1.0f;
+        drum_slots[i].blend    = 0.5f;
+        drum_slots[i].width    = 1.0f;
+        drum_slots[i].rev_send = 1.0f;
+        drum_slots[i].dly_send = 1.0f;
     }
     drum_kit_ready = true;
+}
+
+// Render params for drum slot i exactly as a seq trigger shapes them (tail→
+// morph via tightness, kick punch, overall drive × slot ratio). Shared by
+// triggers and rec-mode auditions, so tweaking a drum against the paused seq
+// sounds the same as it will when the pattern runs.
+static VoiceParams drum_params(int i) {
+    const PadSlot& s = drum_slots[i];
+    VoiceParams p = slot_params(s, seq_tight_lk);
+    if (i == 0) p.timbre = p.timbre + seq_punch_lk * (1.0f - p.timbre);
+    p.drive = clampf(seq_drive_lk * s.drive);
+    return p;
 }
 
 // Fire drum slot i — used by both seq steps and manual pad hits in Seq mode.
 // Slot id 16+i keeps drum voices out of reach of pad NoteOffs (slots 0–6), and
 // lock_params=true shields them from the active playmode's global knob writes.
 static void trigger_drum(int i, float vel = 1.0f) {
-    const PadSlot& s = drum_slots[i];
-    VoiceParams p = slot_params(s, seq_tight_lk);   // tail→morph for engines 19–23
-    if (i == 0) p.timbre = p.timbre + seq_punch_lk * (1.0f - p.timbre);
-    p.drive = clampf(seq_drive_lk * s.drive);
+    VoiceParams p = drum_params(i);
     p.volume *= vel;   // MIDI velocity; pads and seq steps pass 1.0
-    pool.NoteOnWithParams(16 + i, s.note, p, true);
+    pool.NoteOnWithParams(16 + i, drum_slots[i].note, p, true);
 }
 
 // Seq P0+P2 stage 1: nudge params of the current kit — same engines, same notes.
@@ -328,13 +375,30 @@ static volatile RecMode rec_mode = RecMode::IDLE;
 static int              rec_slot = -1;      // 0–6: slot being edited
 static PadSlot          rec_backup;          // saved state, restored on cancel
 
-// Drum mode entry: hold pad 3–9 for 800ms (AudioCallback-driven, not touch callback).
-static int      entry_hold_pad   = -1;
-static uint32_t entry_hold_count = 0;
+// Recording entry: hold pad 3–9 for kRecEntryHoldBlocks (AudioCallback-driven,
+// not touch callback). The count is read by the main loop for the accelerating
+// entry-countdown LED animation. entry_wait_clear latches counting off after a
+// rec exit until every musical pad is released — the hold that confirmed a
+// save must not bleed into a fresh 2 s entry.
+static int               entry_hold_pad    = -1;
+static volatile uint32_t entry_hold_count  = 0;
+static bool              entry_wait_clear  = false;
 
-// Secondary pad tracking for cancel / copy while in recording.
-static int      cancel_pad   = -1;
-static uint32_t cancel_count = 0;
+// Secondary pad tracking for cancel / copy while in recording. copy_hold_anim
+// mirrors the copy hold progress (only while the source pad is also down) for
+// the main-loop LED: the entry countdown animation restarts during a copy.
+static int               cancel_pad     = -1;
+static uint32_t          cancel_count   = 0;
+static volatile uint32_t copy_hold_anim = 0;
+
+// Set on rec entry; the main loop plays a short LED burst before settling
+// into the recording heartbeat.
+static volatile bool rec_entry_flash = false;
+
+// Recording heartbeat trigger: set whenever the slot being edited actually
+// sounds (seq step or paused-seq audition); the main loop answers each hit
+// with one fast double blink, so the LED is locked to the audio.
+static volatile bool rec_hit_flash = false;
 
 // Knob pickup — the pot takes effect once it reaches or crosses the stored
 // value. Inclusive comparison + a near-window, so targets at the pot extremes
@@ -360,6 +424,11 @@ struct KnobPickup {
     }
 };
 static KnobPickup rec_k30, rec_k31, rec_k32, rec_k33, rec_k34, rec_k36, rec_k37;
+// P1 held in drum recording: S30/S35 become the slot's FX send trims (level
+// only — the character stays on the global mirror knobs). Armed on the P1
+// press edge; the bare roles (drive / model select) re-arm on release.
+static KnobPickup rec_k30fx, rec_k35fx;
+static bool       rec_p1_last = false;   // press/release edge tracking
 
 // CC pickups gate the pots behind the eff_* params. Force-caught at boot so
 // the pots are live from the start; a MIDI CC write re-arms them.
@@ -387,6 +456,8 @@ struct MoveCatch {
 static MoveCatch rec_k37w;    // P0+S37 in recording = slot stereo width
 static MoveCatch seq_puw;     // P0+S37 in Seq = drum-group stereo width
 static MoveCatch pitch_pu_w;  // P0+S37 in pitched modes = pitched-group width
+static MoveCatch fx_mc_rev;   // P1+S30 = reverb mirror knob (any mode)
+static MoveCatch fx_mc_dly;   // P1+S35 = delay mirror knob (any mode)
 
 // Pickups for the seq settings — armed on every Seq entry (see SW2 handling)
 // and re-armed after recording (rec mode borrows most of these pots).
@@ -415,9 +486,9 @@ static void rearm_seq_pickups() {
 
 // ─── MIDI (mapping design in notes.md → "MIDI mapping sketch") ────────────────
 // Channel split: ch1 = pitched — the note number IS the pitch, bypassing the
-// pad scale/root/octave logic — ch10 = drums via the GM map. CC20–31 map to
-// *functions*, not pots; a CC write re-arms that pot's pickup so the pot must
-// cross the value to take over (same rule as mode hand-offs).
+// pad scale/root/octave logic — ch10 = drums via the GM map. CC20–31 and
+// 85–88 map to *functions*, not pots; a CC write re-arms that pot's pickup so
+// the pot must cross the value to take over (same rule as mode hand-offs).
 // Handlers run from MidiIO::Service (main loop) inside an IRQ-off section.
 static constexpr uint8_t kMidiPitchCh  = 0;    // ch1
 static constexpr uint8_t kMidiDrumCh   = 9;    // ch10
@@ -510,6 +581,21 @@ static void on_midi_cc(uint8_t /*ch*/, uint8_t cc, uint8_t val) {
                  seq.SetDensity(v);                                          break;
         case 30: seq_punch_lk = v; seq_pu34.arm_to(v, kn.s34().Value());     break;
         case 31: seq_tight_lk = v; seq_pu37.arm_to(v, kn.s37().Value());     break;
+        // FX mirror values, same center-off encoding as the P1 knob layer
+        // (64 ≈ off; below = character A, above = character B, wet grows
+        // outward). The pot writes to whichever group is active; over MIDI
+        // each group gets its own CC so a DAW can automate the drum sends
+        // while playing a pitched mode. Character is shared — last edit from
+        // either group wins, exactly like the knob. Re-arming the movement-
+        // catch means a caught pot must be nudged again to take back over.
+        case 85: fx_rev_pitched_lk = v; fx_rev_char_lk = v;
+                 fx_mc_rev.arm(kn.s30().Value());                            break;
+        case 86: fx_rev_seq_lk = v;     fx_rev_char_lk = v;
+                 fx_mc_rev.arm(kn.s30().Value());                            break;
+        case 87: fx_dly_pitched_lk = v; fx_dly_char_lk = v;
+                 fx_mc_dly.arm(kn.s35().Value());                            break;
+        case 88: fx_dly_seq_lk = v;     fx_dly_char_lk = v;
+                 fx_mc_dly.arm(kn.s35().Value());                            break;
         default: break;
     }
 }
@@ -597,10 +683,14 @@ static const int kScales[3][7] = {
     { 0, 2, 3, 5,  7,  8,  10 },
 };
 
+// SW1 is change-latched per role (scale here, genre in Seq): a switch has no
+// value to "cross", so the pickup equivalent is ignoring the position it
+// acquired while serving the other role until it moves again (see SW1 handler).
+static int scale_lk = 0;
+
 static float compute_note(int pad) {
     int degree = pad - 3;
-    int sw     = touch.switches().B();
-    int note   = kPitchBase + root_semitone + kScales[sw][degree] + octave_offset * 12;
+    int note   = kPitchBase + root_semitone + kScales[scale_lk][degree] + octave_offset * 12;
     return static_cast<float>(std::max(0, std::min(127, note)));
 }
 
@@ -620,6 +710,13 @@ static bool any_musical_pad_held() {
 enum class LedEvent { NONE, NUMBERED, LIMIT, CONFIRM, MODEL, BEAT };
 static volatile LedEvent led_event      = LedEvent::NONE;
 static volatile int      led_event_data = 0;
+
+// Beat-pulse hold-off: the pulse only shows when the LED isn't needed for
+// anything else. Armed on every rec exit (the confirm/cancel blink must stay
+// readable) and by the main loop whenever it dispatches a real blink; counted
+// down per audio block. 2 s covers the longest blink (~1.4 s) plus a gap.
+static constexpr uint32_t kBeatLedHoldBlocks = 500;   // 2 s at 4 ms/block
+static volatile uint32_t  beat_led_hold      = 0;
 
 // ─── Model selection ──────────────────────────────────────────────────────────
 // (Six-Op audition presets kSixOpAud are defined with the random generators above.)
@@ -751,6 +848,10 @@ static void enter_rec_mode(int slot) {
     rec_retrig_tick    = 0;
     cancel_pad         = -1;
     cancel_count       = 0;
+    copy_hold_anim     = 0;
+    rec_p1_last        = false;   // P1 already down at entry = fresh press edge
+    rec_entry_flash    = true;    // main loop: entry burst before the heartbeat
+    rec_hit_flash      = false;
 
     // Arm knob pickups to the slot's actual values: each pot takes effect only
     // when it reaches the value it is editing — no jumps, works from either
@@ -772,11 +873,16 @@ static void enter_rec_mode(int slot) {
 
     pool.AllNotesOff();
     // While the seq is running it force-fires this slot every step, so a
-    // sustained audition voice would just double the sound — skip it.
+    // sustained audition voice would just double the sound — skip it. Drum
+    // auditions use the seq-trigger param shaping and ride the drum group's
+    // volume/sends (seq_group=true) — the pitched fader may be at zero.
     if (!(seq_mode_on && seq.IsActive())) {
-        const auto& s = live_slots()[slot];
-        float aud_note = is_drum_mode ? s.note : root_note_f();
-        pool.AuditionWithParams(aud_note, slot_params(s));
+        if (is_drum_mode) {
+            pool.AuditionWithParams(drum_slots[slot].note, drum_params(slot), true);
+        } else {
+            pool.AuditionWithParams(root_note_f(), slot_params(live_slots()[slot]));
+        }
+        rec_hit_flash = true;
     }
 }
 
@@ -787,8 +893,11 @@ static void cancel_rec_mode() {
     rec_hold_count = 0;
     cancel_pad     = -1;
     cancel_count   = 0;
+    copy_hold_anim = 0;
+    entry_wait_clear = true;   // held pads must clear before a new entry hold
     pool.AllNotesOff();
     rearm_seq_pickups();   // rec borrowed these pots; require fresh pickup
+    beat_led_hold = kBeatLedHoldBlocks;
 }
 
 static void confirm_rec_mode() {
@@ -797,8 +906,11 @@ static void confirm_rec_mode() {
     rec_hold_count = 0;
     cancel_pad     = -1;
     cancel_count   = 0;
+    copy_hold_anim = 0;
+    entry_wait_clear = true;   // the confirming hold must not become a new entry
     pool.AllNotesOff();
     rearm_seq_pickups();   // rec borrowed these pots; require fresh pickup
+    beat_led_hold = kBeatLedHoldBlocks;
     led_event = LedEvent::CONFIRM;
 }
 
@@ -851,13 +963,21 @@ void AudioCallback(AudioHandle::InputBuffer in, AudioHandle::OutputBuffer out, s
     last_m    = k.s34().Value();
     last_d    = k.s31().Value();   // unified Decay lives on S31 (LPG colour retired)
 
+    // P1 = FX modifier: held → S30 edits the reverb, S35 the delay. Their
+    // bare roles (drive / pattern select) freeze for the duration. Disabled
+    // while recording (rec borrows S30 — in drum recording the same combo
+    // edits the slot's send trims instead, see the rec knob block) and under
+    // P0/P2 (model select owns S35 there).
+    bool p1_fx = touch.pads().IsTouched(1) && !touch.pads().IsTouched(0)
+                 && !touch.pads().IsTouched(2) && rec_mode == RecMode::IDLE;
+
     // Pots feed the effective params through the CC pickups: live by default,
     // gated after a MIDI CC write until the pot crosses the CC value.
     if (cc_pu_h.update(last_h))     eff_h     = last_h;
     if (cc_pu_t.update(last_t))     eff_t     = last_t;
     if (cc_pu_m.update(last_m))     eff_m     = last_m;
     if (cc_pu_d.update(last_d))     eff_d     = last_d;
-    if (cc_pu_drive.update(drive))  eff_drive = drive;
+    if (!p1_fx && cc_pu_drive.update(drive))  eff_drive = drive;
 
     // One-time fader arm: volume and blend follow their pots live from boot —
     // the pickups only start gating after a mode hand-off or P0 width edit.
@@ -877,12 +997,22 @@ void AudioCallback(AudioHandle::InputBuffer in, AudioHandle::OutputBuffer out, s
         eff_drive = drive;     cc_pu_drive.force_catch(drive);
     }
 
-    // SW1 / scale
+    // SW1 / scale or genre — change-latched: the position only takes effect
+    // when the switch moves while its role is active, so a position it
+    // acquired while serving the other role never jumps the setting on a
+    // playmode flick (the switch equivalent of the knob pickups).
     int sw1 = touch.switches().B();
     if (sw1 != last_sw1) {
         if (last_sw1 >= 0) {
+            if (seq_mode_on) seq_genre_lk = sw1;
+            else             scale_lk     = sw1;
             led_event      = LedEvent::NUMBERED;
             led_event_data = sw1_blink_count(sw1);
+        } else {
+            // Boot: scale follows the physical position. The genre keeps its
+            // Techno default until SW1 moves inside Seq (same policy as the
+            // S35 pattern variant).
+            scale_lk = sw1;
         }
         last_sw1 = sw1;
     }
@@ -980,6 +1110,41 @@ void AudioCallback(AudioHandle::InputBuffer in, AudioHandle::OutputBuffer out, s
         }
     }
 
+    // P1 FX modifier: on the press edge arm the movement-catches (nudge ~3%
+    // and the pot position IS the value, like the width controls — a
+    // crossing pickup against a center-mirror encoding felt dead); on the
+    // release edge re-arm the bare roles' pickups so drive / pattern select
+    // don't jump to wherever the FX edit left the pot.
+    {
+        static bool last_p1_fx = false;
+        if (p1_fx != last_p1_fx) {
+            last_p1_fx = p1_fx;
+            if (p1_fx) {
+                fx_mc_rev.arm(k.s30().Value());
+                fx_mc_dly.arm(k.s35().Value());
+            } else {
+                if (seq_mode_on) {
+                    seq_pu30.arm_to(seq_drive_lk, k.s30().Value());
+                    seq_pu35.arm_to(seq_var_lk,   k.s35().Value());
+                } else {
+                    cc_pu_drive.arm_to(eff_drive, k.s30().Value());
+                }
+            }
+        }
+        if (p1_fx) {
+            float v30 = k.s30().Value();
+            if (fx_mc_rev.update(v30)) {
+                if (seq_mode_on) fx_rev_seq_lk = v30; else fx_rev_pitched_lk = v30;
+                fx_rev_char_lk = v30;
+            }
+            float v35 = k.s35().Value();
+            if (fx_mc_dly.update(v35)) {
+                if (seq_mode_on) fx_dly_seq_lk = v35; else fx_dly_pitched_lk = v35;
+                fx_dly_char_lk = v35;
+            }
+        }
+    }
+
     // Sequencer knob/switch updates — only while SW2 is Up and not recording
     // (rec mode borrows S30/S32/S33/S34/S37 for slot editing). Every pot goes
     // through pickup, so a pot used by another mode doesn't jump the setting
@@ -987,21 +1152,21 @@ void AudioCallback(AudioHandle::InputBuffer in, AudioHandle::OutputBuffer out, s
     // Seq layout: S30=drive, S31=tempo, S32=shuffle, S33=density, S34=punch,
     // S35=pattern variant (within the SW1 genre), S37=tightness.
     if (seq_mode_on && rec_mode == RecMode::IDLE) {
-        if (seq_pu30.update(drive))            seq_drive_lk = drive;
+        if (!p1_fx && seq_pu30.update(drive))            seq_drive_lk = drive;
         if (seq_pu31.update(k.s31().Value()))  seq_tempo_lk = k.s31().Value();
         if (seq_pu32.update(k.s32().Value()))  seq_shuf_lk  = k.s32().Value();
         if (seq_pu33.update(k.s33().Value()))  seq_dens_lk  = k.s33().Value();
         if (seq_pu34.update(k.s34().Value()))  seq_punch_lk = k.s34().Value();
-        if (seq_pu35.update(k.s35().Value()))  seq_var_lk   = k.s35().Value();
+        if (!p1_fx && seq_pu35.update(k.s35().Value()))  seq_var_lk   = k.s35().Value();
         if (seq_pu36.update(k.s36().Value()))  seq_vol_lk   = k.s36().Value();
         if (touch.pads().IsTouched(0)) {
             if (seq_puw.update(k.s37().Value())) seq_width_lk = snap_width(k.s37().Value());
         } else {
             if (seq_pu37.update(k.s37().Value())) seq_tight_lk = k.s37().Value();
         }
-        seq.SetGenre(touch.switches().B());  // SW1: Center=Techno / Left=Electro / Right=IDM
     }
     if (seq_mode_on) {
+        seq.SetGenre(seq_genre_lk);  // change-latched from SW1 (see SW1 handler)
         seq.SetTempo(seq_tempo_lk);
         seq.SetShuffle(seq_shuf_lk);
         seq.SetDensity(seq_dens_lk);
@@ -1022,6 +1187,25 @@ void AudioCallback(AudioHandle::InputBuffer in, AudioHandle::OutputBuffer out, s
     pool.SetPitchedVolume(pitched_vol_lk);
     pool.SetSeqWidth(seq_width_lk);
     pool.SetPitchedWidth(pitched_width_lk);
+
+    // Decode the FX mirror knobs into per-group sends + shared character.
+    // Squared send = audio taper: finer control in the useful low-wet range.
+    {
+        float w;
+        fx_decode(fx_rev_seq_lk, &w);      pool.SetSeqReverbSend(w * w);
+        fx_decode(fx_rev_pitched_lk, &w);  pool.SetPitchedReverbSend(w * w);
+        int side = fx_decode(fx_rev_char_lk, &w);
+        fx.SetReverbCharacter(side, w);
+
+        fx_decode(fx_dly_seq_lk, &w);      pool.SetSeqDelaySend(w * w);
+        fx_decode(fx_dly_pitched_lk, &w);  pool.SetPitchedDelaySend(w * w);
+        side = fx_decode(fx_dly_char_lk, &w);
+        // Dotted 1/8 = 3 sixteenth steps of the seq clock (internal tempo;
+        // under external MIDI clock this is the knob fallback tempo).
+        fx.SetDelayCharacter(side, w,
+                             3.f * static_cast<float>(seq.StepBlocks())
+                                 * static_cast<float>(kBlockSize));
+    }
 
     // P0+P2 hold counter — active in every playmode:
     //   Basic Pitch: 1s soft tight (±0.25) → 2s soft wide (±0.45), same engine
@@ -1104,17 +1288,24 @@ void AudioCallback(AudioHandle::InputBuffer in, AudioHandle::OutputBuffer out, s
     }
 
     // Recording entry — unified across Seq and Random: hold a pad (P3–P9) for
-    // kLongHoldBlocks. Same gesture, same threshold, in both modes.
+    // kRecEntryHoldBlocks (2 s). Same gesture, same threshold, in both modes;
+    // the main loop animates the countdown from entry_hold_count.
     bool rec_entry_allowed = seq_mode_on || (current_mode == PlayMode::RANDOM);
     if (rec_entry_allowed && rec_mode == RecMode::IDLE) {
         int held_pad = -1;
         for (int i = 3; i <= 9; i++) {
             if (touch.pads().IsTouched(i)) { held_pad = i; break; }
         }
-        if (held_pad < 0 || held_pad != entry_hold_pad) {
+        if (entry_wait_clear) {
+            // Post-exit latch: the hold that confirmed/copied must fully end
+            // before a pad can start a new entry countdown.
+            if (held_pad < 0) entry_wait_clear = false;
+            entry_hold_count = 0;
+            entry_hold_pad   = -1;
+        } else if (held_pad < 0 || held_pad != entry_hold_pad) {
             entry_hold_count = 0;
             entry_hold_pad   = held_pad;
-        } else if (++entry_hold_count >= kLongHoldBlocks) {
+        } else if (++entry_hold_count >= kRecEntryHoldBlocks) {
             entry_hold_count = 0;
             entry_hold_pad   = -1;
             enter_rec_mode(held_pad - 3);
@@ -1146,17 +1337,23 @@ void AudioCallback(AudioHandle::InputBuffer in, AudioHandle::OutputBuffer out, s
             if (i - 3 != rec_slot && touch.pads().IsTouched(i)) { other_slot = i - 3; break; }
         }
         if (other_slot < 0) {
-            // Secondary released: fire cancel if held 50ms–799ms without source held.
+            // Secondary released: fire cancel if held 50ms–1199ms without source held.
             if (cancel_pad >= 0 && cancel_count >= 12 && cancel_count < kLongHoldBlocks && !src_held)
                 cancel_rec_mode();
-            cancel_pad   = -1;
-            cancel_count = 0;
+            cancel_pad     = -1;
+            cancel_count   = 0;
+            copy_hold_anim = 0;
         } else if (other_slot != cancel_pad) {
-            cancel_pad   = other_slot;
-            cancel_count = 0;
+            cancel_pad     = other_slot;
+            cancel_count   = 0;
+            copy_hold_anim = 0;
         } else {
-            // Secondary held: fire copy when the long-hold elapses with source also held.
-            if (++cancel_count >= kLongHoldBlocks && src_held) {
+            // Secondary held: fire copy when the long-hold elapses with source
+            // also held. The main-loop countdown animation follows the hold
+            // only while both pads are down (a lone secondary is a cancel tap).
+            ++cancel_count;
+            copy_hold_anim = src_held ? cancel_count : 0;
+            if (cancel_count >= kLongHoldBlocks && src_held) {
                 live_slots()[cancel_pad] = live_slots()[rec_slot];
                 // Audible confirmation: play the copied sound on the target.
                 if (is_drum_mode) {
@@ -1165,14 +1362,16 @@ void AudioCallback(AudioHandle::InputBuffer in, AudioHandle::OutputBuffer out, s
                     const auto& cs = live_slots()[cancel_pad];
                     pool.AuditionWithParams(root_note_f(), slot_params(cs));
                 }
-                led_event    = LedEvent::CONFIRM;
-                cancel_pad   = -1;  // reset so next secondary starts fresh
-                cancel_count = 0;
+                led_event      = LedEvent::CONFIRM;
+                cancel_pad     = -1;  // reset so next secondary starts fresh
+                cancel_count   = 0;
+                copy_hold_anim = 0;
             }
         }
     } else {
-        cancel_pad   = -1;
-        cancel_count = 0;
+        cancel_pad     = -1;
+        cancel_count   = 0;
+        copy_hold_anim = 0;
     }
 
     // Recording mode knob pickup + retrigger.
@@ -1181,8 +1380,36 @@ void AudioCallback(AudioHandle::InputBuffer in, AudioHandle::OutputBuffer out, s
         auto& slot   = live_slots()[rec_slot];
         float v30 = k.s30().Value(), v31 = k.s31().Value(), v32 = k.s32().Value();
         float v33 = k.s33().Value(), v34 = k.s34().Value(), v36 = k.s36().Value();
-        float v37 = k.s37().Value();
-        if (rec_k30.update(v30)) { slot.drive  = v30; if (!seq_mode_on) pool.SetDrive(v30); }
+        float v37 = k.s37().Value(), v35 = k.s35().Value();
+        // P1 in drum recording = this slot's FX send trims: S30 reverb, S35
+        // delay — the same combo as the global FX layer, scoped to the slot.
+        // Each role catches its own stored value, so releasing P1 can't jump
+        // drive or model select to wherever the send edit left the pot.
+        bool p1_snd = is_drum_mode && touch.pads().IsTouched(1)
+                      && !touch.pads().IsTouched(0) && !touch.pads().IsTouched(2);
+        if (p1_snd != rec_p1_last) {
+            rec_p1_last = p1_snd;
+            if (p1_snd) {
+                rec_k30fx.arm_to(slot.rev_send, v30);
+                rec_k35fx.arm_to(slot.dly_send, v35);
+            } else {
+                rec_k30.arm_to(slot.drive, v30);
+                rec_bank_caught[0] = rec_bank_caught[1] = false;
+                rec_bank_thresh[0] = rec_bank_thresh[1] = v35;
+            }
+        }
+        if (p1_snd) {
+            bool snd_changed = false;
+            if (rec_k30fx.update(v30)) { slot.rev_send = v30; snd_changed = true; }
+            if (rec_k35fx.update(v35)) { slot.dly_send = v35; snd_changed = true; }
+            // Squared like slot_params. Audible per seq trigger and on the
+            // paused-seq audition alike — drum auditions ride the drum
+            // group's sends with the per-voice trim applied.
+            if (snd_changed)
+                pool.UpdateAuditionSends(slot.rev_send * slot.rev_send,
+                                         slot.dly_send * slot.dly_send);
+        }
+        if (!p1_snd && rec_k30.update(v30)) { slot.drive  = v30; if (!seq_mode_on) pool.SetDrive(v30); }
         if (rec_k36.update(v36)) { slot.volume = v36; }
         if (touch.pads().IsTouched(0)) {
             if (rec_k37w.update(v37)) {
@@ -1200,8 +1427,17 @@ void AudioCallback(AudioHandle::InputBuffer in, AudioHandle::OutputBuffer out, s
         if (rec_k33.update(v33)) { slot.timbre    = v33; changed = true; }
         if (rec_k34.update(v34)) { slot.morph     = v34; changed = true; }
         if (changed) {
-            float upd_morph = morph_is_decay(slot.engine) ? slot.decay : slot.morph;
-            pool.UpdateAuditionParams(slot.harmonics, slot.timbre, upd_morph, slot.decay);
+            // Drum audition updates carry the same shaping as drum_params
+            // (tightness on the tail, punch on the kick) — otherwise the
+            // sound jumps on the next retrigger.
+            float upd_morph = slot.morph;
+            if (morph_is_decay(slot.engine))
+                upd_morph = is_drum_mode ? slot.decay * (0.2f + seq_tight_lk * 0.8f)
+                                         : slot.decay;
+            float upd_timbre = slot.timbre;
+            if (is_drum_mode && rec_slot == 0)
+                upd_timbre = slot.timbre + seq_punch_lk * (1.0f - slot.timbre);
+            pool.UpdateAuditionParams(slot.harmonics, upd_timbre, upd_morph, slot.decay);
         }
         // Fixed-rate pulse — NOT keyed on `changed`: that flag is level (pickup
         // caught), not edge, so a changed-gated scheme ran at two speeds
@@ -1210,10 +1446,18 @@ void AudioCallback(AudioHandle::InputBuffer in, AudioHandle::OutputBuffer out, s
         bool seq_running = seq_mode_on && seq.IsActive();
         if (!seq_running && (rec_tick - rec_retrig_tick) >= kRetrigBlocks) {
             rec_retrig_tick = rec_tick;
-            float aud_note = is_drum_mode ? slot.note : root_note_f();
-            pool.AuditionWithParams(aud_note, slot_params(slot));
+            // Drum slots re-audition with the full seq-trigger shaping and on
+            // the drum group's volume/sends — an unlocked audition rode the
+            // *pitched* group, which is silent whenever that fader is down,
+            // so editing against a paused seq gave no sound at all.
+            if (is_drum_mode) {
+                pool.AuditionWithParams(slot.note, drum_params(rec_slot), true);
+            } else {
+                pool.AuditionWithParams(root_note_f(), slot_params(slot));
+            }
+            rec_hit_flash = true;
         }
-        process_rec_model_select(k.s35().Value());
+        if (!p1_snd) process_rec_model_select(v35);
     }
 
     // Global model select.
@@ -1245,7 +1489,13 @@ void AudioCallback(AudioHandle::InputBuffer in, AudioHandle::OutputBuffer out, s
     // Sequencer tick — runs in every playmode while the seq is playing.
     if (seq.IsActive()) {
         uint8_t triggers = seq.Tick();
-        if (seq.BeatFired() && rec_mode == RecMode::IDLE) led_event = LedEvent::BEAT;
+        // Beat pulse — lowest-priority LED signal: never overwrites a pending
+        // event, suppressed while recording and during the hold-off that rec
+        // exits and dispatched blinks arm.
+        if (beat_led_hold) beat_led_hold = beat_led_hold - 1;
+        if (seq.BeatFired() && rec_mode == RecMode::IDLE
+                && beat_led_hold == 0 && led_event == LedEvent::NONE)
+            led_event = LedEvent::BEAT;
         // Force-fire the recording slot on every *other* step (8th notes —
         // 16ths were overwhelming while editing), and only for drum recording
         // (Seq mode); a Random-slot rec index must not fire the drum slot of
@@ -1255,6 +1505,9 @@ void AudioCallback(AudioHandle::InputBuffer in, AudioHandle::OutputBuffer out, s
         for (int i = 0; i < 7; i++) {
             if (triggers & (1u << i)) {
                 trigger_drum(i);
+                // Heartbeat: the rec slot sounding drives the LED double blink.
+                if (seq_mode_on && rec_mode == RecMode::RECORDING && i == rec_slot)
+                    rec_hit_flash = true;
                 // Mirror to MIDI out as one-shot GM hits (queued; the main
                 // loop drains — never TX from this ISR).
                 midi.SendNoteOn(kMidiDrumCh, kDrumSlotGm[i], 100);
@@ -1275,13 +1528,27 @@ void AudioCallback(AudioHandle::InputBuffer in, AudioHandle::OutputBuffer out, s
         for (int n = seq.MidiClockTick(); n > 0; n--) midi.SendClock();
     }
 
-    // Render. Static to keep 1.5 KB off the ISR stack.
+    // Render. Static to keep the buffers (main + FX send buses) off the ISR
+    // stack.
     static float left[kBlockSize];
     static float right[kBlockSize];
+    static float rev_bus_l[kBlockSize], rev_bus_r[kBlockSize];
+    static float dly_bus_l[kBlockSize], dly_bus_r[kBlockSize];
     __builtin_memset(left,  0, size * sizeof(float));
     __builtin_memset(right, 0, size * sizeof(float));
+    __builtin_memset(rev_bus_l, 0, size * sizeof(float));
+    __builtin_memset(rev_bus_r, 0, size * sizeof(float));
+    __builtin_memset(dly_bus_l, 0, size * sizeof(float));
+    __builtin_memset(dly_bus_r, 0, size * sizeof(float));
     for (size_t offset = 0; offset < size; offset += kChunkSize)
-        pool.Render(left + offset, right + offset, kChunkSize);
+        pool.Render(left + offset, right + offset,
+                    rev_bus_l + offset, rev_bus_r + offset,
+                    dly_bus_l + offset, dly_bus_r + offset, kChunkSize);
+
+    // FX returns sum into the mix before the soft-clip. Each sleeps when its
+    // send bus and tail are silent, so unused FX cost nothing per block.
+    fx.ProcessDelay(dly_bus_l, dly_bus_r, left, right, size);
+    fx.ProcessReverb(rev_bus_l, rev_bus_r, left, right, size);
 
     // Output: soft-clip via x/(1+|x|). Levels are per-group in VoicePool
     // (SetSeqVolume / SetPitchedVolume) — no master scale here.
@@ -1298,6 +1565,13 @@ void AudioCallback(AudioHandle::InputBuffer in, AudioHandle::OutputBuffer out, s
 // ─── Main ─────────────────────────────────────────────────────────────────────
 int main() {
     hw.Init();
+    // DaisySeed::Init skips led.Init() when the Daisy bootloader reports
+    // < v6.0 (no version stamp in backup SRAM) and the app runs from QSPI —
+    // SetLed then writes through a null GPIO port and the user LED stays
+    // dark in every mode. The LED config is populated unconditionally before
+    // that skip, so re-running the init here is safe (and idempotent when
+    // DaisySeed::Init already did it).
+    hw.led.Init();
     hw.SetAudioBlockSize(kBlockSize);
     hw.SetAudioSampleRate(SaiHandle::Config::SampleRate::SAI_48KHZ);
 
@@ -1311,6 +1585,7 @@ int main() {
     touch.Init(hw);
     pool.Init();
     pool.SetEngine(current_engine);
+    fx.Init(hw.AudioSampleRate());   // clears the SDRAM FX buffers (NOLOAD section)
     // TRS MIDI always (idle UART is free); USB MIDI only with -DUSB_MIDI,
     // which is also what suppresses StartLog above — one USB port, one owner.
     midi.Init();
@@ -1363,8 +1638,8 @@ int main() {
             }
 
         } else if (pad == 1) {
-            // Unused — play/pause moved to the P2+P11 combo. Reserved for
-            // future melodic seq trigger.
+            // FX modifier (hold + S30 = reverb, + S35 = delay) — handled in
+            // AudioCallback like the P0 width modifier; nothing to do on tap.
 
         } else if (pad == 2) {
             if (rec_mode == RecMode::IDLE) {
@@ -1377,7 +1652,7 @@ int main() {
                     && !touch.pads().IsTouched(0) && rec_slot >= 0) {
                 auto& s = live_slots()[rec_slot];
                 s.note = std::max(0.f, s.note - 1.f);
-                pool.AuditionWithParams(s.note, slot_params(s));
+                pool.AuditionWithParams(s.note, drum_params(rec_slot), true);
             } else if (touch.pads().IsTouched(0) && !any_musical_pad_held()) {
                 if (root_semitone > 0) { root_semitone--; pool.Audition(root_note_f()); }
                 else                   { led_event = LedEvent::LIMIT; }
@@ -1390,7 +1665,7 @@ int main() {
                     && !touch.pads().IsTouched(0) && rec_slot >= 0) {
                 auto& s = live_slots()[rec_slot];
                 s.note = std::min(127.f, s.note + 1.f);
-                pool.AuditionWithParams(s.note, slot_params(s));
+                pool.AuditionWithParams(s.note, drum_params(rec_slot), true);
             } else if (rec_mode == RecMode::IDLE && touch.pads().IsTouched(2)) {
                 // P2 (held first) + P11 → drum seq play/pause, in any playmode.
                 // P2 being down disables P11's octave function until release.
@@ -1431,7 +1706,8 @@ int main() {
         } else if (pad == 0 || pad == 2) {
             if (rec_mode == RecMode::IDLE) bank_caught[(pad == 0) ? 0 : 1] = false;
         }
-        // P1: unused. P11 combo needs no release action.
+        // P1 (FX modifier) release is edge-detected in AudioCallback.
+        // P11 combo needs no release action.
     });
 
     hw.StartAudio(AudioCallback);
@@ -1486,10 +1762,62 @@ int main() {
             continue;
         }
 
-        // Recording mode: steady 300ms blink.
+        // Recording-entry countdown: from ~0.2 s into the pad hold the LED
+        // blinks with gradually shrinking intervals (~140 ms down to 30 ms at
+        // the 2 s threshold) — release any time to abort.
+        uint32_t ehold = entry_hold_count;
+        if (rec_mode == RecMode::IDLE && ehold >= kRecEntryAnimStart) {
+            uint32_t t        = (ehold < kRecEntryHoldBlocks) ? ehold : kRecEntryHoldBlocks;
+            uint32_t interval = 150u - t * 120u / kRecEntryHoldBlocks;
+            hw.SetLed(true);  delay_serviced(interval);
+            hw.SetLed(false); delay_serviced(interval);
+            continue;
+        }
+
+        // Recording mode LED (this branch owns the loop while recording).
         if (rec_mode == RecMode::RECORDING) {
-            hw.SetLed(true);  delay_serviced(150);
-            hw.SetLed(false); delay_serviced(150);
+            // Copy fires while still in recording — its confirm event would
+            // otherwise sit undispatched until rec exits. Show it here.
+            __disable_irq();
+            bool copy_confirm = (led_event == LedEvent::CONFIRM);
+            if (copy_confirm) led_event = LedEvent::NONE;
+            __enable_irq();
+            if (copy_confirm) { blink_confirm(); continue; }
+
+            // Copy hold (source + second pad down): the entry countdown
+            // animation restarts, accelerating toward the affirmation.
+            uint32_t chold = copy_hold_anim;
+            if (chold > 0) {
+                uint32_t t        = (chold < kLongHoldBlocks) ? chold : kLongHoldBlocks;
+                uint32_t interval = 150u - t * 120u / kLongHoldBlocks;
+                hw.SetLed(true);  delay_serviced(interval);
+                hw.SetLed(false); delay_serviced(interval);
+                continue;
+            }
+
+            // Entry burst: one rapid pattern right after the 2 s hold lands...
+            if (rec_entry_flash) {
+                rec_entry_flash = false;
+                for (int i = 0; i < 5; i++) {
+                    hw.SetLed(true);  delay_serviced(35);
+                    hw.SetLed(false); delay_serviced(35);
+                }
+                delay_serviced(250);
+                continue;
+            }
+
+            // ...then the recording heartbeat: one fast double blink per
+            // audible hit of the slot (seq step or paused-seq audition), so
+            // the LED is locked to the audio — and unmistakably different
+            // from the sequencer's single on/off beat pulse.
+            if (rec_hit_flash) {
+                rec_hit_flash = false;
+                hw.SetLed(true);  delay_serviced(45);
+                hw.SetLed(false); delay_serviced(45);
+                hw.SetLed(true);  delay_serviced(45);
+                hw.SetLed(false);
+            }
+            delay_serviced(10);
             continue;
         }
 
@@ -1499,6 +1827,11 @@ int main() {
         int      data = led_event_data;
         led_event = LedEvent::NONE;
         __enable_irq();
+
+        // A real blink arms the beat hold-off first, so no beat pulse gets
+        // queued during it or blends into its trailing edge.
+        if (ev != LedEvent::NONE && ev != LedEvent::BEAT)
+            beat_led_hold = kBeatLedHoldBlocks;
 
         switch (ev) {
             case LedEvent::NUMBERED: blink_numbered(data); break;

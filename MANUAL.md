@@ -19,7 +19,7 @@ The two pitched modes share the same layout — one table, one column per mode. 
 | — | LPG colour (no knob) | *same* | 25 |
 | SW1 | Scale: minor (left) / chromatic (center) / major (right) | *same* | — |
 | P3–P9 | Play notes | Play the 7 slot sounds | notes in, ch 1 |
-| Hold P3–P9 1.2 s | — | Enter Recording for that slot | — |
+| Hold P3–P9 2 s | — | Enter Recording for that slot | — |
 | P10 / P11 | Octave down / up | *same* | — |
 | **Hold P0 (shift)** | | | |
 | P0 + S35 | Model select, bank 0 (engines 0–11) | Force bank-0 engine onto all 7 slots (spread around the S31–S34 centers) | — |
@@ -29,6 +29,9 @@ The two pitched modes share the same layout — one table, one column per mode. 
 | **Hold P2 (shift)** | | | |
 | P2 + S35 | Model select, bank 1 (engines 12–23) | Force bank-1 engine onto all 7 slots | — |
 | P2 (hold) + P11 | Drum seq play / pause | *same* | Start/Continue/Stop |
+| **Hold P1 (FX shift)** | | | |
+| P1 + S30 | Reverb (pitched voices) — center = off; left half = room, right half = hall; wet grows outward | *same* | — |
+| P1 + S35 | Delay (pitched voices) — center = off; left half = slapback, right half = synced dotted 1/8 | *same* | — |
 
 ### Seq (SW2 Up)
 
@@ -43,13 +46,15 @@ The two pitched modes share the same layout — one table, one column per mode. 
 | S36 | Seq volume | — |
 | S37 | Tightness (decay of engines 19–23) | 31 |
 | P0 + S37 | Drum-group stereo width | — |
+| P1 + S30 | Reverb (drum group) — center = off; room ◄ · ► hall | — |
+| P1 + S35 | Delay (drum group) — center = off; slapback ◄ · ► dotted 1/8 | — |
 | P3–P9 | Play drums: kick / snare / cl. hat / op. hat / clap / tom / perc | notes in/out, ch 10 (GM) |
-| Hold P3–P9 for 1.2 s | Enter Recording for that drum | — |
+| Hold P3–P9 for 2 s | Enter Recording for that drum | — |
 | P0 + P2 hold 1 s / 2 s | Vary current kit / generate new kit | — |
 | P2 (hold) + P11 | Play / pause | Start/Continue/Stop |
 | SW1 | Genre: IDM (left) / techno (center) / electro (right) | — |
 
-### Recording (hold a musical pad 1.2 s in Random or Seq)
+### Recording (hold a musical pad 2 s in Random or Seq)
 
 | Control | Function |
 |---------|----------|
@@ -60,6 +65,7 @@ The two pitched modes share the same layout — one table, one column per mode. 
 | S37 | Per-slot blend |
 | P0 / P2 + S35 | Per-slot model select (bank 0 / bank 1) |
 | P0 + S37 | Per-slot stereo width |
+| P1 + S30 / P1 + S35 | Per-slot reverb / delay send trim (Seq only) |
 | P10 / P11 | Drum pitch −1 / +1 semitone (Seq only) |
 | Hold source pad 1.2 s | Confirm — save and exit |
 | Tap any other pad | Cancel — restore and exit |
@@ -85,7 +91,7 @@ Two toggles, eight knobs, twelve touch pads. **SW2** (right toggle) picks the pl
 3. **Add a synth on top.** Flick **SW2 Down** (Basic Pitch) — the drums keep playing. P3–P9 now play notes; **P10 / P11** shift the octave down / up, and SW1 picks the scale (minor / chromatic / major).
 4. **Shape the sound.** **S32** harmonics, **S33** timbre, **S34** morph, **S31** decay, **S30** drive, **S37** OUT↔AUX blend. Choose an engine by holding **P0** (bank 0) or **P2** (bank 1) while turning **S35**.
 5. **Get surprised.** Flick **SW2 Center** (Random), then hold **P0 + P2**: after ~1 s every pad gets its own random sound; keep holding to ~2 s for a wilder spread. The same gesture in Seq mode re-randomizes the drum kit.
-6. **Fine-tune one sound.** Hold any musical pad for 1.2 s to enter **Recording** — the knobs now edit just that slot. Hold the same pad 1.2 s again to save.
+6. **Fine-tune one sound.** Hold any musical pad for 2 s to enter **Recording** — the LED counts down with an accelerating blink, then the knobs edit just that slot. Release, then hold the same pad 1.2 s to save.
 7. **Pause / resume the drums** from any mode: hold **P2**, then tap **P11**.
 
 Everything below is the full reference.
@@ -136,6 +142,8 @@ In **Seq** mode SW1 selects the drum pattern genre instead:
 | Left flick | IDM / Ambient (irregular, shifting kick) |
 
 Each genre holds its own bank of patterns (the files in `synth/patterns/<genre>/`); turn **S35** in Seq mode to step through the patterns of the selected genre.
+
+**Each role remembers its own setting.** A flick only takes effect in the mode you are in: moving SW1 in a pitched mode changes the scale but leaves the genre untouched, and vice versa — so flicking back and forth between playmodes never changes a setting by itself (the switch equivalent of the knob pickup). The genre starts at Techno and changes only when SW1 is moved while in Seq.
 
 ---
 
@@ -189,6 +197,7 @@ After a P0+P2 randomize (see *Re-randomize gestures*), each pad plays its own fr
 | S36 | Output level (pitched voices only - the drum seq keeps its own volume) | 26 |
 | S37 | Model mix — OUT↔AUX blend, mono to both outputs. Hold P0: stereo width (0 = mono, 1 = raw OUT/AUX split) | — |
 | — | LPG colour — has no knob since the unified Decay took S31; neutral 0.5 unless a CC sets it | 25 |
+| P1 + S30 / P1 + S35 | Reverb / delay for the pitched voices — see *FX* below | — |
 
 ### Random (SW2 Center)
 
@@ -204,14 +213,15 @@ Each of the 7 pads plays its own stored snapshot (engine, harmonics, timbre, mor
 | S35 | Model select — hold P0 (bank 0, engines 0–11) or P2 (bank 1, engines 12–23) while turning; forces the chosen engine onto all 7 slots with a soft spread around the S31–S34 centers; blend taken from S37. Bare S35 does nothing | — |
 | S36 | Output level (pitched voices only - the drum seq keeps its own volume) | 26 |
 | S37 | Blend center — stamped onto all slots when P0/P2 + S35 forces a new engine; refine per slot in Recording. Hold P0: stereo width for all pitched voices (0 = mono, 1 = raw OUT/AUX split) | — |
+| P1 + S30 / P1 + S35 | Reverb / delay for the pitched voices — see *FX* below | — |
 
 ### Seq (SW2 Up)
 
-Pads P3–P9 play the drum kit directly (also while the seq is paused). Model select is disabled globally in Seq mode; per-slot model and drive can be set during Recording.
+Pads P3–P9 play the drum kit directly (also while the seq is paused). Model select is disabled globally in Seq mode; per-slot model, drive and FX send trims can be set during Recording.
 
 These knob assignments apply only while SW2 is Up. If the seq keeps playing in another mode, all of these settings stay locked at their last values.
 
-**Knob pickup:** on re-entering Seq (and after leaving Recording), each knob only takes effect once it crosses its stored setting — so a pot that was used by another mode doesn't jump the tempo (or anything else) the moment you flick back. On the very first Seq entry the knobs are live immediately.
+**Knob pickup:** on re-entering Seq (and after leaving Recording), each knob only takes effect once it crosses its stored setting — so a pot that was used by another mode doesn't jump the tempo (or anything else) the moment you flick back. On the very first Seq entry the knobs are live immediately. **SW1 gets the same protection:** the genre only changes when you flick SW1 *while in Seq* — the position it was left in as the scale selector is ignored, so re-entering Seq never switches the pattern by itself.
 
 | Knob | Function | MIDI CC |
 |------|----------|---------|
@@ -223,6 +233,24 @@ These knob assignments apply only while SW2 is Up. If the seq keeps playing in a
 | S35 | Pattern select — steps through the patterns of the current SW1 genre (knob range splits evenly across that genre's pattern count; custom patterns can be drawn with `tools/pattern_editor.html` and added via a firmware rebuild — see the README) | — |
 | S36 | Seq volume - drum group level, independent of the pitched modes; picked up on re-entry | — |
 | S37 | Tightness — compresses the tail of all morph-decay engines (19–23); lower = shorter decay. Hold P0: drum-group stereo width (0 = mono) | 31 |
+| P1 + S30 / P1 + S35 | Reverb / delay for the drum group — see *FX* below | — |
+
+---
+
+## FX — reverb & delay (P1 + S30 / P1 + S35)
+
+One reverb and one delay, shared by everything, each on a single **mirror knob**: the center of the knob is **off**, each half is a different character, and the wet level grows as you turn away from the center. Hold **P1** and nudge the knob (~3% of travel, same movement-catch as the width controls) — from then on, while P1 stays held, the knob position is the setting. Release P1 and the knob returns to its normal role (drive / pattern select) behind the usual pickup, so nothing jumps.
+
+| Knob (P1 held) | Full left ◄ | Center | ► Full right |
+|----------------|-------------|--------|--------------|
+| S30 — Reverb | **Room**, max wet | off | **Hall**, max wet |
+| S35 — Delay | **Slapback** (~120 ms), max wet | off | **Synced dotted 1/8**, max wet |
+
+- **Room**: short, damped — thickens drums without washing them out. **Hall**: long, bright tail; the decay opens further as wet rises.
+- **Slapback**: fixed short echo, low feedback — rockabilly/dub thickener. **Dotted 1/8** follows the sequencer tempo (three 16th steps); repeats grow with wet, darker dub-style tail. Tempo changes bend the pitch of the tail tape-style. Under an external MIDI clock the synced time still follows the *knob* tempo (the external rate isn't measured).
+- **Per-group wet, mode memory**: like volume and width, the drum group (Seq) and the pitched group each remember their own wet level — set a touch of room on the drums in Seq, flick to Basic Pitch and crank the hall, and each mix survives mode switches. The *character* (which side of the knob) is shared — the last edit from either mode sets it for both.
+- **Per-slot send trims (Seq recording)**: while recording a drum, the same combo (P1 + S30 / P1 + S35) sets that slot's **send trim** — its share (0–100%) of the drum group's wet. The trim multiplies the group send, so the mirror knob stays the master level and character while the trims fine-balance individual drums under it (a wet clap over a dry kick). Trims default to 100%, reset with a new kit (P0+P2 stage 2), and are best set with the sequencer running — the paused-seq audition pulse doesn't ride the drum-group send. The global mirror knobs themselves are not editable while Recording, and no FX setting is reachable over MIDI.
+- An idle FX costs nothing: each sleeps once its input and tail fall silent, like voices do.
 
 ---
 
@@ -232,9 +260,9 @@ Recording lets you edit a single slot's parameters while hearing it in real time
 
 ### Entering recording
 
-One gesture everywhere: hold a musical pad (P3–P9) for **1.2 s** — in Seq mode *and* in Random mode. The threshold is deliberately long so holding a sustained note in Random doesn't enter recording by accident.
+One gesture everywhere: hold a musical pad (P3–P9) for **2 s** — in Seq mode *and* in Random mode. The threshold is deliberately long so holding a sustained note in Random doesn't enter recording by accident, and the LED shows where you are in it: from ~0.2 s into the hold it blinks with steadily accelerating speed, ending very fast as the 2 s mark lands. Release at any point before that to abort. When the threshold is reached the LED plays a short rapid burst — you're in.
 
-The LED blinks steadily while in Recording mode.
+While in Recording mode the LED shows a **fast double blink on every audible hit** of the slot being edited (each forced seq step while playing, each 0.5 s audition while paused) — locked to the audio and clearly distinct from the sequencer's single beat flash. Keeping the pad held past the 2 s entry does nothing further; confirm requires releasing first.
 
 ### Knobs while recording
 
@@ -250,10 +278,11 @@ All six timbral knobs are per-slot and require pickup before changing the slot.
 | S35 | Per-slot model select — hold P0 (bank 0) or P2 (bank 1), turn S35 |
 | S36 | Per-slot volume — this slot's level in the mix (Seq drums and Random pads alike); audible live in the audition |
 | S37 | Per-slot model mix — OUT↔AUX blend for this slot. Hold P0: per-slot stereo width — fader fully down = mono; a mono'd slot stays dead center regardless of group width. Blend/width reset to defaults when the kit is regenerated (P0+P2 stage 2) |
+| P1 + S30 / P1 + S35 | **Seq recording only** — per-slot reverb / delay send trim: this drum's share (0–100%) of the drum group's wet set on the global mirror knobs (level only; the character stays global). Same pickup hand-off as everywhere: each role catches its own stored value, so flipping between drive and reverb send on S30 never jumps either |
 
 In Seq mode the tempo (S31's idle role) stays frozen at its entry value while recording and is pickup-protected afterwards.
 
-In **Seq** mode the sequencer keeps running and fires the slot being edited every other step (8th notes), so you hear changes in rhythmic context without it dominating the mix. In **Random** mode — and in Seq while the sequencer is paused — the slot re-auditions at a steady pulse every 0.5 s from the moment you enter, playing at the slot's stored volume.
+In **Seq** mode the sequencer keeps running and fires the slot being edited every other step (8th notes), so you hear changes in rhythmic context without it dominating the mix. In **Random** mode — and in Seq while the sequencer is paused — the slot re-auditions at a steady pulse every 0.5 s from the moment you enter, playing at the slot's stored volume. Paused-seq drum auditions go through the drum group's level, width and FX sends and carry the full seq-trigger shaping (punch, tightness, overall drive × slot ratio), so what you hear while tweaking is exactly what the pattern will play.
 
 ### Drum pitch (Seq recording only)
 
@@ -266,9 +295,9 @@ In **Seq** mode the sequencer keeps running and fires the slot being edited ever
 
 | Gesture | Result |
 |---------|--------|
-| Hold the *source pad* alone for **1.2 s** | **Confirm** — saves edits, exits recording (3 rapid blinks) |
+| Hold the *source pad* alone for **1.2 s** | **Confirm** — saves edits, exits recording (3 rapid blinks). Keeping the pad held after the save is ignored — it can't re-enter recording or copy; release everything and start a fresh 2 s hold to edit again |
 | Tap any *other* pad (0.05–1.2 s) then release | **Cancel** — restores original slot, exits recording |
-| Hold *source pad* + hold *another pad* for **1.2 s** | **Copy** — clones the edited slot to the other pad; the copied sound plays on the target as audible confirmation (plus 3 blinks); repeat to copy to more pads |
+| Hold *source pad* + hold *another pad* for **1.2 s** | **Copy** — the accelerating countdown animation restarts while both pads are down, then the clone lands with an affirmation on both channels: the copied sound plays on the target and the LED gives 3 rapid blinks; repeat to copy to more pads |
 
 ---
 
@@ -386,9 +415,15 @@ CCs control *functions*, not knobs — so a CC always does the same thing no mat
 | 29 | Seq density | S33 (Seq) |
 | 30 | Seq kick punch | S34 (Seq) |
 | 31 | Seq tightness | S37 (Seq) |
+| 85 | Reverb — pitched voices | P1+S30 (pitched modes) |
+| 86 | Reverb — drums | P1+S30 (Seq) |
+| 87 | Delay — pitched voices | P1+S35 (pitched modes) |
+| 88 | Delay — drums | P1+S35 (Seq) |
 | 120 / 123 | All Sound Off / All Notes Off — releases MIDI-held notes | — |
 
-Not reachable over MIDI: model select (S35), pattern/variant select, seq volume (S36 in Seq), blend (S37), stereo widths, and everything in Recording mode — CCs keep addressing the global functions while you record.
+CCs 85–88 use the same center-off encoding as the FX mirror knobs: value 64 ≈ off, below 64 the wet grows with character A (room / slapback), above 64 with character B (hall / synced dotted-1/8). The panel knob edits whichever group the current playmode plays; over MIDI each group has its own CC, so you can automate the drum reverb while playing a pitched mode. The character (which side, how deep) is shared by both groups — the last edit wins, from knob or CC alike.
+
+Not reachable over MIDI: model select (S35), pattern/variant select, seq volume (S36 in Seq), blend (S37), stereo widths, the per-slot FX send trims (P1+S30/S35 in drum recording), and everything else in Recording mode — CCs keep addressing the global functions while you record.
 
 ### MIDI out
 
@@ -417,17 +452,51 @@ TouchPlaited always puts a clock on its MIDI outputs, and follows one when you g
 | 3 blinks | Mode / scale position 3 (SW2 Up or SW1 left flick); also: Seq resumed |
 | 3 rapid blinks | Confirm — recording saved, copy completed, or Seq entered/re-randomized |
 | 3 fast triple | At octave/root limit |
-| Steady slow blink | Recording mode active |
-| Single flash on beat | Quarter-note pulse from sequencer (visible between other events) |
+| Accelerating blink | Hold in progress — recording entry (2 s) or copy (1.2 s); speeds up as the threshold nears |
+| Short rapid burst | Recording entered (the 2 s hold landed) |
+| Fast double blink | Recording mode active — one double blink per audible hit of the slot being edited, in sync with the audio (unlike the single beat flash) |
+| Single flash on beat | Quarter-note pulse from the sequencer — lowest priority: shows only when the LED is otherwise idle, and stays off during Recording, for ~2 s after leaving it (so the confirm blink is clearly visible), and around any other blink |
 
 ---
 
 ## Plaits engine banks
 
-Hold **P0** and turn S35 to scan bank 0. Hold **P2** and turn S35 to scan bank 1. A brief audition fires on each new engine.
+The 24 Plaits models are spread over the two shift pads: hold **P0** and turn S35 for **bank 0** (engines 0–11), hold **P2** and turn S35 for **bank 1** (engines 12–23). The knob travel divides evenly across the bank — 11 zones on P0 (Chiptune is skipped), 12 on P2 — and a brief audition fires on each new engine. The engine only changes once the knob moves past a small dead zone, so grabbing a shift pad never jumps the model by itself.
 
-**Bank 0 — P0 held (engines 0–11, Chiptune excluded):**
-0 VA+VCF · 1 VA+VCA · 2 Six-Op A · 3 Six-Op B · 4 Six-Op C · 5 Waveshaping · 6 FM 2-op · 8 Grain · 9 Additive · 10 Wavetable · 11 Chord
+### Bank 0 — P0 + S35 (engines 0–11)
 
-**Bank 1 — P2 held (engines 12–23):**
-12 Speech · 13 Swarm · 14 Noise · 15 Particle · 16 String · 17 Modal · 18 Bass · 19 Kick sim · 20 Snare sim · 21 Analog kick · 22 Analog snare · 23 Analog hat
+| # | Model | Character |
+|---|-------|-----------|
+| 0 | Virtual analog VCF | Classic waveshapes through a resonant filter |
+| 1 | Phase distortion | CZ-style phase distortion / phase modulation |
+| 2 | Six-Op A | 6-operator FM, patch bank A — harmonics steps through the patches, timbre is the modulator level |
+| 3 | Six-Op B | 6-operator FM, patch bank B |
+| 4 | Six-Op C | 6-operator FM, patch bank C |
+| 5 | Wave terrain | Wave terrain synthesis — an orbit scanned over a 2-D surface |
+| 6 | String machine | 70s string-ensemble chords |
+| 7 | *Chiptune — skipped* | Its built-in arpeggiator free-runs without a gate, so it never lands on the knob |
+| 8 | Virtual analog | Pair of detuned classic waveshapes |
+| 9 | Waveshaping | Triangle through a wavefolder |
+| 10 | FM 2-op | Two-operator phase modulation |
+| 11 | Grain | Granular formant oscillator |
+
+### Bank 1 — P2 + S35 (engines 12–23)
+
+| # | Model | Character |
+|---|-------|-----------|
+| 12 | Additive | Harmonic oscillator — mixture of sine harmonics |
+| 13 | Wavetable | Wavetable scanning |
+| 14 | Chord | Four-note chord generator |
+| 15 | Speech | Vowel and speech synthesis |
+| 16 | Swarm | Swarm of enveloped sawtooth grains |
+| 17 | Noise | Filtered / clocked noise |
+| 18 | Particle | Dust noise through resonators |
+| 19 | String * | Inharmonic plucked-string model |
+| 20 | Modal * | Modal (struck bar / membrane) resonator |
+| 21 | Bass drum * | Analog kick model |
+| 22 | Snare drum * | Analog snare model |
+| 23 | Hi-hat * | Analog hi-hat model |
+
+\* Engines 19–23 are the **morph-decay engines**: their real decay lives on the model's MORPH parameter, so S31 Decay drives it and S34 Morph has no effect (see *Unified Decay*). In Seq mode, S37 Tightness compresses their tails.
+
+The random drum kits draw from a curated subset of these: kicks from 21 and 10 (an FM kick), snares/claps from 22 and 17, hats from 23 and 17, toms from 21 and 20, perc from 20/22/23. Particle (18) is deliberately excluded — its sporadic crackle reads as a hardware fault in a kit. The full-random pool (Random mode P0+P2) uses every engine except Chiptune.

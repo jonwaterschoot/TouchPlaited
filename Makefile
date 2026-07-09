@@ -17,7 +17,8 @@ C_DEFS += -DUSB_MIDI
 CPP_SOURCES = TouchPlaited.cpp \
               $(wildcard touch/*.cpp) \
               midi/midi_io.cpp \
-              synth/plaits_voice.cpp
+              synth/plaits_voice.cpp \
+              synth/fx.cpp
 
 # Plaits DSP sources (.cc extension — compiled as C++)
 # Requires thirdparty/plaits/ and thirdparty/stmlib/ to be populated first.

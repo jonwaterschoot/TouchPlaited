@@ -307,7 +307,7 @@ Decay (S37) routes to `patch.decay` for 0–20, `patch.morph` for 21–23.
 **22 — Snare Drum:** Harmonics=noise freq, Timbre=noise/body mix, S37→morph=character+decay, Note=drum body pitch  
 **23 — Hi-Hat:** Harmonics=freq spread, Timbre=metallic ratio, S37→morph=decay time, Note=pitch center
 
-Non-drum engines usable as percussion: 17 Noise (hat/snare), 18 Particle (rim/snare), 19 String (rimshot/clave), 20 Modal (cowbell/conga).
+Non-drum engines usable as percussion: 17 Noise (hat/snare), 19 String (rimshot/clave), 20 Modal (cowbell/conga). Particle (18) is banned from all random drum pools — its intentionally sporadic crackle reads as a hardware fault in a generated kit (still manually selectable in rec mode).
 
 ---
 
@@ -337,7 +337,6 @@ GM ref: 36=Kick · 38=Snare · 42=CHH · 46=OHH · 39=Clap · 41=Low Tom
 |--------|--------------------------|--------|-----------|------|
 | 22 SnareDrum | 0.10–0.60 | 0.30–0.80 | 0.30–0.70 | 48–60 |
 | 17 Noise | 0.05–0.20 | 0.55–0.90 | 0.30–0.70 | 48–60 |
-| 18 Particle | 0.05–0.20 | 0.40–0.80 | 0.10–0.50 | 48–60 |
 
 **P5 — Closed Hi-Hat**
 
@@ -360,7 +359,6 @@ Hats moved out of the melodic register (was 60–84): note is the pitch center (
 |--------|--------------------------|--------|-----------|------|
 | 22 SnareDrum | 0.55–0.90 | 0.65–0.95 | 0.50–0.90 | 48–62 |
 | 17 Noise | 0.05–0.20 | 0.70–1.00 | 0.40–0.80 | 55–70 |
-| 18 Particle | 0.05–0.20 | 0.50–0.90 | 0.10–0.50 | 55–70 |
 
 **P8 — Tom**
 
@@ -375,10 +373,9 @@ Hats moved out of the melodic register (was 60–84): note is the pitch center (
 |--------|--------------------------|--------|-----------|------|
 | 20 Modal | 0.10–0.30 | 0.20–0.55 | 0.30–0.60 | 60–84 |
 | 23 HiHat | 0.10–0.30 | 0.50–0.90 | 0.50–1.00 | 76–96 |
-| 18 Particle | 0.10–0.30 | 0.30–0.70 | 0.30–0.70 | 60–80 |
 | 22 SnareDrum | 0.05–0.20 | 0.05–0.35 | 0.30–0.60 | 66–80 |
 
-String (19) removed from the Perc pool — Karplus-Strong reads as a loud melodic pluck, not percussion. Modal tail capped (was 0.40–0.90). Snare engine pitched high with body-heavy timbre = rim/wood tick.
+String (19) removed from the Perc pool — Karplus-Strong reads as a loud melodic pluck, not percussion. Modal tail capped (was 0.40–0.90). Snare engine pitched high with body-heavy timbre = rim/wood tick. Particle (18) removed from Snare/Clap/Perc pools — see ban note above.
 
 Default per-slot volumes at randomize time (tuning targets): Kick 0.9, Snare 0.8, CHH 0.55, OHH 0.65, Clap 0.75, Tom 0.7, Perc 0.5 (was 0.6 — perc sat too far forward).
 
@@ -524,6 +521,7 @@ MIDI itself is **CPU-negligible** (<1%): even a dense DAW stream is a few hundre
 - **ch1 notes:** note number = pitch (scale/octave/root bypassed). Voice slot id = 32+note (pads 0–6, drums 16–22 — no collisions), so NoteOff matches exactly and chords steal like pads. Velocity → `p.volume`, linear. Sound = current mode: BP live = eff params (globals keep refreshing held notes, knobs stay live); Random / BP-snapshots = `slots[note % 7]` — stable multi-timbral cycling per key. In Seq mode ch1 plays the last pitched mode's sound (synth over the drum machine).
 - **ch10 drums:** GM → slot with aliases (35/36 kick, 38/40 snare, 42/44 CHH, 46 OHH, 39 clap, 41/43/45/47/48/50 tom, 37/54/56/75/76 perc); unknown notes ignored. Phase 1: slot's stored pitch. Kit auto-generates if not ready. Velocity scales the slot volume via a new `trigger_drum(i, vel)` arg.
 - **CC20–31 (any channel):** 20 harmonics, 21 timbre, 22 morph, 23 decay, 24 drive, 25 LPG colour, 26 pitched volume, 27 tempo, 28 shuffle, 29 density, 30 punch, 31 tightness. Every CC write re-arms the corresponding pot pickup. CC24 drive sets **both** pitched drive and `seq_drive_lk` (one function, two stored values). CC25 is the only LPG writer (pot retired; was hardcoded 0.5). CC27–29 also push into the Sequencer directly so tempo/shuffle/density respond while it plays in the background of a pitched mode.
+- **CC85–88 — FX mirrors (2026-07-09):** 85 reverb pitched, 86 reverb drums, 87 delay pitched, 88 delay drums. Same center-off mirror encoding as the P1 knob layer (`fx_decode`); each write also sets the shared `*_char_lk` (last edit wins, like the knob). The pot layer is mode-dependent (writes the active group) but per the functions-not-pots rule each group gets its own CC — automate drum sends from a pitched mode. A CC write re-arms `fx_mc_rev`/`fx_mc_dly` at the current pot value, so a caught pot must be nudged ~3% again to take back over mid-P1-hold. 85–88 chosen because 32–63 are the 14-bit LSB pairs for 0–31 (a DAW sending 14-bit CC20 would hit CC52) and 64–84 have defined meanings; 85–90 are undefined. Per-slot rec trims stay pot-only — no sane way to address 7 slots × 2 effects in one CC byte.
 
 ### The eff_* layer (CC ↔ pot arbitration)
 The pitched timbral knobs were raw per-block reads, so a CC write would have been stomped one block later. New layer: `eff_h/t/m/d/drive` = what actually sounds. Pot feeds eff through `cc_pu_*` pickups (force-caught at boot = pots live); a CC write sets eff and re-arms, pot must cross to take over — same rule as every mode hand-off. `last_*` stay raw pot reads because the BP snapshot escape watches pot *movement* (a CC write must not fake a grab). All sound-generating sites (BP live setters, soft-random anchors, stage-3 restore, model-select regen) now read eff_*.
@@ -612,6 +610,75 @@ Open design decision: one shared reverb with per-group send levels (cheap —
 latter means either morphing time/damping on mode switch (retimes the old
 mode's tails) or two instances (~double CPU). Delay can be a second, much
 cheaper send alongside.
+
+---
+
+## Reverb / delay FX — implementation (2026-07-09, `FX` branch)
+
+Follows the analysis above; deltas and decisions:
+
+### Controls — mirror knobs on the P1 layer
+
+P1+S30 = reverb, P1+S35 = delay. Both are **mirror knobs**: center = off
+(±0.06 dead zone), each half is a character, wet grows outward. Chosen over
+zone/preset splits for consistency and generous wet travel per character:
+
+- Reverb: left = **room** (krt 0.35–0.6, lp 0.45), right = **hall**
+  (krt 0.75–0.95, lp 0.80). Tail opens slightly as wet rises.
+- Delay: left = **slapback** (fixed 120 ms, fb 0.05–0.30, bright), right =
+  **synced dotted 1/8** (= 3 seq steps, fb 0.2–0.7, dark). Time changes slew
+  per-sample (~70 ms τ, tape-style bend); snap while the delay is asleep.
+
+Wet levels are **per-group** (`fx_rev_seq_lk`/`fx_rev_pitched_lk`, same for
+delay) with mode memory, mirroring the volume/width pairs; sends use a
+squared taper. The FX **character is shared** — last edit from either group
+wins (one instance can't be room and hall at once; accepted, documented).
+P1 edits use MoveCatch (crossing pickup against a mirror encoding felt dead);
+on release, S30/S35's bare roles re-arm their pickups (drive: `seq_pu30` /
+`cc_pu_drive`, pattern: `seq_pu35`) so nothing jumps. FX edits disabled while
+recording (rec owns S30) and under P0/P2 (model select owns S35). Not
+reachable over MIDI (candidate CCs later).
+
+**Conscious reversal** of the parking-lot "P1 never held" ergonomics note:
+an FX level is set-and-forget, not performative. Verify reachability on
+hardware; fallback is bare S35 as pitched send.
+
+### DSP — no new dependencies
+
+- **Reverb**: Rings' `dsp/fx/reverb.h` (Griesinger/Dattorro: 4 input APs +
+  2×(2AP+delay) loop, MIT) adapted in `synth/fx.cpp` onto the **already
+  vendored** `plaits/dsp/fx/fx_engine.h` — identical base class, Rings also
+  runs 48 kHz, so delay-line sizes carry over unchanged. 32768×uint16 buffer.
+  Much cheaper than the ReverbSc estimate (~2–4% vs 6–10%).
+- **Delay**: hand-rolled cross-feedback (ping-pong flavored) stereo line,
+  one-pole damping in the loop, linear-interp fractional read. 2×64k floats.
+- Both TUs keep Plaits/stmlib headers confined to `fx.cpp` behind `fx.h`
+  (same leak rule as plaits_voice).
+
+### Plumbing
+
+`VoicePool::Render` grew two send buses (reverb/delay stereo pairs) filled
+per-voice post-volume/width by group send levels (`rev_send_seq` etc.) —
+voice-sleep peak still measured pre-volume, unchanged. `AudioCallback`
+renders FX returns into the mix **before** the soft-clip. `Sequencer` exposes
+`StepBlocks()` for the synced time (internal/knob tempo only — external MIDI
+clock rate is not measured; synced delay follows the knob fallback tempo).
+
+### Memory / CPU (measured at build)
+
+SDRAM 0 → **576 KB** of 64 MB (reverb 64 KB + delay 512 KB); SRAM unchanged
+(~50%); QSPI +8 KB. **FX sleep** implemented as planned: each FX skips its
+render once input *and* tail are silent — reverb after >1 loop period
+(~380 ms), delay only after a full delay-time of silence so a stale tail can
+never replay on wake. Idle cost stays ~3%.
+
+### Open on hardware
+
+Levels/tapers (send taper, return gains, feedback ranges), character params
+by ear, `shed N` behavior under dense seq + Random with FX cranked, P1
+reachability. Future: per-slot send in Recording, send randomization in kit
+generators, shimmer as an alternate right-side reverb character (needs
+Clouds' pitch shifter port), ITCM placement if peaks pinch.
 
 ---
 
