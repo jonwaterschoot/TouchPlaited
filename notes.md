@@ -307,7 +307,7 @@ Decay (S37) routes to `patch.decay` for 0–20, `patch.morph` for 21–23.
 **22 — Snare Drum:** Harmonics=noise freq, Timbre=noise/body mix, S37→morph=character+decay, Note=drum body pitch  
 **23 — Hi-Hat:** Harmonics=freq spread, Timbre=metallic ratio, S37→morph=decay time, Note=pitch center
 
-Non-drum engines usable as percussion: 17 Noise (hat/snare), 18 Particle (rim/snare), 19 String (rimshot/clave), 20 Modal (cowbell/conga).
+Non-drum engines usable as percussion: 17 Noise (hat/snare), 19 String (rimshot/clave), 20 Modal (cowbell/conga). Particle (18) is banned from all random drum pools — its intentionally sporadic crackle reads as a hardware fault in a generated kit (still manually selectable in rec mode).
 
 ---
 
@@ -337,7 +337,6 @@ GM ref: 36=Kick · 38=Snare · 42=CHH · 46=OHH · 39=Clap · 41=Low Tom
 |--------|--------------------------|--------|-----------|------|
 | 22 SnareDrum | 0.10–0.60 | 0.30–0.80 | 0.30–0.70 | 48–60 |
 | 17 Noise | 0.05–0.20 | 0.55–0.90 | 0.30–0.70 | 48–60 |
-| 18 Particle | 0.05–0.20 | 0.40–0.80 | 0.10–0.50 | 48–60 |
 
 **P5 — Closed Hi-Hat**
 
@@ -360,7 +359,6 @@ Hats moved out of the melodic register (was 60–84): note is the pitch center (
 |--------|--------------------------|--------|-----------|------|
 | 22 SnareDrum | 0.55–0.90 | 0.65–0.95 | 0.50–0.90 | 48–62 |
 | 17 Noise | 0.05–0.20 | 0.70–1.00 | 0.40–0.80 | 55–70 |
-| 18 Particle | 0.05–0.20 | 0.50–0.90 | 0.10–0.50 | 55–70 |
 
 **P8 — Tom**
 
@@ -375,10 +373,9 @@ Hats moved out of the melodic register (was 60–84): note is the pitch center (
 |--------|--------------------------|--------|-----------|------|
 | 20 Modal | 0.10–0.30 | 0.20–0.55 | 0.30–0.60 | 60–84 |
 | 23 HiHat | 0.10–0.30 | 0.50–0.90 | 0.50–1.00 | 76–96 |
-| 18 Particle | 0.10–0.30 | 0.30–0.70 | 0.30–0.70 | 60–80 |
 | 22 SnareDrum | 0.05–0.20 | 0.05–0.35 | 0.30–0.60 | 66–80 |
 
-String (19) removed from the Perc pool — Karplus-Strong reads as a loud melodic pluck, not percussion. Modal tail capped (was 0.40–0.90). Snare engine pitched high with body-heavy timbre = rim/wood tick.
+String (19) removed from the Perc pool — Karplus-Strong reads as a loud melodic pluck, not percussion. Modal tail capped (was 0.40–0.90). Snare engine pitched high with body-heavy timbre = rim/wood tick. Particle (18) removed from Snare/Clap/Perc pools — see ban note above.
 
 Default per-slot volumes at randomize time (tuning targets): Kick 0.9, Snare 0.8, CHH 0.55, OHH 0.65, Clap 0.75, Tom 0.7, Perc 0.5 (was 0.6 — perc sat too far forward).
 

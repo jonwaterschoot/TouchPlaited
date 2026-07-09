@@ -222,10 +222,12 @@ static const DrumOpt kDrumKick[]  = {
     { 21, 0.05f,0.30f, 0.20f,0.65f, 0.20f,0.55f, 0.4f,0.8f, 36.f,48.f },
     { 10, 0.10f,0.30f, 0.00f,0.30f, 0.10f,0.40f, 0.3f,0.6f, 36.f,48.f },
 };
+// Particle (18) is excluded from every drum table: its intentionally sporadic
+// crackle reads as a hardware fault when it lands in a random kit. Noise (17)
+// covers the same ground and stays.
 static const DrumOpt kDrumSnare[] = {
     { 22, 0.10f,0.60f, 0.30f,0.80f, 0.30f,0.70f, 0.4f,0.8f, 48.f,60.f },
     { 17, 0.05f,0.20f, 0.55f,0.90f, 0.30f,0.70f, 0.3f,0.6f, 48.f,60.f },
-    { 18, 0.05f,0.20f, 0.40f,0.80f, 0.10f,0.50f, 0.3f,0.6f, 48.f,60.f },
 };
 // Hats live high: note is the pitch center (engine 23) / filter center (17).
 // 60–84 sat in the melodic register and read as tonal noise, not metal.
@@ -239,7 +241,6 @@ static const DrumOpt kDrumOHH[]   = {
 static const DrumOpt kDrumClap[]  = {
     { 22, 0.55f,0.90f, 0.65f,0.95f, 0.50f,0.90f, 0.4f,0.7f, 48.f,62.f },
     { 17, 0.05f,0.20f, 0.70f,1.00f, 0.40f,0.80f, 0.3f,0.5f, 55.f,70.f },
-    { 18, 0.05f,0.20f, 0.50f,0.90f, 0.10f,0.50f, 0.3f,0.5f, 55.f,70.f },
 };
 static const DrumOpt kDrumTom[]   = {
     { 21, 0.30f,0.65f, 0.10f,0.40f, 0.30f,0.60f, 0.4f,0.8f, 48.f,72.f },
@@ -252,7 +253,6 @@ static const DrumOpt kDrumTom[]   = {
 static const DrumOpt kDrumPerc[]  = {
     { 20, 0.10f,0.30f, 0.20f,0.55f, 0.30f,0.60f, 0.4f,0.8f, 60.f,84.f },
     { 23, 0.10f,0.30f, 0.50f,0.90f, 0.50f,1.00f, 0.4f,0.7f, 76.f,96.f },
-    { 18, 0.10f,0.30f, 0.30f,0.70f, 0.30f,0.70f, 0.3f,0.6f, 60.f,80.f },
     { 22, 0.05f,0.20f, 0.05f,0.35f, 0.30f,0.60f, 0.3f,0.5f, 66.f,80.f },
 };
 
@@ -268,12 +268,12 @@ static void fill_drum_slot(PadSlot& s, const DrumOpt* opts, int n) {
 
 static void generate_drum_random() {
     fill_drum_slot(drum_slots[0], kDrumKick,  2); drum_slots[0].volume = 0.90f;
-    fill_drum_slot(drum_slots[1], kDrumSnare, 3); drum_slots[1].volume = 0.80f;
+    fill_drum_slot(drum_slots[1], kDrumSnare, 2); drum_slots[1].volume = 0.80f;
     fill_drum_slot(drum_slots[2], kDrumCHH,   2); drum_slots[2].volume = 0.55f;
     fill_drum_slot(drum_slots[3], kDrumOHH,   1); drum_slots[3].volume = 0.65f;
-    fill_drum_slot(drum_slots[4], kDrumClap,  3); drum_slots[4].volume = 0.75f;
+    fill_drum_slot(drum_slots[4], kDrumClap,  2); drum_slots[4].volume = 0.75f;
     fill_drum_slot(drum_slots[5], kDrumTom,   2); drum_slots[5].volume = 0.70f;
-    fill_drum_slot(drum_slots[6], kDrumPerc,  4); drum_slots[6].volume = 0.50f;
+    fill_drum_slot(drum_slots[6], kDrumPerc,  3); drum_slots[6].volume = 0.50f;
     // slot.drive is a ratio of the overall S30 drive in seq mode; 1.0 = follow fully.
     // Blend/width/FX-send trims reset with the kit: a mono flag, AUX-only blend
     // or dry-trimmed send from an old kit shouldn't silently reshape whatever

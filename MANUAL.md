@@ -461,10 +461,42 @@ TouchPlaited always puts a clock on its MIDI outputs, and follows one when you g
 
 ## Plaits engine banks
 
-Hold **P0** and turn S35 to scan bank 0. Hold **P2** and turn S35 to scan bank 1. A brief audition fires on each new engine.
+The 24 Plaits models are spread over the two shift pads: hold **P0** and turn S35 for **bank 0** (engines 0–11), hold **P2** and turn S35 for **bank 1** (engines 12–23). The knob travel divides evenly across the bank — 11 zones on P0 (Chiptune is skipped), 12 on P2 — and a brief audition fires on each new engine. Each bank remembers its last pick, so tapping the other shift pad hops between two engines.
 
-**Bank 0 — P0 held (engines 0–11, Chiptune excluded):**
-0 VA+VCF · 1 VA+VCA · 2 Six-Op A · 3 Six-Op B · 4 Six-Op C · 5 Waveshaping · 6 FM 2-op · 8 Grain · 9 Additive · 10 Wavetable · 11 Chord
+### Bank 0 — P0 + S35 (engines 0–11)
 
-**Bank 1 — P2 held (engines 12–23):**
-12 Speech · 13 Swarm · 14 Noise · 15 Particle · 16 String · 17 Modal · 18 Bass · 19 Kick sim · 20 Snare sim · 21 Analog kick · 22 Analog snare · 23 Analog hat
+| # | Model | Character |
+|---|-------|-----------|
+| 0 | Virtual analog VCF | Classic waveshapes through a resonant filter |
+| 1 | Phase distortion | CZ-style phase distortion / phase modulation |
+| 2 | Six-Op A | 6-operator FM, patch bank A — harmonics steps through the patches, timbre is the modulator level |
+| 3 | Six-Op B | 6-operator FM, patch bank B |
+| 4 | Six-Op C | 6-operator FM, patch bank C |
+| 5 | Wave terrain | Wave terrain synthesis — an orbit scanned over a 2-D surface |
+| 6 | String machine | 70s string-ensemble chords |
+| 7 | *Chiptune — skipped* | Its built-in arpeggiator free-runs without a gate, so it never lands on the knob |
+| 8 | Virtual analog | Pair of detuned classic waveshapes |
+| 9 | Waveshaping | Triangle through a wavefolder |
+| 10 | FM 2-op | Two-operator phase modulation |
+| 11 | Grain | Granular formant oscillator |
+
+### Bank 1 — P2 + S35 (engines 12–23)
+
+| # | Model | Character |
+|---|-------|-----------|
+| 12 | Additive | Harmonic oscillator — mixture of sine harmonics |
+| 13 | Wavetable | Wavetable scanning |
+| 14 | Chord | Four-note chord generator |
+| 15 | Speech | Vowel and speech synthesis |
+| 16 | Swarm | Swarm of enveloped sawtooth grains |
+| 17 | Noise | Filtered / clocked noise |
+| 18 | Particle | Dust noise through resonators |
+| 19 | String * | Inharmonic plucked-string model |
+| 20 | Modal * | Modal (struck bar / membrane) resonator |
+| 21 | Bass drum * | Analog kick model |
+| 22 | Snare drum * | Analog snare model |
+| 23 | Hi-hat * | Analog hi-hat model |
+
+\* Engines 19–23 are the **morph-decay engines**: their real decay lives on the model's MORPH parameter, so S31 Decay drives it and S34 Morph has no effect (see *Unified Decay*). In Seq mode, S37 Tightness compresses their tails.
+
+The random drum kits draw from a curated subset of these: kicks from 21 and 10 (an FM kick), snares/claps from 22 and 17, hats from 23 and 17, toms from 21 and 20, perc from 20/22/23. Particle (18) is deliberately excluded — its sporadic crackle reads as a hardware fault in a kit. The full-random pool (Random mode P0+P2) uses every engine except Chiptune.
