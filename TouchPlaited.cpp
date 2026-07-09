@@ -665,6 +665,13 @@ enum class LedEvent { NONE, NUMBERED, LIMIT, CONFIRM, MODEL, BEAT };
 static volatile LedEvent led_event      = LedEvent::NONE;
 static volatile int      led_event_data = 0;
 
+// Beat-pulse hold-off: the pulse only shows when the LED isn't needed for
+// anything else. Armed on every rec exit (the confirm/cancel blink must stay
+// readable) and by the main loop whenever it dispatches a real blink; counted
+// down per audio block. 2 s covers the longest blink (~1.4 s) plus a gap.
+static constexpr uint32_t kBeatLedHoldBlocks = 500;   // 2 s at 4 ms/block
+static volatile uint32_t  beat_led_hold      = 0;
+
 // ─── Model selection ──────────────────────────────────────────────────────────
 // (Six-Op audition presets kSixOpAud are defined with the random generators above.)
 static int   bank_engine[2] = { 0, 12 };
@@ -834,6 +841,7 @@ static void cancel_rec_mode() {
     cancel_count   = 0;
     pool.AllNotesOff();
     rearm_seq_pickups();   // rec borrowed these pots; require fresh pickup
+    beat_led_hold = kBeatLedHoldBlocks;
 }
 
 static void confirm_rec_mode() {
@@ -844,6 +852,7 @@ static void confirm_rec_mode() {
     cancel_count   = 0;
     pool.AllNotesOff();
     rearm_seq_pickups();   // rec borrowed these pots; require fresh pickup
+    beat_led_hold = kBeatLedHoldBlocks;
     led_event = LedEvent::CONFIRM;
 }
 
@@ -1390,7 +1399,13 @@ void AudioCallback(AudioHandle::InputBuffer in, AudioHandle::OutputBuffer out, s
     // Sequencer tick — runs in every playmode while the seq is playing.
     if (seq.IsActive()) {
         uint8_t triggers = seq.Tick();
-        if (seq.BeatFired() && rec_mode == RecMode::IDLE) led_event = LedEvent::BEAT;
+        // Beat pulse — lowest-priority LED signal: never overwrites a pending
+        // event, suppressed while recording and during the hold-off that rec
+        // exits and dispatched blinks arm.
+        if (beat_led_hold) beat_led_hold = beat_led_hold - 1;
+        if (seq.BeatFired() && rec_mode == RecMode::IDLE
+                && beat_led_hold == 0 && led_event == LedEvent::NONE)
+            led_event = LedEvent::BEAT;
         // Force-fire the recording slot on every *other* step (8th notes —
         // 16ths were overwhelming while editing), and only for drum recording
         // (Seq mode); a Random-slot rec index must not fire the drum slot of
@@ -1667,6 +1682,11 @@ int main() {
         int      data = led_event_data;
         led_event = LedEvent::NONE;
         __enable_irq();
+
+        // A real blink arms the beat hold-off first, so no beat pulse gets
+        // queued during it or blends into its trailing edge.
+        if (ev != LedEvent::NONE && ev != LedEvent::BEAT)
+            beat_led_hold = kBeatLedHoldBlocks;
 
         switch (ev) {
             case LedEvent::NUMBERED: blink_numbered(data); break;

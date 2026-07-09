@@ -447,7 +447,7 @@ TouchPlaited always puts a clock on its MIDI outputs, and follows one when you g
 | 3 rapid blinks | Confirm — recording saved, copy completed, or Seq entered/re-randomized |
 | 3 fast triple | At octave/root limit |
 | Steady slow blink | Recording mode active |
-| Single flash on beat | Quarter-note pulse from sequencer (visible between other events) |
+| Single flash on beat | Quarter-note pulse from the sequencer — lowest priority: shows only when the LED is otherwise idle, and stays off during Recording, for ~2 s after leaving it (so the confirm blink is clearly visible), and around any other blink |
 
 ---
 
