@@ -461,7 +461,7 @@ TouchPlaited always puts a clock on its MIDI outputs, and follows one when you g
 
 ## Plaits engine banks
 
-The 24 Plaits models are spread over the two shift pads: hold **P0** and turn S35 for **bank 0** (engines 0–11), hold **P2** and turn S35 for **bank 1** (engines 12–23). The knob travel divides evenly across the bank — 11 zones on P0 (Chiptune is skipped), 12 on P2 — and a brief audition fires on each new engine. Each bank remembers its last pick, so tapping the other shift pad hops between two engines.
+The 24 Plaits models are spread over the two shift pads: hold **P0** and turn S35 for **bank 0** (engines 0–11), hold **P2** and turn S35 for **bank 1** (engines 12–23). The knob travel divides evenly across the bank — 11 zones on P0 (Chiptune is skipped), 12 on P2 — and a brief audition fires on each new engine. The engine only changes once the knob moves past a small dead zone, so grabbing a shift pad never jumps the model by itself.
 
 ### Bank 0 — P0 + S35 (engines 0–11)
 
