@@ -65,6 +65,7 @@ The two pitched modes share the same layout — one table, one column per mode. 
 | S37 | Per-slot blend |
 | P0 / P2 + S35 | Per-slot model select (bank 0 / bank 1) |
 | P0 + S37 | Per-slot stereo width |
+| P1 + S30 / P1 + S35 | Per-slot reverb / delay send trim (Seq only) |
 | P10 / P11 | Drum pitch −1 / +1 semitone (Seq only) |
 | Hold source pad 1.2 s | Confirm — save and exit |
 | Tap any other pad | Cancel — restore and exit |
@@ -216,7 +217,7 @@ Each of the 7 pads plays its own stored snapshot (engine, harmonics, timbre, mor
 
 ### Seq (SW2 Up)
 
-Pads P3–P9 play the drum kit directly (also while the seq is paused). Model select is disabled globally in Seq mode; per-slot model and drive can be set during Recording.
+Pads P3–P9 play the drum kit directly (also while the seq is paused). Model select is disabled globally in Seq mode; per-slot model, drive and FX send trims can be set during Recording.
 
 These knob assignments apply only while SW2 is Up. If the seq keeps playing in another mode, all of these settings stay locked at their last values.
 
@@ -248,7 +249,7 @@ One reverb and one delay, shared by everything, each on a single **mirror knob**
 - **Room**: short, damped — thickens drums without washing them out. **Hall**: long, bright tail; the decay opens further as wet rises.
 - **Slapback**: fixed short echo, low feedback — rockabilly/dub thickener. **Dotted 1/8** follows the sequencer tempo (three 16th steps); repeats grow with wet, darker dub-style tail. Tempo changes bend the pitch of the tail tape-style. Under an external MIDI clock the synced time still follows the *knob* tempo (the external rate isn't measured).
 - **Per-group wet, mode memory**: like volume and width, the drum group (Seq) and the pitched group each remember their own wet level — set a touch of room on the drums in Seq, flick to Basic Pitch and crank the hall, and each mix survives mode switches. The *character* (which side of the knob) is shared — the last edit from either mode sets it for both.
-- FX settings are not editable while Recording (the knobs are busy editing the slot) and are not reachable over MIDI.
+- **Per-slot send trims (Seq recording)**: while recording a drum, the same combo (P1 + S30 / P1 + S35) sets that slot's **send trim** — its share (0–100%) of the drum group's wet. The trim multiplies the group send, so the mirror knob stays the master level and character while the trims fine-balance individual drums under it (a wet clap over a dry kick). Trims default to 100%, reset with a new kit (P0+P2 stage 2), and are best set with the sequencer running — the paused-seq audition pulse doesn't ride the drum-group send. The global mirror knobs themselves are not editable while Recording, and no FX setting is reachable over MIDI.
 - An idle FX costs nothing: each sleeps once its input and tail fall silent, like voices do.
 
 ---
@@ -277,6 +278,7 @@ All six timbral knobs are per-slot and require pickup before changing the slot.
 | S35 | Per-slot model select — hold P0 (bank 0) or P2 (bank 1), turn S35 |
 | S36 | Per-slot volume — this slot's level in the mix (Seq drums and Random pads alike); audible live in the audition |
 | S37 | Per-slot model mix — OUT↔AUX blend for this slot. Hold P0: per-slot stereo width — fader fully down = mono; a mono'd slot stays dead center regardless of group width. Blend/width reset to defaults when the kit is regenerated (P0+P2 stage 2) |
+| P1 + S30 / P1 + S35 | **Seq recording only** — per-slot reverb / delay send trim: this drum's share (0–100%) of the drum group's wet set on the global mirror knobs (level only; the character stays global). Same pickup hand-off as everywhere: each role catches its own stored value, so flipping between drive and reverb send on S30 never jumps either |
 
 In Seq mode the tempo (S31's idle role) stays frozen at its entry value while recording and is pickup-protected afterwards.
 

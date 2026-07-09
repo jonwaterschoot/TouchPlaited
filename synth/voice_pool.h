@@ -17,6 +17,8 @@ struct VoiceParams {
     float drive     = 0.0f;
     float blend     = 0.5f;   // OUT↔AUX mono mix: 0 = OUT only, 1 = AUX only
     float width     = 1.0f;   // this voice's share of the group stereo width
+    float rev_send  = 1.0f;   // per-voice trim on the group FX sends —
+    float dly_send  = 1.0f;   // multiplies like volume/width; 1 = follow fully
 };
 
 class VoicePool {
@@ -34,6 +36,8 @@ public:
             voice_volume[i] = 1.0f;
             voice_blend[i]  = 0.5f;
             voice_width[i]  = 1.0f;
+            voice_rev_send[i] = 1.0f;
+            voice_dly_send[i] = 1.0f;
             locked[i]       = false;
             awake[i]        = false;
             gate_held[i]    = false;
@@ -69,8 +73,8 @@ public:
 
     // Per-group FX send levels (see Render): each voice's post-volume/width
     // output also feeds the reverb and delay send buses, scaled by its
-    // group's send — dry drums under a wet synth for free, like the
-    // volume/width pairs.
+    // group's send × the voice's own send trim — dry drums under a wet
+    // synth for free, like the volume/width pairs.
     void SetSeqReverbSend(float v)     { rev_send_seq = v; }
     void SetPitchedReverbSend(float v) { rev_send_pitched = v; }
     void SetSeqDelaySend(float v)      { dly_send_seq = v; }
@@ -103,6 +107,8 @@ public:
         voice_volume[idx] = 1.0f;
         voice_blend[idx]  = g_blend;
         voice_width[idx]  = 1.0f;
+        voice_rev_send[idx] = 1.0f;
+        voice_dly_send[idx] = 1.0f;
         locked[idx]       = false;
         wake(idx, true);
     }
@@ -130,6 +136,8 @@ public:
         voice_volume[idx] = p.volume;
         voice_blend[idx]  = p.blend;
         voice_width[idx]  = p.width;
+        voice_rev_send[idx] = p.rev_send;
+        voice_dly_send[idx] = p.dly_send;
         locked[idx]       = lock_params;
         // Locked (drum-seq) voices are one-shots: no gate hold, free to sleep
         // as soon as their tail decays.
@@ -179,6 +187,8 @@ public:
         voice_volume[idx] = 1.0f;
         voice_blend[idx]  = g_blend;
         voice_width[idx]  = 1.0f;
+        voice_rev_send[idx] = 1.0f;
+        voice_dly_send[idx] = 1.0f;
         wake(idx, false);   // auditions are one-shots — sleep after decay
     }
 
@@ -204,6 +214,8 @@ public:
         voice_volume[idx] = p.volume;
         voice_blend[idx]  = p.blend;
         voice_width[idx]  = p.width;
+        voice_rev_send[idx] = p.rev_send;
+        voice_dly_send[idx] = p.dly_send;
         wake(idx, false);   // auditions are one-shots — sleep after decay
     }
 
@@ -232,8 +244,8 @@ public:
             float rs   = locked[i] ? rev_send_seq : rev_send_pitched;
             float ds   = locked[i] ? dly_send_seq : dly_send_pitched;
             float peak = 0.f;
-            float rsv = rs * vol;
-            float dsv = ds * vol;
+            float rsv = rs * voice_rev_send[i] * vol;
+            float dsv = ds * voice_dly_send[i] * vol;
             for (size_t s = 0; s < size; s++) {
                 float m = tmp_l[s] + b * (tmp_r[s] - tmp_l[s]);
                 float l = m + w * (tmp_l[s] - m);
@@ -297,6 +309,12 @@ public:
     void UpdateAuditionWidth(float w) {
         if (audition_idx >= 0) voice_width[audition_idx] = w;
     }
+    void UpdateAuditionSends(float rev, float dly) {
+        if (audition_idx >= 0) {
+            voice_rev_send[audition_idx] = rev;
+            voice_dly_send[audition_idx] = dly;
+        }
+    }
 
     PlaitsVoice voices[kVoices];
 
@@ -311,6 +329,8 @@ private:
     float    voice_volume[kVoices];
     float    voice_blend[kVoices];
     float    voice_width[kVoices];
+    float    voice_rev_send[kVoices];
+    float    voice_dly_send[kVoices];
     bool     locked[kVoices];
     bool     awake[kVoices];
     bool     gate_held[kVoices];

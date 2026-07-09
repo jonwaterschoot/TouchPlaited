@@ -67,6 +67,9 @@ static float pitched_width_lk = 0.0f;
 // Reverb: room | hall. Delay: slapback | synced dotted 1/8.
 // The *_char values remember the last edit from either group — the shared
 // FX instance takes its character (side + coupled params) from there.
+// Drum recording adds a per-slot trim on top of the drum-group send (PadSlot
+// rev_send/dly_send, edited with the same P1 combo): group send × slot trim,
+// so the mirror knob stays the master wet and the trims fine-balance the kit.
 static float fx_rev_seq_lk = 0.5f, fx_rev_pitched_lk = 0.5f, fx_rev_char_lk = 0.5f;
 static float fx_dly_seq_lk = 0.5f, fx_dly_pitched_lk = 0.5f, fx_dly_char_lk = 0.5f;
 
@@ -112,6 +115,8 @@ struct PadSlot {
     float drive     = 0.0f;
     float blend     = 0.5f;   // OUT↔AUX mono mix: 0 = OUT only, 1 = AUX only
     float width     = 1.0f;   // this slot's share of the group stereo width
+    float rev_send  = 1.0f;   // per-slot trim on the group FX sends (P1+S30 /
+    float dly_send  = 1.0f;   // P1+S35 in drum recording); 1 = follow fully
 };
 
 // Engines whose internal decay lives on MORPH: String and Modal route it to
@@ -132,6 +137,9 @@ static VoiceParams slot_params(const PadSlot& s, float tight = -1.f) {
     p.drive     = s.drive;
     p.blend     = s.blend;
     p.width     = s.width;
+    // Squared like the group sends (audio taper — see the fx_decode block).
+    p.rev_send  = s.rev_send * s.rev_send;
+    p.dly_send  = s.dly_send * s.dly_send;
     if (morph_is_decay(s.engine))
         p.morph = (tight < 0.f) ? s.decay : s.decay * (0.2f + tight * 0.8f);
     return p;
@@ -262,12 +270,15 @@ static void generate_drum_random() {
     fill_drum_slot(drum_slots[5], kDrumTom,   2); drum_slots[5].volume = 0.70f;
     fill_drum_slot(drum_slots[6], kDrumPerc,  4); drum_slots[6].volume = 0.50f;
     // slot.drive is a ratio of the overall S30 drive in seq mode; 1.0 = follow fully.
-    // Blend/width reset with the kit: a mono flag or AUX-only blend from an old
-    // kit shouldn't silently reshape whatever new engine lands on the slot.
+    // Blend/width/FX-send trims reset with the kit: a mono flag, AUX-only blend
+    // or dry-trimmed send from an old kit shouldn't silently reshape whatever
+    // new engine lands on the slot.
     for (int i = 0; i < kPadSlots; i++) {
-        drum_slots[i].drive = 1.0f;
-        drum_slots[i].blend = 0.5f;
-        drum_slots[i].width = 1.0f;
+        drum_slots[i].drive    = 1.0f;
+        drum_slots[i].blend    = 0.5f;
+        drum_slots[i].width    = 1.0f;
+        drum_slots[i].rev_send = 1.0f;
+        drum_slots[i].dly_send = 1.0f;
     }
     drum_kit_ready = true;
 }
@@ -382,6 +393,11 @@ struct KnobPickup {
     }
 };
 static KnobPickup rec_k30, rec_k31, rec_k32, rec_k33, rec_k34, rec_k36, rec_k37;
+// P1 held in drum recording: S30/S35 become the slot's FX send trims (level
+// only — the character stays on the global mirror knobs). Armed on the P1
+// press edge; the bare roles (drive / model select) re-arm on release.
+static KnobPickup rec_k30fx, rec_k35fx;
+static bool       rec_p1_last = false;   // press/release edge tracking
 
 // CC pickups gate the pots behind the eff_* params. Force-caught at boot so
 // the pots are live from the start; a MIDI CC write re-arms them.
@@ -779,6 +795,7 @@ static void enter_rec_mode(int slot) {
     rec_retrig_tick    = 0;
     cancel_pad         = -1;
     cancel_count       = 0;
+    rec_p1_last        = false;   // P1 already down at entry = fresh press edge
 
     // Arm knob pickups to the slot's actual values: each pot takes effect only
     // when it reaches the value it is editing — no jumps, works from either
@@ -881,8 +898,9 @@ void AudioCallback(AudioHandle::InputBuffer in, AudioHandle::OutputBuffer out, s
 
     // P1 = FX modifier: held → S30 edits the reverb, S35 the delay. Their
     // bare roles (drive / pattern select) freeze for the duration. Disabled
-    // while recording (rec borrows S30) and under P0/P2 (model select owns
-    // S35 there).
+    // while recording (rec borrows S30 — in drum recording the same combo
+    // edits the slot's send trims instead, see the rec knob block) and under
+    // P0/P2 (model select owns S35 there).
     bool p1_fx = touch.pads().IsTouched(1) && !touch.pads().IsTouched(0)
                  && !touch.pads().IsTouched(2) && rec_mode == RecMode::IDLE;
 
@@ -1280,8 +1298,36 @@ void AudioCallback(AudioHandle::InputBuffer in, AudioHandle::OutputBuffer out, s
         auto& slot   = live_slots()[rec_slot];
         float v30 = k.s30().Value(), v31 = k.s31().Value(), v32 = k.s32().Value();
         float v33 = k.s33().Value(), v34 = k.s34().Value(), v36 = k.s36().Value();
-        float v37 = k.s37().Value();
-        if (rec_k30.update(v30)) { slot.drive  = v30; if (!seq_mode_on) pool.SetDrive(v30); }
+        float v37 = k.s37().Value(), v35 = k.s35().Value();
+        // P1 in drum recording = this slot's FX send trims: S30 reverb, S35
+        // delay — the same combo as the global FX layer, scoped to the slot.
+        // Each role catches its own stored value, so releasing P1 can't jump
+        // drive or model select to wherever the send edit left the pot.
+        bool p1_snd = is_drum_mode && touch.pads().IsTouched(1)
+                      && !touch.pads().IsTouched(0) && !touch.pads().IsTouched(2);
+        if (p1_snd != rec_p1_last) {
+            rec_p1_last = p1_snd;
+            if (p1_snd) {
+                rec_k30fx.arm_to(slot.rev_send, v30);
+                rec_k35fx.arm_to(slot.dly_send, v35);
+            } else {
+                rec_k30.arm_to(slot.drive, v30);
+                rec_bank_caught[0] = rec_bank_caught[1] = false;
+                rec_bank_thresh[0] = rec_bank_thresh[1] = v35;
+            }
+        }
+        if (p1_snd) {
+            bool snd_changed = false;
+            if (rec_k30fx.update(v30)) { slot.rev_send = v30; snd_changed = true; }
+            if (rec_k35fx.update(v35)) { slot.dly_send = v35; snd_changed = true; }
+            // Squared like slot_params. Audible per seq trigger; the audition
+            // voice is updated too, but it rides the *pitched* group send —
+            // trims are best judged with the seq running.
+            if (snd_changed)
+                pool.UpdateAuditionSends(slot.rev_send * slot.rev_send,
+                                         slot.dly_send * slot.dly_send);
+        }
+        if (!p1_snd && rec_k30.update(v30)) { slot.drive  = v30; if (!seq_mode_on) pool.SetDrive(v30); }
         if (rec_k36.update(v36)) { slot.volume = v36; }
         if (touch.pads().IsTouched(0)) {
             if (rec_k37w.update(v37)) {
@@ -1312,7 +1358,7 @@ void AudioCallback(AudioHandle::InputBuffer in, AudioHandle::OutputBuffer out, s
             float aud_note = is_drum_mode ? slot.note : root_note_f();
             pool.AuditionWithParams(aud_note, slot_params(slot));
         }
-        process_rec_model_select(k.s35().Value());
+        if (!p1_snd) process_rec_model_select(v35);
     }
 
     // Global model select.
