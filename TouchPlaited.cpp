@@ -1396,6 +1396,13 @@ void AudioCallback(AudioHandle::InputBuffer in, AudioHandle::OutputBuffer out, s
 // ─── Main ─────────────────────────────────────────────────────────────────────
 int main() {
     hw.Init();
+    // DaisySeed::Init skips led.Init() when the Daisy bootloader reports
+    // < v6.0 (no version stamp in backup SRAM) and the app runs from QSPI —
+    // SetLed then writes through a null GPIO port and the user LED stays
+    // dark in every mode. The LED config is populated unconditionally before
+    // that skip, so re-running the init here is safe (and idempotent when
+    // DaisySeed::Init already did it).
+    hw.led.Init();
     hw.SetAudioBlockSize(kBlockSize);
     hw.SetAudioSampleRate(SaiHandle::Config::SampleRate::SAI_48KHZ);
 
