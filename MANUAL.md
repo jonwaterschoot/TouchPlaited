@@ -220,7 +220,7 @@ These knob assignments apply only while SW2 is Up. If the seq keeps playing in a
 | S32 | Shuffle — swing delay on odd 16th steps (0 = straight, max = ~50%) | 28 |
 | S33 | Density — how many pattern steps fire (1 = strong hits only … 4 = everything including ghosts) | 29 |
 | S34 | Kick punch — boosts kick timbre on each trigger | 30 |
-| S35 | Pattern select — steps through the patterns of the current SW1 genre (knob range splits evenly across that genre's pattern count) | — |
+| S35 | Pattern select — steps through the patterns of the current SW1 genre (knob range splits evenly across that genre's pattern count; custom patterns can be drawn with `tools/pattern_editor.html` and added via a firmware rebuild — see the README) | — |
 | S36 | Seq volume - drum group level, independent of the pitched modes; picked up on re-entry | — |
 | S37 | Tightness — compresses the tail of all morph-decay engines (19–23); lower = shorter decay. Hold P0: drum-group stereo width (0 = mono) | 31 |
 
