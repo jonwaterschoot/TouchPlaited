@@ -114,6 +114,11 @@ public:
     int  Step()    const { return step_; }
     int  Bar()     const { return bar_; }
 
+    // Blocks per 16th step at the internal (knob/fallback) tempo — the
+    // timebase for the tempo-synced delay. Under external MIDI clock this
+    // still reflects the knob tempo, not the external one.
+    uint32_t StepBlocks() const { return step_blocks_; }
+
     // S31 0..1 → 60–180 BPM
     void SetTempo(float v) {
         float bpm    = 60.f + v * 120.f;

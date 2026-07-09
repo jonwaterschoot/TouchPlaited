@@ -3,6 +3,7 @@
 #include "touch/touch.h"
 #include "synth/voice_pool.h"
 #include "synth/sequencer.h"
+#include "synth/fx.h"
 #include "midi/midi_io.h"
 #include "log.h"
 #include <algorithm>
@@ -57,6 +58,26 @@ static float seq_width_lk = 0.0f;   // P0+S37 in Seq = drum-group stereo width (
 static float pitched_vol_lk   = 1.0f;
 static float pitched_blend_lk = 0.5f;
 static float pitched_width_lk = 0.0f;
+
+// FX mirror knobs (P1+S30 = reverb, P1+S35 = delay), stored per group like
+// the volume/width pairs so drums and synth keep independent wet levels.
+// Encoding: 0.5 = off (center dead zone); left of center = character A, wet
+// grows toward 0.0; right of center = character B, wet grows toward 1.0.
+// Reverb: room | hall. Delay: slapback | synced dotted 1/8.
+// The *_char values remember the last edit from either group — the shared
+// FX instance takes its character (side + coupled params) from there.
+static float fx_rev_seq_lk = 0.5f, fx_rev_pitched_lk = 0.5f, fx_rev_char_lk = 0.5f;
+static float fx_dly_seq_lk = 0.5f, fx_dly_pitched_lk = 0.5f, fx_dly_char_lk = 0.5f;
+
+// Mirror-knob decode: side -1/0/+1 and wet 0..1 (distance from the dead zone).
+static constexpr float kFxDeadZone = 0.06f;
+static int fx_decode(float v, float* wet) {
+    const float half = 0.5f - kFxDeadZone;
+    if (v < half)        { *wet = (half - v) / half;         return -1; }
+    if (v > 1.f - half)  { *wet = (v - (1.f - half)) / half; return  1; }
+    *wet = 0.f;
+    return 0;
+}
 
 // Unified long-hold threshold for recording enter / confirm / copy in every
 // mode. 1200 ms: long enough that holding a sustained note in Random doesn't
@@ -387,6 +408,8 @@ struct MoveCatch {
 static MoveCatch rec_k37w;    // P0+S37 in recording = slot stereo width
 static MoveCatch seq_puw;     // P0+S37 in Seq = drum-group stereo width
 static MoveCatch pitch_pu_w;  // P0+S37 in pitched modes = pitched-group width
+static MoveCatch fx_mc_rev;   // P1+S30 = reverb mirror knob (any mode)
+static MoveCatch fx_mc_dly;   // P1+S35 = delay mirror knob (any mode)
 
 // Pickups for the seq settings — armed on every Seq entry (see SW2 handling)
 // and re-armed after recording (rec mode borrows most of these pots).
@@ -851,13 +874,20 @@ void AudioCallback(AudioHandle::InputBuffer in, AudioHandle::OutputBuffer out, s
     last_m    = k.s34().Value();
     last_d    = k.s31().Value();   // unified Decay lives on S31 (LPG colour retired)
 
+    // P1 = FX modifier: held → S30 edits the reverb, S35 the delay. Their
+    // bare roles (drive / pattern select) freeze for the duration. Disabled
+    // while recording (rec borrows S30) and under P0/P2 (model select owns
+    // S35 there).
+    bool p1_fx = touch.pads().IsTouched(1) && !touch.pads().IsTouched(0)
+                 && !touch.pads().IsTouched(2) && rec_mode == RecMode::IDLE;
+
     // Pots feed the effective params through the CC pickups: live by default,
     // gated after a MIDI CC write until the pot crosses the CC value.
     if (cc_pu_h.update(last_h))     eff_h     = last_h;
     if (cc_pu_t.update(last_t))     eff_t     = last_t;
     if (cc_pu_m.update(last_m))     eff_m     = last_m;
     if (cc_pu_d.update(last_d))     eff_d     = last_d;
-    if (cc_pu_drive.update(drive))  eff_drive = drive;
+    if (!p1_fx && cc_pu_drive.update(drive))  eff_drive = drive;
 
     // One-time fader arm: volume and blend follow their pots live from boot —
     // the pickups only start gating after a mode hand-off or P0 width edit.
@@ -980,6 +1010,41 @@ void AudioCallback(AudioHandle::InputBuffer in, AudioHandle::OutputBuffer out, s
         }
     }
 
+    // P1 FX modifier: on the press edge arm the movement-catches (nudge ~3%
+    // and the pot position IS the value, like the width controls — a
+    // crossing pickup against a center-mirror encoding felt dead); on the
+    // release edge re-arm the bare roles' pickups so drive / pattern select
+    // don't jump to wherever the FX edit left the pot.
+    {
+        static bool last_p1_fx = false;
+        if (p1_fx != last_p1_fx) {
+            last_p1_fx = p1_fx;
+            if (p1_fx) {
+                fx_mc_rev.arm(k.s30().Value());
+                fx_mc_dly.arm(k.s35().Value());
+            } else {
+                if (seq_mode_on) {
+                    seq_pu30.arm_to(seq_drive_lk, k.s30().Value());
+                    seq_pu35.arm_to(seq_var_lk,   k.s35().Value());
+                } else {
+                    cc_pu_drive.arm_to(eff_drive, k.s30().Value());
+                }
+            }
+        }
+        if (p1_fx) {
+            float v30 = k.s30().Value();
+            if (fx_mc_rev.update(v30)) {
+                if (seq_mode_on) fx_rev_seq_lk = v30; else fx_rev_pitched_lk = v30;
+                fx_rev_char_lk = v30;
+            }
+            float v35 = k.s35().Value();
+            if (fx_mc_dly.update(v35)) {
+                if (seq_mode_on) fx_dly_seq_lk = v35; else fx_dly_pitched_lk = v35;
+                fx_dly_char_lk = v35;
+            }
+        }
+    }
+
     // Sequencer knob/switch updates — only while SW2 is Up and not recording
     // (rec mode borrows S30/S32/S33/S34/S37 for slot editing). Every pot goes
     // through pickup, so a pot used by another mode doesn't jump the setting
@@ -987,12 +1052,12 @@ void AudioCallback(AudioHandle::InputBuffer in, AudioHandle::OutputBuffer out, s
     // Seq layout: S30=drive, S31=tempo, S32=shuffle, S33=density, S34=punch,
     // S35=pattern variant (within the SW1 genre), S37=tightness.
     if (seq_mode_on && rec_mode == RecMode::IDLE) {
-        if (seq_pu30.update(drive))            seq_drive_lk = drive;
+        if (!p1_fx && seq_pu30.update(drive))            seq_drive_lk = drive;
         if (seq_pu31.update(k.s31().Value()))  seq_tempo_lk = k.s31().Value();
         if (seq_pu32.update(k.s32().Value()))  seq_shuf_lk  = k.s32().Value();
         if (seq_pu33.update(k.s33().Value()))  seq_dens_lk  = k.s33().Value();
         if (seq_pu34.update(k.s34().Value()))  seq_punch_lk = k.s34().Value();
-        if (seq_pu35.update(k.s35().Value()))  seq_var_lk   = k.s35().Value();
+        if (!p1_fx && seq_pu35.update(k.s35().Value()))  seq_var_lk   = k.s35().Value();
         if (seq_pu36.update(k.s36().Value()))  seq_vol_lk   = k.s36().Value();
         if (touch.pads().IsTouched(0)) {
             if (seq_puw.update(k.s37().Value())) seq_width_lk = snap_width(k.s37().Value());
@@ -1022,6 +1087,25 @@ void AudioCallback(AudioHandle::InputBuffer in, AudioHandle::OutputBuffer out, s
     pool.SetPitchedVolume(pitched_vol_lk);
     pool.SetSeqWidth(seq_width_lk);
     pool.SetPitchedWidth(pitched_width_lk);
+
+    // Decode the FX mirror knobs into per-group sends + shared character.
+    // Squared send = audio taper: finer control in the useful low-wet range.
+    {
+        float w;
+        fx_decode(fx_rev_seq_lk, &w);      pool.SetSeqReverbSend(w * w);
+        fx_decode(fx_rev_pitched_lk, &w);  pool.SetPitchedReverbSend(w * w);
+        int side = fx_decode(fx_rev_char_lk, &w);
+        fx.SetReverbCharacter(side, w);
+
+        fx_decode(fx_dly_seq_lk, &w);      pool.SetSeqDelaySend(w * w);
+        fx_decode(fx_dly_pitched_lk, &w);  pool.SetPitchedDelaySend(w * w);
+        side = fx_decode(fx_dly_char_lk, &w);
+        // Dotted 1/8 = 3 sixteenth steps of the seq clock (internal tempo;
+        // under external MIDI clock this is the knob fallback tempo).
+        fx.SetDelayCharacter(side, w,
+                             3.f * static_cast<float>(seq.StepBlocks())
+                                 * static_cast<float>(kBlockSize));
+    }
 
     // P0+P2 hold counter — active in every playmode:
     //   Basic Pitch: 1s soft tight (±0.25) → 2s soft wide (±0.45), same engine
@@ -1275,13 +1359,27 @@ void AudioCallback(AudioHandle::InputBuffer in, AudioHandle::OutputBuffer out, s
         for (int n = seq.MidiClockTick(); n > 0; n--) midi.SendClock();
     }
 
-    // Render. Static to keep 1.5 KB off the ISR stack.
+    // Render. Static to keep the buffers (main + FX send buses) off the ISR
+    // stack.
     static float left[kBlockSize];
     static float right[kBlockSize];
+    static float rev_bus_l[kBlockSize], rev_bus_r[kBlockSize];
+    static float dly_bus_l[kBlockSize], dly_bus_r[kBlockSize];
     __builtin_memset(left,  0, size * sizeof(float));
     __builtin_memset(right, 0, size * sizeof(float));
+    __builtin_memset(rev_bus_l, 0, size * sizeof(float));
+    __builtin_memset(rev_bus_r, 0, size * sizeof(float));
+    __builtin_memset(dly_bus_l, 0, size * sizeof(float));
+    __builtin_memset(dly_bus_r, 0, size * sizeof(float));
     for (size_t offset = 0; offset < size; offset += kChunkSize)
-        pool.Render(left + offset, right + offset, kChunkSize);
+        pool.Render(left + offset, right + offset,
+                    rev_bus_l + offset, rev_bus_r + offset,
+                    dly_bus_l + offset, dly_bus_r + offset, kChunkSize);
+
+    // FX returns sum into the mix before the soft-clip. Each sleeps when its
+    // send bus and tail are silent, so unused FX cost nothing per block.
+    fx.ProcessDelay(dly_bus_l, dly_bus_r, left, right, size);
+    fx.ProcessReverb(rev_bus_l, rev_bus_r, left, right, size);
 
     // Output: soft-clip via x/(1+|x|). Levels are per-group in VoicePool
     // (SetSeqVolume / SetPitchedVolume) — no master scale here.
@@ -1311,6 +1409,7 @@ int main() {
     touch.Init(hw);
     pool.Init();
     pool.SetEngine(current_engine);
+    fx.Init(hw.AudioSampleRate());   // clears the SDRAM FX buffers (NOLOAD section)
     // TRS MIDI always (idle UART is free); USB MIDI only with -DUSB_MIDI,
     // which is also what suppresses StartLog above — one USB port, one owner.
     midi.Init();
@@ -1363,8 +1462,8 @@ int main() {
             }
 
         } else if (pad == 1) {
-            // Unused — play/pause moved to the P2+P11 combo. Reserved for
-            // future melodic seq trigger.
+            // FX modifier (hold + S30 = reverb, + S35 = delay) — handled in
+            // AudioCallback like the P0 width modifier; nothing to do on tap.
 
         } else if (pad == 2) {
             if (rec_mode == RecMode::IDLE) {
@@ -1431,7 +1530,8 @@ int main() {
         } else if (pad == 0 || pad == 2) {
             if (rec_mode == RecMode::IDLE) bank_caught[(pad == 0) ? 0 : 1] = false;
         }
-        // P1: unused. P11 combo needs no release action.
+        // P1 (FX modifier) release is edge-detected in AudioCallback.
+        // P11 combo needs no release action.
     });
 
     hw.StartAudio(AudioCallback);

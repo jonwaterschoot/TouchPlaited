@@ -67,6 +67,15 @@ public:
     void SetSeqWidth(float v)     { width_seq = v; }
     void SetPitchedWidth(float v) { width_pitched = v; }
 
+    // Per-group FX send levels (see Render): each voice's post-volume/width
+    // output also feeds the reverb and delay send buses, scaled by its
+    // group's send — dry drums under a wet synth for free, like the
+    // volume/width pairs.
+    void SetSeqReverbSend(float v)     { rev_send_seq = v; }
+    void SetPitchedReverbSend(float v) { rev_send_pitched = v; }
+    void SetSeqDelaySend(float v)      { dly_send_seq = v; }
+    void SetPitchedDelaySend(float v)  { dly_send_pitched = v; }
+
     // Skip the audition voice — its FM stays at 0 for the full note duration.
     void SetFMAmount(float v) {
         for (int i = 0; i < kVoices; i++) {
@@ -203,7 +212,9 @@ public:
     // after kQuietChunks consecutive chunks below kSilenceThresh with its gate
     // off, and wakes on the next trigger. Gate-held voices never sleep, so a
     // held pad on a quiet engine region still responds to knob sweeps.
-    void Render(float* out_left, float* out_right, size_t size) {
+    void Render(float* out_left, float* out_right,
+                float* rev_left, float* rev_right,
+                float* dly_left, float* dly_right, size_t size) {
         static float tmp_l[24], tmp_r[24];
         for (int i = 0; i < kVoices; i++) {
             if (!awake[i]) continue;
@@ -218,13 +229,21 @@ public:
             // stays dead center whatever the group width does.
             float b    = voice_blend[i];
             float w    = voice_width[i] * (locked[i] ? width_seq : width_pitched);
+            float rs   = locked[i] ? rev_send_seq : rev_send_pitched;
+            float ds   = locked[i] ? dly_send_seq : dly_send_pitched;
             float peak = 0.f;
+            float rsv = rs * vol;
+            float dsv = ds * vol;
             for (size_t s = 0; s < size; s++) {
                 float m = tmp_l[s] + b * (tmp_r[s] - tmp_l[s]);
                 float l = m + w * (tmp_l[s] - m);
                 float r = m + w * (tmp_r[s] - m);
                 out_left[s]  += l * vol;
                 out_right[s] += r * vol;
+                rev_left[s]  += l * rsv;
+                rev_right[s] += r * rsv;
+                dly_left[s]  += l * dsv;
+                dly_right[s] += r * dsv;
                 float a = l < 0.f ? -l : l;
                 float b = r < 0.f ? -r : r;
                 if (a > peak) peak = a;
@@ -314,6 +333,9 @@ private:
     float vol_seq = 1.0f, vol_pitched = 1.0f;
     // Per-group stereo width (see SetSeqWidth/SetPitchedWidth).
     float width_seq = 1.0f, width_pitched = 1.0f;
+    // Per-group FX send levels (see SetSeqReverbSend etc.). 0 = dry.
+    float rev_send_seq = 0.0f, rev_send_pitched = 0.0f;
+    float dly_send_seq = 0.0f, dly_send_pitched = 0.0f;
 
     int find_free_or_steal() {
         // Prefer a genuinely free voice (not the active audition slot).

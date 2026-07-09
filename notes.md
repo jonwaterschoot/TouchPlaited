@@ -615,6 +615,75 @@ cheaper send alongside.
 
 ---
 
+## Reverb / delay FX — implementation (2026-07-09, `FX` branch)
+
+Follows the analysis above; deltas and decisions:
+
+### Controls — mirror knobs on the P1 layer
+
+P1+S30 = reverb, P1+S35 = delay. Both are **mirror knobs**: center = off
+(±0.06 dead zone), each half is a character, wet grows outward. Chosen over
+zone/preset splits for consistency and generous wet travel per character:
+
+- Reverb: left = **room** (krt 0.35–0.6, lp 0.45), right = **hall**
+  (krt 0.75–0.95, lp 0.80). Tail opens slightly as wet rises.
+- Delay: left = **slapback** (fixed 120 ms, fb 0.05–0.30, bright), right =
+  **synced dotted 1/8** (= 3 seq steps, fb 0.2–0.7, dark). Time changes slew
+  per-sample (~70 ms τ, tape-style bend); snap while the delay is asleep.
+
+Wet levels are **per-group** (`fx_rev_seq_lk`/`fx_rev_pitched_lk`, same for
+delay) with mode memory, mirroring the volume/width pairs; sends use a
+squared taper. The FX **character is shared** — last edit from either group
+wins (one instance can't be room and hall at once; accepted, documented).
+P1 edits use MoveCatch (crossing pickup against a mirror encoding felt dead);
+on release, S30/S35's bare roles re-arm their pickups (drive: `seq_pu30` /
+`cc_pu_drive`, pattern: `seq_pu35`) so nothing jumps. FX edits disabled while
+recording (rec owns S30) and under P0/P2 (model select owns S35). Not
+reachable over MIDI (candidate CCs later).
+
+**Conscious reversal** of the parking-lot "P1 never held" ergonomics note:
+an FX level is set-and-forget, not performative. Verify reachability on
+hardware; fallback is bare S35 as pitched send.
+
+### DSP — no new dependencies
+
+- **Reverb**: Rings' `dsp/fx/reverb.h` (Griesinger/Dattorro: 4 input APs +
+  2×(2AP+delay) loop, MIT) adapted in `synth/fx.cpp` onto the **already
+  vendored** `plaits/dsp/fx/fx_engine.h` — identical base class, Rings also
+  runs 48 kHz, so delay-line sizes carry over unchanged. 32768×uint16 buffer.
+  Much cheaper than the ReverbSc estimate (~2–4% vs 6–10%).
+- **Delay**: hand-rolled cross-feedback (ping-pong flavored) stereo line,
+  one-pole damping in the loop, linear-interp fractional read. 2×64k floats.
+- Both TUs keep Plaits/stmlib headers confined to `fx.cpp` behind `fx.h`
+  (same leak rule as plaits_voice).
+
+### Plumbing
+
+`VoicePool::Render` grew two send buses (reverb/delay stereo pairs) filled
+per-voice post-volume/width by group send levels (`rev_send_seq` etc.) —
+voice-sleep peak still measured pre-volume, unchanged. `AudioCallback`
+renders FX returns into the mix **before** the soft-clip. `Sequencer` exposes
+`StepBlocks()` for the synced time (internal/knob tempo only — external MIDI
+clock rate is not measured; synced delay follows the knob fallback tempo).
+
+### Memory / CPU (measured at build)
+
+SDRAM 0 → **576 KB** of 64 MB (reverb 64 KB + delay 512 KB); SRAM unchanged
+(~50%); QSPI +8 KB. **FX sleep** implemented as planned: each FX skips its
+render once input *and* tail are silent — reverb after >1 loop period
+(~380 ms), delay only after a full delay-time of silence so a stale tail can
+never replay on wake. Idle cost stays ~3%.
+
+### Open on hardware
+
+Levels/tapers (send taper, return gains, feedback ranges), character params
+by ear, `shed N` behavior under dense seq + Random with FX cranked, P1
+reachability. Future: per-slot send in Recording, send randomization in kit
+generators, shimmer as an alternate right-side reverb character (needs
+Clouds' pitch shifter port), ITCM placement if peaks pinch.
+
+---
+
 ## Feature Ideas / Parking Lot
 
 **Moved to `ROADMAP.md` (2026-07-08).** The roadmap is the single owner of

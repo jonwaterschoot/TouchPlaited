@@ -29,6 +29,9 @@ The two pitched modes share the same layout — one table, one column per mode. 
 | **Hold P2 (shift)** | | | |
 | P2 + S35 | Model select, bank 1 (engines 12–23) | Force bank-1 engine onto all 7 slots | — |
 | P2 (hold) + P11 | Drum seq play / pause | *same* | Start/Continue/Stop |
+| **Hold P1 (FX shift)** | | | |
+| P1 + S30 | Reverb (pitched voices) — center = off; left half = room, right half = hall; wet grows outward | *same* | — |
+| P1 + S35 | Delay (pitched voices) — center = off; left half = slapback, right half = synced dotted 1/8 | *same* | — |
 
 ### Seq (SW2 Up)
 
@@ -43,6 +46,8 @@ The two pitched modes share the same layout — one table, one column per mode. 
 | S36 | Seq volume | — |
 | S37 | Tightness (decay of engines 19–23) | 31 |
 | P0 + S37 | Drum-group stereo width | — |
+| P1 + S30 | Reverb (drum group) — center = off; room ◄ · ► hall | — |
+| P1 + S35 | Delay (drum group) — center = off; slapback ◄ · ► dotted 1/8 | — |
 | P3–P9 | Play drums: kick / snare / cl. hat / op. hat / clap / tom / perc | notes in/out, ch 10 (GM) |
 | Hold P3–P9 for 1.2 s | Enter Recording for that drum | — |
 | P0 + P2 hold 1 s / 2 s | Vary current kit / generate new kit | — |
@@ -189,6 +194,7 @@ After a P0+P2 randomize (see *Re-randomize gestures*), each pad plays its own fr
 | S36 | Output level (pitched voices only - the drum seq keeps its own volume) | 26 |
 | S37 | Model mix — OUT↔AUX blend, mono to both outputs. Hold P0: stereo width (0 = mono, 1 = raw OUT/AUX split) | — |
 | — | LPG colour — has no knob since the unified Decay took S31; neutral 0.5 unless a CC sets it | 25 |
+| P1 + S30 / P1 + S35 | Reverb / delay for the pitched voices — see *FX* below | — |
 
 ### Random (SW2 Center)
 
@@ -204,6 +210,7 @@ Each of the 7 pads plays its own stored snapshot (engine, harmonics, timbre, mor
 | S35 | Model select — hold P0 (bank 0, engines 0–11) or P2 (bank 1, engines 12–23) while turning; forces the chosen engine onto all 7 slots with a soft spread around the S31–S34 centers; blend taken from S37. Bare S35 does nothing | — |
 | S36 | Output level (pitched voices only - the drum seq keeps its own volume) | 26 |
 | S37 | Blend center — stamped onto all slots when P0/P2 + S35 forces a new engine; refine per slot in Recording. Hold P0: stereo width for all pitched voices (0 = mono, 1 = raw OUT/AUX split) | — |
+| P1 + S30 / P1 + S35 | Reverb / delay for the pitched voices — see *FX* below | — |
 
 ### Seq (SW2 Up)
 
@@ -223,6 +230,24 @@ These knob assignments apply only while SW2 is Up. If the seq keeps playing in a
 | S35 | Pattern select — steps through the patterns of the current SW1 genre (knob range splits evenly across that genre's pattern count; custom patterns can be drawn with `tools/pattern_editor.html` and added via a firmware rebuild — see the README) | — |
 | S36 | Seq volume - drum group level, independent of the pitched modes; picked up on re-entry | — |
 | S37 | Tightness — compresses the tail of all morph-decay engines (19–23); lower = shorter decay. Hold P0: drum-group stereo width (0 = mono) | 31 |
+| P1 + S30 / P1 + S35 | Reverb / delay for the drum group — see *FX* below | — |
+
+---
+
+## FX — reverb & delay (P1 + S30 / P1 + S35)
+
+One reverb and one delay, shared by everything, each on a single **mirror knob**: the center of the knob is **off**, each half is a different character, and the wet level grows as you turn away from the center. Hold **P1** and nudge the knob (~3% of travel, same movement-catch as the width controls) — from then on, while P1 stays held, the knob position is the setting. Release P1 and the knob returns to its normal role (drive / pattern select) behind the usual pickup, so nothing jumps.
+
+| Knob (P1 held) | Full left ◄ | Center | ► Full right |
+|----------------|-------------|--------|--------------|
+| S30 — Reverb | **Room**, max wet | off | **Hall**, max wet |
+| S35 — Delay | **Slapback** (~120 ms), max wet | off | **Synced dotted 1/8**, max wet |
+
+- **Room**: short, damped — thickens drums without washing them out. **Hall**: long, bright tail; the decay opens further as wet rises.
+- **Slapback**: fixed short echo, low feedback — rockabilly/dub thickener. **Dotted 1/8** follows the sequencer tempo (three 16th steps); repeats grow with wet, darker dub-style tail. Tempo changes bend the pitch of the tail tape-style. Under an external MIDI clock the synced time still follows the *knob* tempo (the external rate isn't measured).
+- **Per-group wet, mode memory**: like volume and width, the drum group (Seq) and the pitched group each remember their own wet level — set a touch of room on the drums in Seq, flick to Basic Pitch and crank the hall, and each mix survives mode switches. The *character* (which side of the knob) is shared — the last edit from either mode sets it for both.
+- FX settings are not editable while Recording (the knobs are busy editing the slot) and are not reachable over MIDI.
+- An idle FX costs nothing: each sleeps once its input and tail fall silent, like voices do.
 
 ---
 
@@ -388,7 +413,7 @@ CCs control *functions*, not knobs — so a CC always does the same thing no mat
 | 31 | Seq tightness | S37 (Seq) |
 | 120 / 123 | All Sound Off / All Notes Off — releases MIDI-held notes | — |
 
-Not reachable over MIDI: model select (S35), pattern/variant select, seq volume (S36 in Seq), blend (S37), stereo widths, and everything in Recording mode — CCs keep addressing the global functions while you record.
+Not reachable over MIDI: model select (S35), pattern/variant select, seq volume (S36 in Seq), blend (S37), stereo widths, the FX mirror knobs (P1+S30/S35), and everything in Recording mode — CCs keep addressing the global functions while you record.
 
 ### MIDI out
 
