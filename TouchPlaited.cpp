@@ -455,9 +455,9 @@ static void rearm_seq_pickups() {
 
 // ─── MIDI (mapping design in notes.md → "MIDI mapping sketch") ────────────────
 // Channel split: ch1 = pitched — the note number IS the pitch, bypassing the
-// pad scale/root/octave logic — ch10 = drums via the GM map. CC20–31 map to
-// *functions*, not pots; a CC write re-arms that pot's pickup so the pot must
-// cross the value to take over (same rule as mode hand-offs).
+// pad scale/root/octave logic — ch10 = drums via the GM map. CC20–31 and
+// 85–88 map to *functions*, not pots; a CC write re-arms that pot's pickup so
+// the pot must cross the value to take over (same rule as mode hand-offs).
 // Handlers run from MidiIO::Service (main loop) inside an IRQ-off section.
 static constexpr uint8_t kMidiPitchCh  = 0;    // ch1
 static constexpr uint8_t kMidiDrumCh   = 9;    // ch10
@@ -550,6 +550,21 @@ static void on_midi_cc(uint8_t /*ch*/, uint8_t cc, uint8_t val) {
                  seq.SetDensity(v);                                          break;
         case 30: seq_punch_lk = v; seq_pu34.arm_to(v, kn.s34().Value());     break;
         case 31: seq_tight_lk = v; seq_pu37.arm_to(v, kn.s37().Value());     break;
+        // FX mirror values, same center-off encoding as the P1 knob layer
+        // (64 ≈ off; below = character A, above = character B, wet grows
+        // outward). The pot writes to whichever group is active; over MIDI
+        // each group gets its own CC so a DAW can automate the drum sends
+        // while playing a pitched mode. Character is shared — last edit from
+        // either group wins, exactly like the knob. Re-arming the movement-
+        // catch means a caught pot must be nudged again to take back over.
+        case 85: fx_rev_pitched_lk = v; fx_rev_char_lk = v;
+                 fx_mc_rev.arm(kn.s30().Value());                            break;
+        case 86: fx_rev_seq_lk = v;     fx_rev_char_lk = v;
+                 fx_mc_rev.arm(kn.s30().Value());                            break;
+        case 87: fx_dly_pitched_lk = v; fx_dly_char_lk = v;
+                 fx_mc_dly.arm(kn.s35().Value());                            break;
+        case 88: fx_dly_seq_lk = v;     fx_dly_char_lk = v;
+                 fx_mc_dly.arm(kn.s35().Value());                            break;
         default: break;
     }
 }

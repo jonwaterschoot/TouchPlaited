@@ -415,9 +415,15 @@ CCs control *functions*, not knobs — so a CC always does the same thing no mat
 | 29 | Seq density | S33 (Seq) |
 | 30 | Seq kick punch | S34 (Seq) |
 | 31 | Seq tightness | S37 (Seq) |
+| 85 | Reverb — pitched voices | P1+S30 (pitched modes) |
+| 86 | Reverb — drums | P1+S30 (Seq) |
+| 87 | Delay — pitched voices | P1+S35 (pitched modes) |
+| 88 | Delay — drums | P1+S35 (Seq) |
 | 120 / 123 | All Sound Off / All Notes Off — releases MIDI-held notes | — |
 
-Not reachable over MIDI: model select (S35), pattern/variant select, seq volume (S36 in Seq), blend (S37), stereo widths, the FX mirror knobs (P1+S30/S35), and everything in Recording mode — CCs keep addressing the global functions while you record.
+CCs 85–88 use the same center-off encoding as the FX mirror knobs: value 64 ≈ off, below 64 the wet grows with character A (room / slapback), above 64 with character B (hall / synced dotted-1/8). The panel knob edits whichever group the current playmode plays; over MIDI each group has its own CC, so you can automate the drum reverb while playing a pitched mode. The character (which side, how deep) is shared by both groups — the last edit wins, from knob or CC alike.
+
+Not reachable over MIDI: model select (S35), pattern/variant select, seq volume (S36 in Seq), blend (S37), stereo widths, the per-slot FX send trims (P1+S30/S35 in drum recording), and everything else in Recording mode — CCs keep addressing the global functions while you record.
 
 ### MIDI out
 
