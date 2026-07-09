@@ -142,6 +142,8 @@ In **Seq** mode SW1 selects the drum pattern genre instead:
 
 Each genre holds its own bank of patterns (the files in `synth/patterns/<genre>/`); turn **S35** in Seq mode to step through the patterns of the selected genre.
 
+**Each role remembers its own setting.** A flick only takes effect in the mode you are in: moving SW1 in a pitched mode changes the scale but leaves the genre untouched, and vice versa — so flicking back and forth between playmodes never changes a setting by itself (the switch equivalent of the knob pickup). The genre starts at Techno and changes only when SW1 is moved while in Seq.
+
 ---
 
 ## Pads — layout
@@ -218,7 +220,7 @@ Pads P3–P9 play the drum kit directly (also while the seq is paused). Model se
 
 These knob assignments apply only while SW2 is Up. If the seq keeps playing in another mode, all of these settings stay locked at their last values.
 
-**Knob pickup:** on re-entering Seq (and after leaving Recording), each knob only takes effect once it crosses its stored setting — so a pot that was used by another mode doesn't jump the tempo (or anything else) the moment you flick back. On the very first Seq entry the knobs are live immediately.
+**Knob pickup:** on re-entering Seq (and after leaving Recording), each knob only takes effect once it crosses its stored setting — so a pot that was used by another mode doesn't jump the tempo (or anything else) the moment you flick back. On the very first Seq entry the knobs are live immediately. **SW1 gets the same protection:** the genre only changes when you flick SW1 *while in Seq* — the position it was left in as the scale selector is ignored, so re-entering Seq never switches the pattern by itself.
 
 | Knob | Function | MIDI CC |
 |------|----------|---------|

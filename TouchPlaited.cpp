@@ -48,6 +48,7 @@ static float seq_punch_lk = 0.0f;
 static float seq_tight_lk = 0.5f;
 static float seq_drive_lk = 0.0f;
 static float seq_var_lk   = 0.0f;   // S35 in Seq = pattern variant within genre
+static int   seq_genre_lk = 0;      // SW1 in Seq = genre; change-latched (see SW1 handler)
 static float seq_vol_lk   = 1.0f;   // S36 in Seq = drum group volume
 static float seq_width_lk = 0.0f;   // P0+S37 in Seq = drum-group stereo width (0 = mono)
 
@@ -620,10 +621,14 @@ static const int kScales[3][7] = {
     { 0, 2, 3, 5,  7,  8,  10 },
 };
 
+// SW1 is change-latched per role (scale here, genre in Seq): a switch has no
+// value to "cross", so the pickup equivalent is ignoring the position it
+// acquired while serving the other role until it moves again (see SW1 handler).
+static int scale_lk = 0;
+
 static float compute_note(int pad) {
     int degree = pad - 3;
-    int sw     = touch.switches().B();
-    int note   = kPitchBase + root_semitone + kScales[sw][degree] + octave_offset * 12;
+    int note   = kPitchBase + root_semitone + kScales[scale_lk][degree] + octave_offset * 12;
     return static_cast<float>(std::max(0, std::min(127, note)));
 }
 
@@ -907,12 +912,22 @@ void AudioCallback(AudioHandle::InputBuffer in, AudioHandle::OutputBuffer out, s
         eff_drive = drive;     cc_pu_drive.force_catch(drive);
     }
 
-    // SW1 / scale
+    // SW1 / scale or genre — change-latched: the position only takes effect
+    // when the switch moves while its role is active, so a position it
+    // acquired while serving the other role never jumps the setting on a
+    // playmode flick (the switch equivalent of the knob pickups).
     int sw1 = touch.switches().B();
     if (sw1 != last_sw1) {
         if (last_sw1 >= 0) {
+            if (seq_mode_on) seq_genre_lk = sw1;
+            else             scale_lk     = sw1;
             led_event      = LedEvent::NUMBERED;
             led_event_data = sw1_blink_count(sw1);
+        } else {
+            // Boot: scale follows the physical position. The genre keeps its
+            // Techno default until SW1 moves inside Seq (same policy as the
+            // S35 pattern variant).
+            scale_lk = sw1;
         }
         last_sw1 = sw1;
     }
@@ -1064,9 +1079,9 @@ void AudioCallback(AudioHandle::InputBuffer in, AudioHandle::OutputBuffer out, s
         } else {
             if (seq_pu37.update(k.s37().Value())) seq_tight_lk = k.s37().Value();
         }
-        seq.SetGenre(touch.switches().B());  // SW1: Center=Techno / Left=Electro / Right=IDM
     }
     if (seq_mode_on) {
+        seq.SetGenre(seq_genre_lk);  // change-latched from SW1 (see SW1 handler)
         seq.SetTempo(seq_tempo_lk);
         seq.SetShuffle(seq_shuf_lk);
         seq.SetDensity(seq_dens_lk);
