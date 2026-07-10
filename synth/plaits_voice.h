@@ -30,7 +30,10 @@ public:
     void SetLevel(float v);
     void SetDrive(float v);    // 0=bypass, 1=full fuzz; only audible on drum stages
 
-    // One-shot trigger: call with true on pad press, false on release
+    // Gate: true on pad press / note-on, false on release. The line is held
+    // high between renders (six-op FM needs real key-on/key-off duration);
+    // retriggering while high inserts a one-block low gap internally so
+    // Plaits still sees a rising edge.
     void Trigger(bool gate_on);
 
     // Accumulates rendered samples into out_left/out_right (does not zero them).

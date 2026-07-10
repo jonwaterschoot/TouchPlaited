@@ -42,6 +42,7 @@ public:
             awake[i]        = false;
             gate_held[i]    = false;
             quiet_chunks[i] = 0;
+            gate_chunks[i]  = 0;
         }
         tick         = 0;
         audition_idx = -1;
@@ -110,6 +111,7 @@ public:
         voice_rev_send[idx] = 1.0f;
         voice_dly_send[idx] = 1.0f;
         locked[idx]       = false;
+        gate_chunks[idx]  = 0;   // gate held until the pad's NoteOff
         wake(idx, true);
     }
 
@@ -139,8 +141,10 @@ public:
         voice_rev_send[idx] = p.rev_send;
         voice_dly_send[idx] = p.dly_send;
         locked[idx]       = lock_params;
-        // Locked (drum-seq) voices are one-shots: no gate hold, free to sleep
-        // as soon as their tail decays.
+        // Locked (drum-seq) voices are one-shots: gate drops on a decay-scaled
+        // timer instead of a NoteOff, and they're free to sleep as soon as
+        // their tail decays.
+        gate_chunks[idx]  = lock_params ? one_shot_gate_chunks(p.decay) : 0;
         wake(idx, !lock_params);
     }
 
@@ -151,6 +155,7 @@ public:
                 pad_slot[i]  = -1;
                 locked[i]    = false;
                 gate_held[i] = false;   // release tail may now decay to sleep
+                gate_chunks[i] = 0;
             }
         }
     }
@@ -161,6 +166,7 @@ public:
             pad_slot[i]  = -1;
             locked[i]    = false;
             gate_held[i] = false;
+            gate_chunks[i] = 0;
         }
         audition_idx = -1;
     }
@@ -189,6 +195,7 @@ public:
         voice_width[idx]  = 1.0f;
         voice_rev_send[idx] = 1.0f;
         voice_dly_send[idx] = 1.0f;
+        gate_chunks[idx]  = one_shot_gate_chunks(0.6f);  // matches SetDecay above
         wake(idx, false);   // auditions are one-shots — sleep after decay
     }
 
@@ -223,6 +230,7 @@ public:
         voice_width[idx]  = p.width;
         voice_rev_send[idx] = p.rev_send;
         voice_dly_send[idx] = p.dly_send;
+        gate_chunks[idx]  = one_shot_gate_chunks(p.decay);
         wake(idx, false);   // auditions are one-shots — sleep after decay
     }
 
@@ -236,6 +244,11 @@ public:
                 float* dly_left, float* dly_right, size_t size) {
         static float tmp_l[24], tmp_r[24];
         for (int i = 0; i < kVoices; i++) {
+            // One-shot gate countdown runs even for sleeping voices so a
+            // silent-while-gated voice can't keep a stale gate forever.
+            if (gate_chunks[i] && --gate_chunks[i] == 0) {
+                voices[i].Trigger(false);
+            }
             if (!awake[i]) continue;
             __builtin_memset(tmp_l, 0, size * sizeof(float));
             __builtin_memset(tmp_r, 0, size * sizeof(float));
@@ -291,6 +304,7 @@ public:
         awake[victim]    = false;
         pad_slot[victim] = -1;
         locked[victim]   = false;
+        gate_chunks[victim] = 0;
         if (victim == audition_idx) audition_idx = -1;
         return true;
     }
@@ -342,6 +356,7 @@ private:
     bool     awake[kVoices];
     bool     gate_held[kVoices];
     uint32_t quiet_chunks[kVoices];
+    uint16_t gate_chunks[kVoices];   // one-shot gate countdown; 0 = no timer
     uint32_t tick;
     int      audition_idx;
 
@@ -349,6 +364,15 @@ private:
         awake[idx]        = true;
         gate_held[idx]    = hold_gate;
         quiet_chunks[idx] = 0;
+    }
+
+    // Gate hold for voices that never get a NoteOff (drum-seq triggers,
+    // auditions). Only the six-op FM engines (2-4) read gate *length* — real
+    // DX7 key-on/key-off — so this shapes their note duration; every other
+    // engine only uses the rising edge and ignores the timer. Chunks are
+    // 24 samples (0.5 ms at 48 kHz): 20 ms floor + up to 380 ms with decay.
+    static uint16_t one_shot_gate_chunks(float decay) {
+        return static_cast<uint16_t>((20.0f + decay * 380.0f) * 2.0f);
     }
 
     // Cached global params — last value passed to each global setter.

@@ -725,6 +725,10 @@ static float bank_thresh[2] = { 0.0f, 0.0f };
 static bool  bank_caught[2] = { false, false };
 static constexpr float kBankDeadZone = 0.03f;
 
+// Six-Op patch-index blink: last quantized S32 patch zone (32 per bank),
+// -1 = untracked (non-FM engine, or re-arm without blinking on entry).
+static int fm_patch_blink_idx = -1;
+
 static void process_model_select(float s35_val) {
     if (seq_mode_on) return;
     if (any_musical_pad_held())                return;
@@ -1479,6 +1483,30 @@ void AudioCallback(AudioHandle::InputBuffer in, AudioHandle::OutputBuffer out, s
     if (current_mode == PlayMode::BASIC_PITCH && !bp_slots_active) {
         pool.SetHarmonics(eff_h);
         pool.SetTimbre(eff_t);
+        // Six-Op preset browsing feedback: S32 is a quantized 32-patch
+        // selector on engines 2-4. Mirror the engine's quantizer
+        // (harmonics * 1.02 * 32) and fire the short MODEL blink when the
+        // zone changes; the 15%-into-zone guard is a coarse stand-in for
+        // the engine's hysteresis so a knob resting on a boundary can't
+        // chatter. Armed silently on entry (no blink for the current zone).
+        if (current_engine >= 2 && current_engine <= 4
+                && rec_mode == RecMode::IDLE) {
+            float q   = eff_h * 1.02f * 32.0f;
+            int   idx = static_cast<int>(q);
+            if (idx > 31) idx = 31;
+            if (fm_patch_blink_idx < 0) {
+                fm_patch_blink_idx = idx;
+            } else if (idx != fm_patch_blink_idx) {
+                float zone_pos = q - static_cast<float>(idx);
+                if (zone_pos > 0.15f && zone_pos < 0.85f) {
+                    fm_patch_blink_idx = idx;
+                    if (led_event == LedEvent::NONE)
+                        led_event = LedEvent::MODEL;
+                }
+            }
+        } else {
+            fm_patch_blink_idx = -1;
+        }
         // Unified decay: engines 19–23 keep their real decay on MORPH — the
         // Decay knob drives it there and S34 has no effect on those engines.
         pool.SetMorph(morph_is_decay(current_engine) ? eff_d : eff_m);

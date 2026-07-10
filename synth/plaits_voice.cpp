@@ -58,7 +58,11 @@ struct PlaitsImpl {
     plaits::Patch patch;
     plaits::Modulations modulations;
     plaits::Voice::Frame frames[24];
-    bool triggered;
+    bool gate;          // desired gate level: pad held / one-shot hold running
+    bool edge_pending;  // note-on requested since the last render
+    bool trig_high;     // trigger level written on the previous render
+    uint8_t ac_count;   // anti-click gain sequence countdown (0 = inactive)
+    bool ac_faded;      // fade-out block of the sequence already rendered
 };
 
 // Raw aligned storage in internal SRAM (see note on `scratch` above).
@@ -79,7 +83,11 @@ void PlaitsVoice::Init() {
     // Placement new: run PlaitsImpl's constructor now, with SDRAM ready.
     void* storage = &impl_storage[slot_ * sizeof(PlaitsImpl)];
     impl_ = new (storage) PlaitsImpl();
-    impl_->triggered = false;
+    impl_->gate         = false;
+    impl_->edge_pending = false;
+    impl_->trig_high    = false;
+    impl_->ac_count     = 0;
+    impl_->ac_faded     = false;
 
     stmlib::BufferAllocator alloc(scratch[slot_], kScratchSize);
     impl_->voice.Init(&alloc);
@@ -115,19 +123,80 @@ void PlaitsVoice::SetDrive(float v)         { drive_ = v; }
 
 void PlaitsVoice::Trigger(bool gate_on) {
     if (!impl_) return;
-    impl_->modulations.trigger = gate_on ? 1.0f : 0.0f;
+    if (gate_on) impl_->edge_pending = true;
+    impl_->gate = gate_on;
 }
 
 void PlaitsVoice::Render(float* out_left, float* out_right, size_t size) {
     if (!impl_) return;
+    // Gate sequencing. Plaits detects note-ons from the rising edge of
+    // modulations.trigger, and the six-op FM engines (2-4) additionally hold
+    // their DX7 envelopes keyed while the line stays high — so the gate must
+    // span the whole press, not one block. A retrigger while the line is
+    // still high (voice steal, one-shot repeat) gets one forced-low block
+    // first so the edge detector fires; a tap released before its first
+    // render still produces a one-block pulse.
+    const int engine = impl_->patch.engine;
+    const bool fm = engine >= 2 && engine <= 4;
+    float trig;
+    if (impl_->edge_pending && impl_->trig_high) {
+        trig = 0.0f;                    // gap block; edge fires next render
+        // Anti-click (six-op only): the engine won't see the new edge for
+        // kTriggerDelay (5) blocks, and at key-on it resets operator phases /
+        // loads the new patch — a hard discontinuity if this voice still
+        // carries the previous note's tail. Fade the tail out now, mute the
+        // 5 stale-tail blocks, ramp back in on the block where the key-on
+        // lands. Gap path spans 7 blocks, fresh-edge path 6.
+        if (fm && impl_->ac_count == 0) {
+            impl_->ac_count = 7;
+            impl_->ac_faded = false;
+        }
+    } else if (impl_->edge_pending) {
+        trig = 1.0f;
+        impl_->edge_pending = false;
+        if (fm && impl_->ac_count == 0) {
+            impl_->ac_count = 6;
+            impl_->ac_faded = false;
+        }
+    } else {
+        trig = impl_->gate ? 1.0f : 0.0f;
+    }
+    impl_->modulations.trigger = trig;
+    impl_->trig_high = trig > 0.5f;
     impl_->voice.Render(impl_->patch, impl_->modulations, impl_->frames, size);
-    impl_->modulations.trigger = 0.0f;
     constexpr float kScale = 1.0f / 32768.0f;
+    // Six-op FM (engines 2-4) is the hottest thing in Plaits: registered at
+    // out_gain 1.0 with the LPG bypassed (already_enveloped), and its
+    // internal soft-clip pins dense DX7 patches near full scale for the
+    // whole (now held) gate. Every other melodic engine is 0.6-0.8 through
+    // a decaying LPG. Pad it to a comparable level so polyphonic FM doesn't
+    // saturate the output stage. Tune by ear on hardware.
+    const float scale = fm ? kScale * 0.20f : kScale;
+    // Anti-click gain profile for this block: fade-out on the block that
+    // starts the sequence, silence while the engine still renders the stale
+    // tail, one-block ramp-in as the new note keys on. ~3 ms total, engine
+    // attack character untouched (the ramp ends as the envelope starts).
+    enum AcMode { AC_NONE, AC_FADE, AC_MUTE, AC_RAMP };
+    AcMode ac = AC_NONE;
+    if (impl_->ac_count > 0) {
+        if (!impl_->ac_faded) { ac = AC_FADE; impl_->ac_faded = true; }
+        else if (impl_->ac_count > 1) { ac = AC_MUTE; }
+        else { ac = AC_RAMP; }
+        impl_->ac_count--;
+    }
+    const float ac_step = 1.0f / static_cast<float>(size);
     bool apply_drive = drive_ > 0.01f;
     for (size_t i = 0; i < size; i++) {
-        float l = impl_->frames[i].out * kScale;
-        float r = impl_->frames[i].aux * kScale;
+        float l = impl_->frames[i].out * scale;
+        float r = impl_->frames[i].aux * scale;
         if (apply_drive) { l = distort(l, drive_); r = distort(r, drive_); }
+        if (ac != AC_NONE) {
+            float g = ac == AC_MUTE ? 0.0f
+                    : ac == AC_FADE ? 1.0f - ac_step * static_cast<float>(i + 1)
+                                    : ac_step * static_cast<float>(i + 1);
+            l *= g;
+            r *= g;
+        }
         out_left[i]  += l;
         out_right[i] += r;
     }

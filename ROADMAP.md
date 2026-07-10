@@ -24,11 +24,68 @@ per-step lists are in the archive.
 - [ ] Soft-clip level (Step 6): single Basic Pitch voice at center is comfortable
 - [ ] General verification sweep (Step 7 list in the archive): modes, recording, per-slot volume/drive, unified decay, Six-Op audibility
 
+## Priority 1 — Six-Op gate fix (in progress 2026-07-10)
+
+Root cause of "Six-Op nearly silent / every second press dead" found: every
+note was a 0.5 ms trigger pulse (`PlaitsVoice::Render` auto-zeroed
+`modulations.trigger` after each block), and the six-op engines are the only
+ones with real DX7 key-on/key-off gate semantics — worse, their two staggered
+FM voices only saw the one-block gate on every other press. The DX7 factory
+banks were never the problem (all three are compiled in and load correctly).
+Full write-up in notes.md "Six-Op: silent/alternating pad triggers".
+
+- [x] Step A — real gate in `PlaitsVoice`: trigger stays high while the pad is
+      held; retriggering a still-high line (voice steal, one-shot repeat)
+      inserts one forced-low block so Plaits still sees a rising edge.
+- [x] Step B — one-shot gate timer in `VoicePool`: drum-seq triggers and
+      auditions never get a NoteOff, so their gate drops after a decay-scaled
+      hold (20–400 ms). Inert for non-FM engines (only six-op reads gate
+      length).
+- [x] Step D — Six-Op level pad (added 2026-07-10 after Step A/B confirmed
+      working on hardware): with real gates the engine turned out to be the
+      hottest in Plaits — registered at out_gain 1.0 with the LPG bypassed
+      (`already_enveloped`), its internal soft-clip pinning dense DX7 patches
+      at full scale for the whole gate, vs. 0.6–0.8 through a decaying LPG
+      for every other melodic engine. Polyphonic sums saturated the master
+      soft-clip even at low volume. Host-side pad on engines 2–4 in
+      `PlaitsVoice::Render` (vendored Plaits untouched per thirdparty
+      policy). Started at ×0.45, then ×0.35 (still hot — the 2 dB step was
+      too timid), now **×0.20** (−14 dB vs. unity; sustained tones read much
+      louder than the other engines' decaying LPG plucks, so the comparable
+      level is lower than gain math suggests).
+      **Value is a by-ear starting point — tune on hardware.**
+- [x] Step E — Six-Op note-start anti-click (2026-07-10): stolen/reused
+      voices still carry the previous tail when the engine resets operator
+      phases / loads a new patch at key-on → discontinuity click. Plaits
+      only sees our edge `kTriggerDelay` (5) blocks late, so the tail-only
+      window is masked in `PlaitsVoice::Render`: fade-out on the edge block,
+      mute the 5 stale blocks, one-block ramp-in exactly where the key-on
+      lands (~3 ms total, DX7 attack character untouched). FM engines only —
+      drum transients stay raw.
+- [x] Step F — Six-Op patch-index LED blink (2026-07-10): S32 preset zone
+      changes (32 per bank, mirroring the engine quantizer with a
+      15%-into-zone guard) fire the existing short MODEL blink. Basic Pitch
+      live path only; armed silently on engine entry.
+- [ ] Step C — hardware verify: every press fires (no alternation); Six-Op
+      pads/organs/strings sustain while held and release on lift; MORPH
+      envelope stretch audible on held notes; seq FM drums decay and voices
+      still sleep (CPU meter); rec auditions keep their 500 ms cadence; voice
+      stealing retriggers cleanly (fast playing past 6 voices); Six-Op level
+      sits comfortably next to other engines, chords don't squash (Step D pad,
+      adjust 0.35 by ear); note starts click-free incl. fast re-presses and
+      S32 patch changes mid-tail (Step E); S32 blinks once per preset zone
+      while browsing, no chatter when the knob rests on a boundary (Step F).
+- Follow-ups after verify (not started): **FM velocity** — `level_patched=true`
+  + per-note level on engines 2–4 only (the DX7 velocity mappings are dormant;
+  accent is currently pinned at 0.8); revisit `kSixOpAud` anchors / random
+  ranges now that the full banks actually speak; patch-index LED blink could
+  fold into the P2 "LED blink on model load" item.
+
 ## Priority 2 — after the open verification
 
 - [ ] **Per-track pattern variants — S35 in Seq mode** (feasibility decided 2026-07-03: **variant bank wins over generative**). S35 is free in Seq mode (model select disabled there). Hold a pad + turn S35 (quantized zones, deadzone pickup like the bank select) → pick that track's pattern variant from hand-authored rows: `kSeqWeights` grows a variant dimension, `Sequencer` gets `variant_[7]`. Flash cost trivial (~5 KB for 4 variants × 7 tracks × 3 genres); keeps genre feel; S35 position is repeatable. Phase authoring: 2 variants per track first. A generative variant (Euclidean E(k,16) + rotation) can be the last slot per track later. UI guard required: S35 move past deadzone while a pad is held must reset the rec-entry hold counter or it collides with 1.2 s Recording entry.
 - [ ] **Density + chance axis** — S32 split: 0–0.45 = less density, 0.5 = normal, 0.55–1 = chance/mutation per step. Changes seq tick logic.
-- [ ] **LED blink on model load** — brief single blink when engine changes via S35. Helps confirm Six-Op switches.
+- [x] **LED blink on model load** — already implemented (`LedEvent::MODEL` fires in `process_model_select` on every engine change; discovered while adding the Six-Op patch-index blink, Priority 1 Step F, which reuses the same blink).
 
 ## Priority 3 — feature additions
 
