@@ -16,6 +16,65 @@ Using a fader to mix between the models AUX or OUT outputs. Adding a way to spre
 
 Still working on this, so things might move around.
 
+## Cheat sheet
+
+**SW2 — playmode:** Down = Basic Pitch · Center = Random · Up = Seq
+**SW1 — scale** minor / chromatic / major *(pitched modes)* · **genre** IDM / techno / electro *(Seq)*
+
+### Knobs
+
+| Knob | Pitched (Basic · Random) | Seq |
+|------|--------------------------|-----|
+| S30 | Drive | Drive |
+| S31 | Decay | Tempo |
+| S32 | Harmonics | Shuffle |
+| S33 | Timbre | Density |
+| S34 | Morph | Kick punch |
+| S35 | *(model select — needs P0 or P2)* | Pattern |
+| S36 | Volume | Seq volume |
+| S37 | Model mix OUT ↔ AUX | Tightness |
+
+- In **Random**, S31–S34 and S37 set the *centers* the randomizer spreads the 7 slots around.
+- Morph does nothing on engines 19–23; Seq *Tightness* is the decay of those same engines.
+
+### Pads
+
+| Pad | Pitched | Seq |
+|-----|---------|-----|
+| P3–P9 | Play notes *(Random: the 7 slot sounds)* | Kick · snare · cl. hat · op. hat · clap · tom · perc |
+| P10 / P11 | Octave − / + | — |
+| Hold P3–P9 1.2 s | Recording *(Random only)* | Recording |
+
+### Shift layers — hold, then turn / tap
+
+| Hold | + | Does |
+|------|---|------|
+| P0 | S35 | Model select, bank 0 (engines 0–11) |
+| P2 | S35 | Model select, bank 1 (engines 12–23) |
+| P0 | S37 | Stereo width |
+| P0 | P10 / P11 | Root semitone − / + |
+| P1 | S30 | **Reverb** — room ◄ off ► hall |
+| P1 | S35 | **Delay** — slapback ◄ off ► dotted 1/8 |
+| P2 | P11 | Drum seq play / pause *(any mode)* |
+| P0 + P2 | hold 1 s / 2 s | Randomize tight / wide *(Seq: vary kit / new kit)* · 3 s: back to clean |
+
+- In **Random**, model select forces that engine onto all 7 slots.
+- FX knobs are mirror knobs: center = off, wet grows outward. They affect the pitched voices in pitched modes, the drum group in Seq.
+
+### Recording (hold a musical pad 1.2 s)
+
+Knobs now edit **that slot only**: drive, decay, harmonics/timbre/morph, volume, blend — plus P0/P2 + S35 model, P0 + S37 width, and in Seq: P1 + S30/S35 FX send trims, P10/P11 drum pitch ∓ 1 semitone.
+
+**Save:** hold the same pad 1.2 s · **Cancel:** tap any other pad · **Copy:** source pad + other pad 1.2 s
+
+### MIDI
+
+- **Notes** — ch 1 in: pitched, chromatic · ch 10 in/out: GM drums · pads out on ch 1
+- **CC 20–26** harmonics · timbre · morph · decay · drive · LPG colour · volume
+- **CC 27–31** *(Seq)* tempo · shuffle · density · punch · tightness
+- **CC 85–88** reverb / delay, pitched / drums (value 64 = off, below/above = character A/B)
+- **Clock** — follows external clock + Start/Stop when present; sends its own otherwise
+
 ## Controls at a glance
 
 ### Basic Pitch (SW2 Down) · Random (SW2 Center)
