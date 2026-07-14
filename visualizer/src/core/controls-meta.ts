@@ -52,9 +52,9 @@ export const SW1_POSITIONS = {
 };
 
 /** SW2 positions (up / mid / down). */
-export const SW2_POSITIONS = ['Seq', 'Random', 'Pitch'];
+export const SW2_POSITIONS = ['Seq', 'Arp/Mel', 'Pitch'];
 
-export const MODE_NAMES = ['Seq', 'Random', 'Pitch'];
+export const MODE_NAMES = ['Seq', 'Arp/Mel', 'Pitch'];
 
 /** Plaits engines as used by this firmware (MANUAL.md model table). */
 export const MODELS: string[] = [

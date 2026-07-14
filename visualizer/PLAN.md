@@ -289,3 +289,5 @@ a 500 px viewport, which looks like (but is not) a layout overflow.
   contextually rather than permanently.
 - LED: raw brightness at 30 Hz in v1; revisit with EVENT blink-ids only if
   recordings show aliasing.
+
+

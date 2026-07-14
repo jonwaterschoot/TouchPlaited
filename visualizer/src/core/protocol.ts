@@ -12,7 +12,7 @@
 //   11   SW2 position 0..2
 //   12   user LED brightness 0..127
 //   13   model 0..23
-//   14   mode flags: bits0-1 mode (0 Seq, 1 Random, 2 Pitch), bit2 playing
+//   14   mode flags: bits0-1 mode (0 Seq, 1 Arp/Mel, 2 Pitch), bit2 playing
 //   15   seq step, 0x7F = none
 //   16   octave offset + 3, 0..6
 //   17   root semitone, 0..11
