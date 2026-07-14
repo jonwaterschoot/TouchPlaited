@@ -3,12 +3,14 @@
 <title>TouchPlaited Pattern Editor</title>
 <style>
   :root {
-    --bg: #0b0c09; --panel: #13150e; --line: #262a1c; --line2: #3a4028;
-    --txt: #dfe4cb; --dim: #7f8570;
-    --w: #c8d43c;            /* chance 0 — always   */
-    --c1: #dcb32e;           /* chance 1 — 75%      */
-    --c2: #dd7f2f;           /* chance 2 — 50%      */
-    --c3: #d5503a;           /* chance 3 — 25%      */
+    /* keep in sync with doc/theme.css (this file must stay self-contained
+       so it also works from file://) */
+    --bg: #141412; --panel: #1d1c19; --line: #35322b; --line2: #4a4538;
+    --txt: #e8e4da; --dim: #8f8a7d;
+    --w: #edb655;            /* chance 0 — always   */
+    --c1: #e07f33;           /* chance 1 — 75%      */
+    --c2: #d5503a;           /* chance 2 — 50%      */
+    --c3: #b0333f;           /* chance 3 — 25%      */
     --cell: 22px;
     --beatgap: 4px; --bargap: 12px; --side: 138px;
   }
@@ -107,7 +109,7 @@
   .cell.sel { border-color: var(--txt); box-shadow: inset 0 0 0 1px var(--txt); }
   .cell.ghost { outline: 1px dashed var(--w); outline-offset: -2px; }
   .cell.chance::after { content: ""; position: absolute; inset: 0;
-    background: repeating-linear-gradient(45deg, transparent 0 3px, rgba(11,12,9,.55) 3px 5px); }
+    background: repeating-linear-gradient(45deg, transparent 0 3px, rgba(20,20,18,.55) 3px 5px); }
   #tgrid.stamping .cell { cursor: copy; }
 
   .panel { border: 1px solid var(--line); background: var(--panel);
@@ -135,8 +137,19 @@
                      color: var(--dim); letter-spacing: .1em; }
   .poolgrid { display: grid; grid-auto-rows: 4px; gap: 1px; }
   .poolgrid .pc { width: 4px; height: 4px; background: var(--line); }
+  /* cross-links to the other hosted pages (harmless no-ops from file://) */
+  .sitenav { position: absolute; top: 18px; right: 16px; font-size: 10px;
+             letter-spacing: .08em; text-transform: uppercase; }
+  .sitenav a { color: var(--dim); text-decoration: none; }
+  .sitenav a:hover { color: var(--w); }
+  .sitenav a + a { margin-left: 14px; }
 </style>
 
+<nav class="sitenav">
+  <a href="../">Home</a><a href="../visualizer/">Visualizer</a><a
+    href="../manual.html">Manual</a><a
+    href="https://github.com/jonwaterschoot/TouchPlaited">GitHub</a>
+</nav>
 <h1>TOUCH<span class="px">PLAITED</span> PATTERN EDITOR</h1>
 <p class="sub">7 tracks × 4 bars × 16 steps · step byte 0xCW · W weight 0–4 · C chance 0=always 1=75% 2=50% 3=25%</p>
 

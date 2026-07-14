@@ -17,6 +17,7 @@ C_DEFS += -DUSB_MIDI
 CPP_SOURCES = TouchPlaited.cpp \
               $(wildcard touch/*.cpp) \
               midi/midi_io.cpp \
+              midi/telemetry.cpp \
               synth/plaits_voice.cpp \
               synth/fx.cpp
 

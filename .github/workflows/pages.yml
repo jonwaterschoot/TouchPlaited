@@ -1,0 +1,62 @@
+# Builds and deploys the GitHub Pages site (doc/SITE-PLAN.md):
+#   /            landing page rendered from README.md
+#   /manual.html rendered from MANUAL.md
+#   /visualizer/ the Vite app
+#   /editor/     tools/pattern_editor.html
+# One-time repo setting: Settings → Pages → Source: "GitHub Actions".
+
+name: Deploy site to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'visualizer/**'
+      - 'tools/pattern_editor.html'
+      - 'doc/**'
+      - 'README.md'
+      - 'MANUAL.md'
+      - 'img/**'
+      - '.github/workflows/pages.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: visualizer/package-lock.json
+      - name: Build visualizer
+        working-directory: visualizer
+        run: |
+          npm ci
+          npm run build
+      - name: Assemble site
+        working-directory: visualizer
+        run: npm run build:site
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

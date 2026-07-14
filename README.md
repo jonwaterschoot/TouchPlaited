@@ -1,8 +1,10 @@
 # TouchPlaited
 
-A Synthux Simple Touch firmware based on Mutable Instruments Plaits (Émilie Gillet, MIT License): a 7-voice touch synth plus a 16-step generative drum sequencer, playable at the same time.
+A Synthux Simple Touch firmware based on Mutable Instruments Plaits (Émilie Gillet, MIT License): a 7-voice touch synth plus a 16-step generative drum sequencer, playable at the same time (though limited by voice stealing).
 
 Full controls reference: [MANUAL.md](MANUAL.md).
+
+**On the web:** [visualizer](https://jonwaterschoot.github.io/TouchPlaited/visualizer/) · [pattern editor](https://jonwaterschoot.github.io/TouchPlaited/editor/) · [manual](https://jonwaterschoot.github.io/TouchPlaited/manual.html) — hosted from this repo via GitHub Pages.
 
 This version is using all 24 models (the 16 original + the 8 new ones). There are three main playmodes. Basic Pitch, Random, and Seq.
 

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 
 namespace synthux {
@@ -34,6 +35,11 @@ public:
     // outgoing queue. Never call from the audio ISR — a UART message is ~1ms
     // of blocking TX, a quarter of the block budget.
     void Service(const MidiHandlers& handlers);
+
+    // Send a complete SysEx frame (F0…F7) on the USB transport only — TRS at
+    // 31250 baud would block ~0.3ms per byte, and telemetry is host-facing.
+    // Main-loop only, sends immediately (no queue). No-op without -DUSB_MIDI.
+    void SendSysexUsb(const uint8_t* bytes, size_t len);
 
     // Queue a message for both transports. Producers never overlap: pad/seq
     // events push from the audio ISR; the clock/transport echoes push from

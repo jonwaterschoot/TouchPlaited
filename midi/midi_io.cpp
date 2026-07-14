@@ -90,6 +90,18 @@ void MidiIO::Service(const MidiHandlers& handlers) {
     }
 }
 
+void MidiIO::SendSysexUsb(const uint8_t* bytes, size_t len) {
+#ifdef USB_MIDI
+    // libDaisy's MidiUsbTransport::Tx packetizes SysEx natively (CIN 0x04/
+    // 0x05-0x07) and copies into the endpoint buffer — non-blocking apart
+    // from the single 100us retry configured in Init.
+    usb_midi.SendMessage(const_cast<uint8_t*>(bytes), len);
+#else
+    (void)bytes;
+    (void)len;
+#endif
+}
+
 void MidiIO::push(uint8_t b0, uint8_t b1, uint8_t b2, uint8_t len) {
     uint32_t head = q_head_;
     if (head - q_tail_ >= kQueueSize) return;   // full — drop, never block

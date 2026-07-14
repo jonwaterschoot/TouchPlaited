@@ -1,0 +1,30 @@
+/* TouchPlaited web theme — the single source of design tokens for the
+   landing page and the visualizer (which @imports this file). The pattern
+   editor (tools/pattern_editor.html) mirrors these values by hand in its
+   :root block so it keeps working from file:// — change them here, sync
+   them there.
+
+   Rules of the theme: dark, flat, sharp, warm. No gradients, no box-shadows,
+   no blur — hierarchy comes from borders and type, never elevation. One
+   accent (the Simple Touch illustration yellow); backgrounds stay near-black
+   so color always means something. */
+
+:root {
+  --bg:        #141412;  /* page — warm near-black */
+  --surface:   #1d1c19;  /* the one raised tone: cards, drawers, menus */
+  --overlay:   rgba(18, 17, 15, 0.92);  /* surface floating over artwork */
+  --line:      #35322b;  /* borders */
+  --line-hi:   #4a4538;  /* borders, emphasized */
+  --text:      #e8e4da;  /* ~13:1 on --bg */
+  --dim:       #8f8a7d;  /* secondary text, ~4.6:1 */
+  --accent:    #edb655;  /* Simple Touch yellow, ~9:1 — interactive, headings */
+  --accent-hi: #ffd97a;  /* hover only */
+  --value:     #9fd0ff;  /* live values (visualizer convention) */
+  --alert:     #e6371e;
+  --font: 'Cascadia Mono', Consolas, 'JetBrains Mono', ui-monospace, monospace;
+}
+
+/* sharp corners, everywhere, no exceptions */
+* {
+  border-radius: 0 !important;
+}

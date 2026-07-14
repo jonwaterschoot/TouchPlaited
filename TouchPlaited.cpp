@@ -5,6 +5,7 @@
 #include "synth/sequencer.h"
 #include "synth/fx.h"
 #include "midi/midi_io.h"
+#include "midi/telemetry.h"
 #include "log.h"
 #include <algorithm>
 #include <cmath>
@@ -17,6 +18,14 @@ Touch touch;
 VoicePool pool;
 Sequencer seq;
 MidiIO midi;
+
+// LED shadow: every blink goes through set_led so telemetry can stream the
+// exact pattern to the visualizer instead of the webapp re-implementing it.
+static volatile bool led_lit = false;
+static inline void set_led(bool on) {
+    led_lit = on;
+    hw.SetLed(on);
+}
 
 // ISR load measurement — groundwork for expanding the voice pool. Printed over
 // serial every 2s from the main loop (visible via `make debug` / USB serial).
@@ -650,7 +659,76 @@ static const MidiHandlers kMidiHandlers = { on_midi_note_on, on_midi_note_off,
                                             on_midi_clock, on_midi_start,
                                             on_midi_continue, on_midi_stop };
 
-static void service_midi() { midi.Service(kMidiHandlers); }
+// ─── Visualizer telemetry ─────────────────────────────────────────────────────
+// Full panel-state snapshot streamed as SysEx over USB MIDI (rate-limited in
+// Telemetry). Runs from service_midi so it keeps flowing during the blocking
+// LED blink loops — that's exactly what lets the visualizer mirror the blinks.
+static Telemetry telemetry;
+
+static void service_telemetry() {
+    TelemetryState t;
+
+    uint16_t pad_bits = 0;
+    for (int i = 0; i < 12; i++)
+        if (touch.pads().IsTouched(i)) pad_bits |= static_cast<uint16_t>(1u << i);
+    t.pads = pad_bits;
+
+    auto to7 = [](float v) {
+        int x = static_cast<int>(v * 127.f + 0.5f);
+        return static_cast<uint8_t>(x < 0 ? 0 : (x > 127 ? 127 : x));
+    };
+    auto& kn = touch.knobs();
+    const uint8_t raw[8] = {
+        to7(kn.s30().Value()), to7(kn.s31().Value()),
+        to7(kn.s32().Value()), to7(kn.s33().Value()),
+        to7(kn.s34().Value()), to7(kn.s35().Value()),
+        to7(kn.s36().Value()), to7(kn.s37().Value()),
+    };
+    // Pot noise sits at ±1 LSB even after AnalogControl's one-pole, which
+    // kept STATE frames (and the app's callouts/log) churning forever.
+    // Report a knob only when it moves ≥2 LSB from its last reported value;
+    // the rails pass through so 0/127 stay reachable. Telemetry-only — the
+    // audio paths keep their own smoothing and move-catch.
+    static uint8_t reported[8] = { 0xFF, 0xFF, 0xFF, 0xFF,
+                                   0xFF, 0xFF, 0xFF, 0xFF };
+    for (int i = 0; i < 8; i++) {
+        const int d = static_cast<int>(raw[i]) - static_cast<int>(reported[i]);
+        if (reported[i] > 127 || raw[i] == 0 || raw[i] == 127 || d >= 2 || d <= -2)
+            reported[i] = raw[i];
+        t.controls[i] = reported[i];
+    }
+
+    // Switch3 raw (0 center, 1 up, 2 down) → panel positions. SW1 (switches
+    // B): down=Minor is panel-left; up=Major panel-right. SW2 (switches A):
+    // up=Seq is panel-top.
+    static const uint8_t kSw1Map[3] = { 1, 2, 0 };
+    static const uint8_t kSw2Map[3] = { 1, 0, 2 };
+    int sw1_raw = touch.switches().B();
+    int sw2_raw = touch.switches().A();
+    t.sw1 = kSw1Map[(sw1_raw >= 0 && sw1_raw <= 2) ? sw1_raw : 0];
+    t.sw2 = kSw2Map[(sw2_raw >= 0 && sw2_raw <= 2) ? sw2_raw : 0];
+
+    t.led      = led_lit ? 127 : 0;
+    t.model    = static_cast<uint8_t>(current_engine);
+    t.mode     = seq_mode_on ? 0
+               : (current_mode == PlayMode::RANDOM ? 1 : 2);
+    t.playing  = seq.IsActive();
+    t.seq_step = t.playing ? static_cast<uint8_t>(seq.Step() & 0x7F) : 0x7F;
+    t.octave   = static_cast<uint8_t>(octave_offset + 3);
+    t.root     = static_cast<uint8_t>(root_semitone);
+
+    // Active mode's drive and FX sends (shown contextually by the app).
+    t.fx_drive  = to7(seq_mode_on ? seq_drive_lk : eff_drive);
+    t.fx_reverb = to7(seq_mode_on ? fx_rev_seq_lk : fx_rev_pitched_lk);
+    t.fx_delay  = to7(seq_mode_on ? fx_dly_seq_lk : fx_dly_pitched_lk);
+
+    telemetry.Service(t, System::GetNow(), midi);
+}
+
+static void service_midi() {
+    midi.Service(kMidiHandlers);
+    service_telemetry();
+}
 
 // Delay that keeps MIDI flowing — the LED helpers below block the main loop
 // for up to seconds at a time, which would starve MIDI in AND out.
@@ -818,25 +896,25 @@ static void process_rec_model_select(float s35_val) {
 // N medium blinks — mode/scale confirmation. (All blink delays are serviced:
 // they run in the main loop and must not starve MIDI.)
 static void blink_numbered(int n) {
-    hw.SetLed(false); delay_serviced(200);
+    set_led(false); delay_serviced(200);
     for (int i = 0; i < n; i++) {
-        hw.SetLed(true);  delay_serviced(200);
-        hw.SetLed(false); delay_serviced(200);
+        set_led(true);  delay_serviced(200);
+        set_led(false); delay_serviced(200);
     }
 }
 
 static void blink_limit() {
     for (int i = 0; i < 3; i++) {
-        hw.SetLed(true);  delay_serviced(60);
-        hw.SetLed(false); delay_serviced(80);
+        set_led(true);  delay_serviced(60);
+        set_led(false); delay_serviced(80);
     }
 }
 
 // 3 rapid blinks — recording mode confirm/copy stored.
 static void blink_confirm() {
     for (int i = 0; i < 3; i++) {
-        hw.SetLed(true);  delay_serviced(80);
-        hw.SetLed(false); delay_serviced(60);
+        set_led(true);  delay_serviced(80);
+        set_led(false); delay_serviced(60);
     }
 }
 
@@ -1769,22 +1847,22 @@ int main() {
         // swallows the loop iteration).
         if ((hold > 0 || done) && rec_mode == RecMode::IDLE) {
             if (stage > 0) {
-                hw.SetLed(true);
+                set_led(true);
                 uint32_t t0 = System::GetNow();
                 while (System::GetNow() - t0 < 500) {
                     delay_serviced(5);
                     if (p0p2_hold_count == 0 && !p0p2_all_done) break;
                 }
-                hw.SetLed(false);
+                set_led(false);
                 p0p2_stage_fired = 0;
             } else if (done) {
                 delay_serviced(10);
             } else {
                 uint32_t t        = (hold < 500) ? hold : 500;
                 uint32_t interval = 150u - t * 110u / 500u;
-                hw.SetLed(true);
+                set_led(true);
                 delay_serviced(interval);
-                hw.SetLed(false);
+                set_led(false);
                 delay_serviced(interval);
             }
             continue;
@@ -1797,8 +1875,8 @@ int main() {
         if (rec_mode == RecMode::IDLE && ehold >= kRecEntryAnimStart) {
             uint32_t t        = (ehold < kRecEntryHoldBlocks) ? ehold : kRecEntryHoldBlocks;
             uint32_t interval = 150u - t * 120u / kRecEntryHoldBlocks;
-            hw.SetLed(true);  delay_serviced(interval);
-            hw.SetLed(false); delay_serviced(interval);
+            set_led(true);  delay_serviced(interval);
+            set_led(false); delay_serviced(interval);
             continue;
         }
 
@@ -1818,8 +1896,8 @@ int main() {
             if (chold > 0) {
                 uint32_t t        = (chold < kLongHoldBlocks) ? chold : kLongHoldBlocks;
                 uint32_t interval = 150u - t * 120u / kLongHoldBlocks;
-                hw.SetLed(true);  delay_serviced(interval);
-                hw.SetLed(false); delay_serviced(interval);
+                set_led(true);  delay_serviced(interval);
+                set_led(false); delay_serviced(interval);
                 continue;
             }
 
@@ -1827,8 +1905,8 @@ int main() {
             if (rec_entry_flash) {
                 rec_entry_flash = false;
                 for (int i = 0; i < 5; i++) {
-                    hw.SetLed(true);  delay_serviced(35);
-                    hw.SetLed(false); delay_serviced(35);
+                    set_led(true);  delay_serviced(35);
+                    set_led(false); delay_serviced(35);
                 }
                 delay_serviced(250);
                 continue;
@@ -1840,10 +1918,10 @@ int main() {
             // from the sequencer's single on/off beat pulse.
             if (rec_hit_flash) {
                 rec_hit_flash = false;
-                hw.SetLed(true);  delay_serviced(45);
-                hw.SetLed(false); delay_serviced(45);
-                hw.SetLed(true);  delay_serviced(45);
-                hw.SetLed(false);
+                set_led(true);  delay_serviced(45);
+                set_led(false); delay_serviced(45);
+                set_led(true);  delay_serviced(45);
+                set_led(false);
             }
             delay_serviced(10);
             continue;
@@ -1866,9 +1944,9 @@ int main() {
             case LedEvent::LIMIT:    blink_limit();        break;
             case LedEvent::CONFIRM:  blink_confirm();      break;
             case LedEvent::MODEL:
-                hw.SetLed(true); delay_serviced(50); hw.SetLed(false); break;
+                set_led(true); delay_serviced(50); set_led(false); break;
             case LedEvent::BEAT:
-                hw.SetLed(true); delay_serviced(20); hw.SetLed(false); break;
+                set_led(true); delay_serviced(20); set_led(false); break;
             default: delay_serviced(10); break;
         }
     }
