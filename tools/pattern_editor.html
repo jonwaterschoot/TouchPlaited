@@ -11,30 +11,83 @@
     --c1: #e07f33;           /* chance 1 — 75%      */
     --c2: #d5503a;           /* chance 2 — 50%      */
     --c3: #b0333f;           /* chance 3 — 25%      */
-    --cell: 22px;
-    --beatgap: 4px; --bargap: 12px; --side: 138px;
+    --cell: 22px; --side: 138px;
+    --grid-a: #171613;       /* step lane background        */
+    --grid-b: #1d1b16;       /* alternating beat background */
+    --gline: #292620;        /* step line                   */
+    --gbeat: #3a362c;        /* beat line (every 4)         */
+    --gbar:  #5a5342;        /* bar line (every 16)         */
   }
   * { box-sizing: border-box; border-radius: 0 !important; }
   html, body { margin: 0; background: var(--bg); color: var(--txt);
-    font: 12px/1.5 ui-monospace, "Cascadia Mono", Consolas, "Courier New", monospace; }
+    font: 12px/1.5 ui-monospace, "Cascadia Mono", Consolas, "Courier New", monospace;
+    scrollbar-color: var(--line2) var(--bg); }
+  #wrap, textarea, pre.out { scrollbar-color: var(--line2) var(--panel);
+    scrollbar-width: thin; }
   body { padding: 16px; }
   h1 { font-size: 13px; letter-spacing: .25em; font-weight: 700; margin: 0;
        text-transform: uppercase; }
   h1 .px { color: var(--w); }
   .sub { color: var(--dim); letter-spacing: .08em; margin: 2px 0 0; }
-  .top { display: flex; flex-wrap: wrap; gap: 10px 24px; align-items: flex-end;
+  .top { display: flex; flex-wrap: wrap; gap: 10px 24px; align-items: stretch;
          border: 1px solid var(--line); background: var(--panel);
          padding: 12px 14px; margin: 14px 0; }
   .top.slim { gap: 8px; margin: 0 0 14px; padding: 8px 14px; align-items: center; }
+  .grp { display: flex; flex-wrap: wrap; gap: 10px 24px; align-items: flex-end;
+         position: relative; padding-top: 16px; }
+  .grp::before { content: attr(data-cap); position: absolute; top: 0; left: 0;
+                 color: var(--dim); font-size: 9px; letter-spacing: .15em;
+                 text-transform: uppercase; white-space: nowrap; }
+  .grp + .grp { border-left: 1px solid var(--line); padding-left: 24px; }
+  .grp .legend { flex-basis: 100%; }
+  .top.pv { flex-wrap: nowrap; }
+  .top.pv .grp:first-child { flex: 1 1 0; min-width: 0; }
+  .top.slim .cap { color: var(--dim); font-size: 9px; letter-spacing: .15em;
+                   text-transform: uppercase; margin-right: 6px; }
+  .zoomctl { margin-left: auto; gap: 6px; }
+  .zoomctl .cap { margin-right: 0; white-space: nowrap; }
+  .zoomctl input[type=range] { width: 110px; }
+  details.imp summary { cursor: pointer; color: var(--dim); font-size: 10px;
+    letter-spacing: .15em; text-transform: uppercase; margin-top: 10px;
+    user-select: none; }
+  details.imp summary:hover { color: var(--w); }
+
+  /* genre order overview in the save panel */
+  .orderv { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; margin-top: 10px; }
+  .orderv .onote { color: var(--dim); font-size: 11px; }
+  .otile { border: 1px solid var(--line2); background: var(--bg); padding: 2px 7px;
+           font-size: 10px; letter-spacing: .05em; white-space: nowrap; }
+  .otile.me { border-color: var(--w); color: var(--w); cursor: grab; }
+  .otile.me:active { cursor: grabbing; }
+  .otile.ovr { border-color: var(--c2); color: var(--c2); }
+  .oslot { font-size: 9px; padding: 2px 4px; color: var(--dim); background: transparent;
+           border: 1px dashed var(--line2); }
+  .oslot.tie { color: var(--c3); border-color: var(--c3); }
+  .octl { margin-left: auto; display: flex; gap: 6px; }
+  .octl button { font-size: 9px; padding: 2px 6px; }
+
+  /* confirmation modal */
+  dialog { border: 1px solid var(--line2); background: var(--panel); color: var(--txt);
+           padding: 16px 18px; max-width: 560px; font: inherit; }
+  dialog::backdrop { background: rgba(10, 10, 8, .65); }
+  dialog h3 { margin: 0 0 6px; font-size: 11px; letter-spacing: .2em;
+              text-transform: uppercase; color: var(--w); }
+  dialog .warn { color: var(--c2); font-size: 11px; margin: 0 0 10px; }
+  dialog pre { margin: 0 0 12px; padding: 8px 10px; border: 1px dashed var(--line2);
+               background: var(--bg); font-size: 11px; max-height: 40vh; overflow: auto; }
+  dialog .row { justify-content: flex-end; }
+  button.danger { border-color: var(--c2); color: var(--c2); }
+  button.danger:hover { background: var(--c2); border-color: var(--c2); color: var(--bg); }
   label.fld { display: flex; flex-direction: column; gap: 4px; color: var(--dim);
               text-transform: uppercase; letter-spacing: .12em; font-size: 10px; }
   input[type=text], input[type=number], select, textarea, button {
     font: inherit; color: var(--txt); background: var(--bg);
     border: 1px solid var(--line2); padding: 4px 8px; }
-  input[type=text] { width: 12ch; } input[type=number] { width: 5ch; }
+  input[type=text] { width: 12ch; } input[type=number] { width: 8ch; }
   button { cursor: pointer; text-transform: uppercase; letter-spacing: .1em;
            font-size: 11px; background: var(--panel); }
-  button:hover { border-color: var(--w); color: var(--w); }
+  button:not(.cell):not(:disabled):hover { border-color: var(--w); color: var(--w); }
+  button:disabled { opacity: .4; cursor: default; }
   button:focus-visible, input:focus-visible, select:focus-visible,
   textarea:focus-visible, .cell:focus-visible { outline: 2px solid var(--w); outline-offset: -1px; }
   button.primary { border-color: var(--w); color: var(--bg); background: var(--w); font-weight: 700; }
@@ -55,7 +108,7 @@
   /* ── timeline ────────────────────────────────────────────────────────── */
   #wrap { max-width: 100%; overflow-x: auto; border: 1px solid var(--line);
           background: var(--panel); padding: 10px 10px 12px 0; margin-bottom: 14px; }
-  #tgrid { display: grid; gap: 2px; width: max-content; }
+  #tgrid { display: grid; gap: 0; width: max-content; }
   .corner, .side { position: sticky; left: 0; z-index: 3; background: var(--panel);
                    padding-left: 10px; }
   .corner { grid-column: 1; grid-row: 1 / 3; display: flex; align-items: flex-end; }
@@ -94,19 +147,27 @@
   .vf .fill { position: absolute; left: 0; right: 0; bottom: 0; background: var(--w); }
   .vf.dice .fill { opacity: .35; border-top: 2px solid var(--w); }
 
-  .cell { position: relative; width: var(--cell); height: var(--cell); align-self: center;
-          border: 1px solid var(--line); background: var(--bg); padding: 0; }
-  .cell:hover { border-color: var(--line2); }
-  .cell .q { position: absolute; width: calc(var(--cell)/2 - 3px);
-             height: calc(var(--cell)/2 - 3px); background: transparent; }
+  /* continuous DAW-style background grid: cells sit edge to edge, the
+     beat/bar divisions come from shading + line weight, notes render on top */
+  .cell { position: relative; align-self: stretch; min-height: var(--cell); padding: 0;
+          background: var(--grid-a); border: none;
+          border-left: 1px solid var(--gline); border-bottom: 1px solid var(--gline); }
+  .cell.alt { background: var(--grid-b); }
+  .cell.beat { border-left-color: var(--gbeat); }
+  .cell.bar { border-left: 2px solid var(--gbar); }
+  .cell.last { border-right: 2px solid var(--gbar); }
+  .cell.r0 { border-top: 1px solid var(--gline); }
+  .cell:hover { box-shadow: inset 0 0 0 1px var(--line2); }
+  .cell .q { position: absolute; width: calc(50% - 3px);
+             height: calc(50% - 3px); background: transparent; }
   .cell .q1 { left: 2px;  bottom: 2px; }
   .cell .q2 { right: 2px; bottom: 2px; }
   .cell .q3 { left: 2px;  top: 2px; }
   .cell .q4 { right: 2px; top: 2px; }
-  .cell.muted { opacity: .22; }
-  .cell.playing { border-color: var(--dim); }
-  .cell.hit { border-color: var(--w); box-shadow: inset 0 0 0 1px var(--w); }
-  .cell.sel { border-color: var(--txt); box-shadow: inset 0 0 0 1px var(--txt); }
+  .cell.muted .q { opacity: .22; }
+  .cell.playing { box-shadow: inset 0 0 0 1px var(--dim); }
+  .cell.hit { box-shadow: inset 0 0 0 2px var(--w); }
+  .cell.sel { box-shadow: inset 0 0 0 2px var(--txt); }
   .cell.ghost { outline: 1px dashed var(--w); outline-offset: -2px; }
   .cell.chance::after { content: ""; position: absolute; inset: 0;
     background: repeating-linear-gradient(45deg, transparent 0 3px, rgba(20,20,18,.55) 3px 5px); }
@@ -153,58 +214,89 @@
 <h1>TOUCH<span class="px">PLAITED</span> PATTERN EDITOR</h1>
 <p class="sub">7 tracks × 4 bars × 16 steps · step byte 0xCW · W weight 0–4 · C chance 0=always 1=75% 2=50% 3=25%</p>
 
-<div class="top">
-  <label class="fld">genre
-    <select id="genre">
-      <option value="techno">techno</option>
-      <option value="electro" selected>electro</option>
-      <option value="idm">idm</option>
-    </select></label>
-  <label class="fld">index
-    <input id="idx" type="number" min="0" max="99" value="3"></label>
-  <label class="fld">name
-    <input id="name" type="text" value="mypattern" spellcheck="false"></label>
-  <label class="fld">preview density <span id="dval"></span>
-    <input id="density" type="range" min="0" max="4" value="4"></label>
-  <label class="fld">zoom <span id="zval"></span>
-    <span class="row" style="gap:4px">
-      <input id="zoom" type="range" min="8" max="34" value="22">
-      <button id="fit" title="fit all 64 steps in view">FIT</button>
-    </span></label>
-  <label class="fld">kit
-    <select id="kit">
-      <option value="synth">Synth</option>
-      <option value="808">808</option>
-      <option value="acoustic">Acoustic</option>
-    </select></label>
-  <label class="fld">tempo <span id="tval">(120)</span>
-    <input id="tempo" type="range" min="60" max="180" value="120"></label>
-  <label class="fld">shuffle <span id="shval">(0%)</span>
-    <input id="shuffle" type="range" min="0" max="50" value="0"></label>
-  <button id="play" title="space bar toggles playback">&#9654; play</button>
-  <div class="legend">
-    <span><span class="sw" style="background:var(--w)"></span>always</span>
-    <span><span class="sw" style="background:var(--c1)"></span>75%</span>
-    <span><span class="sw" style="background:var(--c2)"></span>50%</span>
-    <span><span class="sw" style="background:var(--c3)"></span>25%</span>
-    <span>quadrants = weight 1–4</span>
+<div class="panel">
+  <h2>1 · Load — patterns in the firmware build</h2>
+  <div class="row">
+    <label class="fld">synth/patterns folder
+      <span class="row" style="gap:6px">
+        <button id="fconnect">Connect folder…</button>
+        <select id="fsel"></select>
+        <button id="fload">Load</button>
+        <button id="frefresh">Refresh</button>
+      </span></label>
+    <label class="fld">built-in &amp; browser-saved
+      <span class="row" style="gap:6px">
+        <select id="lib"></select>
+        <button id="load">Load</button>
+        <button id="del" title="remove the selected browser-saved pattern">Delete</button>
+      </span></label>
+  </div>
+  <p class="hint" id="fstat">not connected — pick your <code>synth/patterns</code> folder
+    (Chrome/Edge; picking the repo root also works) to browse the patterns that ship in
+    the firmware. Without a folder, use the built-in list or the import below.</p>
+  <details class="imp">
+    <summary>import — paste a kPat_ table (decimal or 0x values) or load a MIDI file</summary>
+    <div class="row" style="margin-top:8px"><textarea id="imp" spellcheck="false"
+      placeholder="paste the 7×64 initializer here…"></textarea></div>
+    <div class="row" style="margin-top:8px">
+      <button id="doimp">Parse &amp; load</button>
+      <button id="midiimpbtn">Import MIDI…</button>
+      <input id="midifile" type="file" accept=".mid,audio/midi" style="display:none">
+    </div>
+  </details>
+</div>
+
+<div class="top pv">
+  <div class="grp" data-cap="2 · preview — as it plays on the device">
+    <button id="play" title="space bar toggles playback">&#9654; play</button>
+    <label class="fld"><span>tempo <span id="tval">(120)</span></span>
+      <input id="tempo" type="range" min="60" max="180" value="120"></label>
+    <label class="fld"><span>shuffle <span id="shval">(0%)</span></span>
+      <input id="shuffle" type="range" min="0" max="50" value="0"></label>
+    <label class="fld"><span>density <span id="dval"></span></span>
+      <input id="density" type="range" min="0" max="4" value="4"
+        title="the device's density control — steps grey out below their audible threshold"></label>
+    <div class="legend">
+      <span><span class="sw" style="background:var(--w)"></span>always</span>
+      <span><span class="sw" style="background:var(--c1)"></span>75%</span>
+      <span><span class="sw" style="background:var(--c2)"></span>50%</span>
+      <span><span class="sw" style="background:var(--c3)"></span>25%</span>
+      <span>quadrants = weight 1–4 · a step plays when weight + density ≥ 5</span>
+    </div>
+  </div>
+  <div class="grp" data-cap="editor view">
+    <label class="fld">preview kit
+      <select id="kit">
+        <option value="synth">Synth</option>
+        <option value="808">808</option>
+        <option value="acoustic">Acoustic</option>
+      </select></label>
   </div>
 </div>
 
 <div class="top slim">
+  <span class="cap">3 · edit</span>
   <button id="copysel" title="Ctrl+C">Copy selected</button>
   <button id="paste" title="Ctrl+V pastes at hovered cell; this button stamps with the mouse">Paste (stamp)</button>
   <button id="park" title="park the copied clip in the pool">Park selection</button>
   <button id="delsel" title="Delete key">Delete</button>
   <button id="desel" title="Esc">Deselect</button>
+  <button id="clear" title="wipe all 64 steps">Clear grid</button>
   <span class="legend">
+    <span>click = set / clear · drag on a step: ↑↓ = weight · ←→ = chance</span>
     <span>right-click / drag = select · shift = range · ctrl = add</span>
     <span>left-drag a selection = move · alt = duplicate · arrows nudge</span>
+  </span>
+  <span class="row zoomctl">
+    <span class="cap">zoom <span id="zval"></span></span>
+    <input id="zoom" type="range" min="8" max="34" value="22">
+    <button id="fit" title="fit all 64 steps in view">FIT</button>
   </span>
 </div>
 
 <div class="status" id="status">
-  left click = set / clear · left drag ↑↓ weight ←→ chance · right click / drag = select ·
+  left click = set / clear · hold + drag a step: ↑↓ = weight (1–4, needs density ≥ 5−W to play)
+  · ←→ = chance (always/75/50/25%) · right click / drag = select ·
   sidebar: lock · W weight · C chance · R random · space = play/stop
 </div>
 
@@ -216,54 +308,49 @@
 </div>
 
 <div class="panel">
-  <h2>Library — copy previous patterns</h2>
+  <h2>4 · Save — back into the firmware</h2>
   <div class="row">
-    <select id="lib"></select>
-    <button id="load">Load</button>
-    <button id="save">Save</button>
-    <button id="del">Delete</button>
-    <button id="clear">Clear grid</button>
-  </div>
-</div>
-
-<div class="panel">
-  <h2>Pattern folder — load/save .h files directly in synth/patterns/&lt;genre&gt;/</h2>
-  <div class="row">
-    <button id="fconnect">Connect folder…</button>
-    <select id="fsel"></select>
-    <button id="fload">Load</button>
+    <label class="fld">genre
+      <select id="genre">
+        <option value="techno">techno</option>
+        <option value="electro" selected>electro</option>
+        <option value="idm">idm</option>
+      </select></label>
+    <label class="fld">index
+      <input id="idx" type="number" min="0" max="99" value="3"
+        title="position in the genre's pattern list — S35 order on the device, NN_ filename prefix"></label>
+    <label class="fld">name
+      <input id="name" type="text" value="mypattern" spellcheck="false"></label>
     <button id="fsaveh" class="primary">Save .h</button>
-    <button id="frefresh">Refresh</button>
-  </div>
-  <p class="hint" id="fstat">not connected — pick your <code>synth/patterns</code> folder
-    (Chrome/Edge; picking the repo root also works). Saves as
-    <code>&lt;genre&gt;/NN_name.h</code> from the fields above; run <code>make</code> to embed.</p>
-</div>
-
-<div class="panel">
-  <h2>Import — paste a kPat_ table (decimal or 0x values), or load a MIDI file</h2>
-  <div class="row"><textarea id="imp" spellcheck="false"
-    placeholder="paste the 7×64 initializer here…"></textarea></div>
-  <div class="row" style="margin-top:8px">
-    <button id="doimp">Parse &amp; load</button>
-    <button id="midiimpbtn">Import MIDI…</button>
-    <input id="midifile" type="file" accept=".mid,audio/midi" style="display:none">
-  </div>
-</div>
-
-<div class="panel">
-  <h2>Export — pattern file for synth/patterns/&lt;genre&gt;/</h2>
-  <div class="row">
-    <button id="gen" class="primary">Generate code</button>
+    <button id="save" title="stash a copy in this browser's local storage">Save to browser</button>
+    <button id="gen">Generate code</button>
     <button id="copy">Copy to clipboard</button>
     <button id="midiexp">Export MIDI</button>
   </div>
-  <p class="hint">Save as <code id="fname">synth/patterns/electro/03_mypattern.h</code> —
-    the next <code>make</code> registers it into that genre (SW1 picks the genre,
-    S35 picks the pattern within it; index sets the S35 order). MIDI export/import maps
-    step weight to note velocity (chance is not preserved).</p>
+  <div class="orderv" id="orderv"></div>
+  <p class="hint">Writes <code id="fname">synth/patterns/electro/03_mypattern.h</code> —
+    the next <code>make</code> embeds it in the firmware. <b>genre</b> = the folder it
+    lives in (SW1 picks the genre on the device) · <b>index</b> = its position in that
+    genre's list (the S35 pattern order, also the <code>NN_</code> filename prefix) ·
+    <b>name</b> = the rest of the filename. The strip above shows the genre folder in
+    play order — click a dashed slot (or drag your pattern onto one) to take a free
+    index, or drag an existing pattern onto a slot to reorder the whole folder
+    (renames the files on disk after a confirmation).
+    Save .h needs the folder connected in step 1; Generate code is the
+    copy/paste fallback. MIDI export/import maps step weight to note velocity
+    (chance is not preserved).</p>
   <pre class="out" id="out">…</pre>
 </div>
+
+<dialog id="dlg">
+  <h3 id="dlgtitle">Rename files</h3>
+  <p class="warn" id="dlgwarn"></p>
+  <pre id="dlglist"></pre>
+  <div class="row">
+    <button id="dlgcancel" type="button">Cancel</button>
+    <button id="dlgok" type="button" class="danger">Rename files</button>
+  </div>
+</dialog>
 
 <script>
 "use strict";
@@ -343,14 +430,9 @@ let dragPayload = null;                  // HTML5 DnD: {type:"bar",bar} | {type:
 
 // ── build the timeline grid ──────────────────────────────────────────────────
 const tg = $("tgrid");
-const colOf = p => 2 + p + Math.floor(p/4);   // spacer column after every beat group
+const colOf = p => 2 + p;                     // side column, then one column per step
 {
-  const cols = ["var(--side)"];
-  for (let g = 0; g < 16; g++){
-    cols.push("repeat(4, var(--cell))");
-    if (g < 15) cols.push(g % 4 === 3 ? "var(--bargap)" : "var(--beatgap)");
-  }
-  tg.style.gridTemplateColumns = cols.join(" ");
+  tg.style.gridTemplateColumns = `var(--side) repeat(${NS}, var(--cell))`;
   tg.style.gridTemplateRows = "auto auto repeat(7, minmax(20px, auto))";
 }
 function el(tag, txt, cls){ const e = document.createElement(tag);
@@ -433,7 +515,12 @@ for (let r = 0; r < NT; r++){
 
   for (let s = 0; s < NS; s++){
     const c = document.createElement("button");
-    c.type = "button"; c.className = "cell";
+    c.type = "button";
+    c.className = "cell"
+      + (s % 16 === 0 ? " bar" : s % 4 === 0 ? " beat" : "")
+      + (Math.floor(s/4) % 2 ? " alt" : "")
+      + (s === NS - 1 ? " last" : "")
+      + (r === 0 ? " r0" : "");
     c.dataset.i = t*NS + s;
     c.style.gridRow = 3 + r; c.style.gridColumn = colOf(s);
     for (let q = 1; q <= 4; q++) c.appendChild(el("span", "", "q q"+q));
@@ -790,10 +877,7 @@ $("zoom").addEventListener("input", () => setCell(+$("zoom").value));
 function fitZoom(){
   const cs = getComputedStyle(document.documentElement);
   const side = parseFloat(cs.getPropertyValue("--side"));
-  const spacers = 12 * parseFloat(cs.getPropertyValue("--beatgap"))
-                +  3 * parseFloat(cs.getPropertyValue("--bargap"));
-  const gaps = 79 * 2;                       // 2px grid gap between 80 columns
-  const avail = $("wrap").clientWidth - 10 - side - spacers - gaps - 4;
+  const avail = $("wrap").clientWidth - 10 - side - 6;   // right padding + end bar line
   setCell(Math.floor(avail / 64));
 }
 $("fit").onclick = fitZoom;
@@ -1045,6 +1129,7 @@ $("load").onclick = () => {
   barSegs.forEach(s => s.querySelector(".loopbtn").classList.remove("on"));
   sel.clear(); applySel(); paintAll();
   if (!BUILTIN[k]) $("name").value = k;
+  renderOrder();
   status(`loaded <b>${k}</b>`);
 };
 $("save").onclick = () => {
@@ -1121,7 +1206,187 @@ $("copy").onclick = async () => {
   }
 };
 ["idx","name","genre"].forEach(id => $(id).addEventListener("input",
-  () => $("fname").textContent = fpath()));
+  () => { $("fname").textContent = fpath(); renderOrder(); }));
+
+// ── genre order overview — where the current index lands in the folder ──────
+let filesByGenre = {};
+const nmOf = fn => fn.replace(/^\d+_/, "").replace(/\.h$/, "");
+function renderOrder(){
+  const box = $("orderv"); box.innerHTML = "";
+  const g = fgenre(), files = filesByGenre[g];
+  if (!patDir || !files){
+    box.appendChild(el("span", "connect the folder in step 1 to see this genre's " +
+      "pattern order and pick a free index", "onote"));
+    return;
+  }
+  const entries = files.map(fn => {
+    const m = fn.match(/^(\d+)_(.*)\.h$/);
+    return { fn, idx: m ? +m[1] : 0, nm: m ? m[2] : fn.replace(/\.h$/, "") };
+  }).sort((a, b) => a.fn < b.fn ? -1 : a.fn > b.fn ? 1 : 0);
+  const meFn = fstem() + ".h";
+  const place = n => { $("idx").value = n; $("fname").textContent = fpath(); renderOrder(); };
+  const dropOrder = (fn, k) => {           // move file fn so it sits at position k
+    const fromI = entries.findIndex(e2 => e2.fn === fn);
+    if (fromI < 0) return;
+    const fns = entries.map(e2 => e2.fn);
+    fns.splice(fromI, 1);
+    fns.splice(k - (fromI < k ? 1 : 0), 0, fn);
+    applyOrder(fns);
+  };
+  const slot = (cand, tie, k) => {
+    const s = el("button", String(cand).padStart(2, "0"), "oslot" + (tie ? " tie" : ""));
+    s.type = "button";
+    s.title = tie ? `index ${cand} is already used — equal numbers sort by name`
+                  : `place this pattern here (index ${cand})`;
+    s.addEventListener("click", () => place(cand));
+    s.addEventListener("dragover", e => {
+      if (dragPayload && (dragPayload.type === "orderme" || dragPayload.type === "orderfile"))
+        e.preventDefault(); });
+    s.addEventListener("drop", e => {
+      if (!dragPayload) return;
+      if (dragPayload.type === "orderme"){
+        e.preventDefault(); dragPayload = null; place(cand);
+      } else if (dragPayload.type === "orderfile"){
+        e.preventDefault(); const fn = dragPayload.fn; dragPayload = null; dropOrder(fn, k);
+      }
+    });
+    box.appendChild(s);
+  };
+  let placed = false;
+  for (let k = 0; k <= entries.length; k++){
+    const next = entries[k];
+    const cand = Math.min(99, (k === 0 ? -1 : entries[k-1].idx) + 1);
+    slot(cand, next ? cand >= next.idx : false, k);
+    if (!placed && (!next || meFn <= next.fn)){
+      if (!next || meFn !== next.fn){                    // exact match renders as "ovr"
+        const t = el("span", `${fstem()} — this pattern`, "otile me");
+        t.draggable = true;
+        t.title = "your pattern lands here — drag onto a dashed slot to move it";
+        t.addEventListener("dragstart", () => { dragPayload = { type: "orderme" }; });
+        t.addEventListener("dragend", () => { dragPayload = null; });
+        box.appendChild(t);
+      }
+      placed = true;
+    }
+    if (next){
+      const t = el("span", `${String(next.idx).padStart(2, "0")} ${next.nm}`,
+                   "otile" + (next.fn === meFn ? " ovr" : ""));
+      t.draggable = true;
+      t.title = (next.fn === meFn ? "Save .h will overwrite this file · " : "")
+              + "drag onto a slot to reorder the folder — renames files on disk (asks first)";
+      t.addEventListener("dragstart", () => { dragPayload = { type: "orderfile", fn: next.fn }; });
+      t.addEventListener("dragend", () => { dragPayload = null; });
+      box.appendChild(t);
+    }
+  }
+  if (entries.length){                                   // order tools
+    const ctl = el("span", "", "octl");
+    const base = defOrder()[g];
+    const rst = el("button", "restore default order");
+    rst.type = "button";
+    if (base){
+      rst.title = "renumber the files back to the order in synth/patterns/order.json — " +
+                  "patterns not listed there are pushed to the end";
+      rst.addEventListener("click", () => {
+        // consume matches in default order so duplicate names stay stable
+        const remaining = entries.map(e2 => e2.fn), ordered = [];
+        for (const nm of base){
+          const i = remaining.findIndex(fn => nmOf(fn) === nm);
+          if (i >= 0) ordered.push(remaining.splice(i, 1)[0]);
+        }
+        applyOrder([...ordered, ...remaining]);
+      });
+    } else { rst.disabled = true; rst.title = "no order.json in the folder yet"; }
+    const setd = el("button", "set as default");
+    setd.type = "button";
+    setd.title = "write the current order to synth/patterns/order.json — commit it to git " +
+                 "to make it the repo default";
+    setd.addEventListener("click", async () => {
+      const o = { ...defOrder(), [g]: entries.map(e2 => e2.nm) };
+      try { await saveDefOrder(o); }
+      catch (e){ status("couldn't write order.json: " + e.message); return; }
+      status(`wrote <b>order.json</b> — current <b>${g}</b> order is the default (commit it)`);
+      renderOrder();
+    });
+    ctl.append(rst, setd); box.appendChild(ctl);
+  }
+}
+
+// ── destructive reorder — renames files in synth/patterns/<genre>/ ──────────
+// The default order lives in synth/patterns/order.json (committed to git);
+// connecting a folder that lacks one seeds it from the current file order.
+let defOrderData = null;
+function defOrder(){ return defOrderData || {}; }
+async function saveDefOrder(o){
+  defOrderData = o;
+  const w = await (await patDir.getFileHandle("order.json", { create: true })).createWritable();
+  await w.write(JSON.stringify(o, null, 2) + "\n"); await w.close();
+}
+
+function confirmDlg(title, warn, lines){
+  return new Promise(res => {
+    $("dlgtitle").textContent = title;
+    $("dlgwarn").textContent = warn;
+    $("dlglist").textContent = lines.join("\n");
+    const dlg = $("dlg");
+    $("dlgok").onclick = () => { res(true); dlg.close(); };
+    $("dlgcancel").onclick = () => { res(false); dlg.close(); };
+    dlg.onclose = () => res(false);            // Esc — no-op if already settled
+    dlg.showModal();
+  });
+}
+
+async function moveFile(dir, from, to){
+  const fh = await dir.getFileHandle(from);
+  if (fh.move) return fh.move(to);             // same-directory rename (Chrome)
+  const data = await (await fh.getFile()).arrayBuffer();
+  const w = await (await dir.getFileHandle(to, { create: true })).createWritable();
+  await w.write(data); await w.close();
+  await dir.removeEntry(from);
+}
+
+// copy `from` to temp name `tmp`, rewriting the kPat_ symbol to match the
+// final name — gen_patterns.py requires symbol == filename stem.
+async function rewriteTo(dir, g, from, tmp, final){
+  const sym = s => `kPat_${g}_` + s.replace(/\.h$/, "").replace(/\W/g, "_");
+  const txt = await (await (await dir.getFileHandle(from)).getFile()).text();
+  const w = await (await dir.getFileHandle(tmp, { create: true })).createWritable();
+  await w.write(txt.split(sym(from)).join(sym(final))); await w.close();
+  await dir.removeEntry(from);
+}
+
+// renumber the current genre to the given filename order (00..N), after a
+// modal confirmation; renames run in two phases so swaps can't collide.
+async function applyOrder(fns){
+  const g = fgenre();
+  const changes = [];
+  fns.forEach((from, i) => {
+    const to = String(Math.min(99, i)).padStart(2, "0") + "_" + nmOf(from) + ".h";
+    if (to !== from) changes.push({ from, to });
+  });
+  if (!changes.length){ status("order already matches — nothing to rename"); renderOrder(); return; }
+  const ok = await confirmDlg(`Reorder ${g} patterns`,
+    `This renames ${changes.length} file${changes.length > 1 ? "s" : ""} on disk in ` +
+    `synth/patterns/${g}/ and updates the kPat_ symbol inside each file to match ` +
+    `(the build requires it). Git can restore them if needed — don't close the ` +
+    `tab while it runs.`,
+    changes.map(c => `${c.from}  →  ${c.to}`));
+  if (!ok){ renderOrder(); return; }
+  try {
+    const dir = await patDir.getDirectoryHandle(g);
+    for (const c of changes) await rewriteTo(dir, g, c.from, c.to + ".ren~", c.to);
+    for (const c of changes) await moveFile(dir, c.to + ".ren~", c.to);
+  } catch (e){
+    status(`rename failed: ${e.message} — check the folder for *.ren~ files`);
+    await refreshFiles(); return;
+  }
+  await refreshFiles();
+  // keep the save fields tracking the pattern if it was one of the renamed files
+  const mine = (filesByGenre[g] || []).find(fn => nmOf(fn) === cname());
+  const m = mine && mine.match(/^(\d+)_/);
+  if (m){ $("idx").value = +m[1]; $("fname").textContent = fpath(); renderOrder(); }
+  status(`renamed <b>${changes.length}</b> file${changes.length > 1 ? "s" : ""} in <b>${g}</b>`);
+}
 
 // ── pattern folder — direct load/save via the File System Access API ────────
 // Chrome/Edge only; the handle is persisted in IndexedDB so reconnecting
@@ -1154,18 +1419,38 @@ async function normalizeDir(dir){
 async function refreshFiles(){
   const s = $("fsel"); s.innerHTML = "";
   let any = false;
+  filesByGenre = {};
   for (const g of GENRES){
-    let dir; try { dir = await patDir.getDirectoryHandle(g); } catch { continue; }
+    let dir; try { dir = await patDir.getDirectoryHandle(g); }
+    catch { filesByGenre[g] = []; continue; }
     const names = [];
     for await (const e of dir.values())
       if (e.kind === "file" && e.name.endsWith(".h")) names.push(e.name);
     names.sort();
+    filesByGenre[g] = names;
     if (names.length){
       const og = document.createElement("optgroup"); og.label = g;
       names.forEach(n => og.appendChild(new Option(`${g}/${n}`)));
       s.appendChild(og); any = true;
     }
   }
+  try {                                        // repo-tracked default order
+    defOrderData = JSON.parse(
+      await (await (await patDir.getFileHandle("order.json")).getFile()).text());
+  } catch { defOrderData = null; }
+  if (!defOrderData){                          // seed it from the current file order
+    const o = {};
+    for (const g of GENRES)
+      if ((filesByGenre[g] || []).length) o[g] = filesByGenre[g].map(nmOf);
+    if (Object.keys(o).length){
+      try {
+        await saveDefOrder(o);
+        status("seeded <b>synth/patterns/order.json</b> from the current order — " +
+               "commit it to make it the repo default");
+      } catch {}
+    }
+  }
+  renderOrder();
   $("fstat").innerHTML = any
     ? `connected: <code>${patDir.name}/</code>`
     : `connected: <code>${patDir.name}/</code> — no ${GENRES.join("/")} subfolders found;
@@ -1213,6 +1498,7 @@ $("fload").onclick = async () => {
   const m = fn.match(/^(\d+)_(.*)\.h$/);
   if (m){ $("idx").value = +m[1]; $("name").value = m[2]; }
   $("fname").textContent = fpath();
+  renderOrder();
   loadedKey = key;
   status(`loaded <b>${key}</b>`);
 };
@@ -1346,5 +1632,6 @@ try { const w = JSON.parse(localStorage.getItem(WIP));
 paintAll();
 for (let t = 0; t < NT; t++) renderSide(t);
 loadPoolFromStorage(); renderPool();
+renderOrder();
 fitZoom();
 </script>
