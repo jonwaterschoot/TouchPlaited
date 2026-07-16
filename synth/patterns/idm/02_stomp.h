@@ -1,10 +1,10 @@
 #pragma once
 #include <cstdint>
 
-// idm/testranger — authored in tools/pattern_editor.html
+// idm/stomp — authored in tools/pattern_editor.html
 // Step byte encoding 0xCW: W = weight 0–4, C = chance 0=always 1=75% 2=50% 3=25%.
 // Track order: 0=Kick 1=Snare 2=CHH 3=OHH 4=Clap 5=Tom 6=Perc.
-static constexpr uint8_t kPat_idm_02_idm[7][64] = {
+static constexpr uint8_t kPat_idm_02_stomp[7][64] = {
     // Kick
     { 4,4,4,4, 4,4,4,4, 4,4,4,4, 4,4,4,4,
       0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0,

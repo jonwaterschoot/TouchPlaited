@@ -1,0 +1,19 @@
+{
+  "techno": [
+    "fourfloor",
+    "rolling"
+  ],
+  "electro": [
+    "classic",
+    "brute",
+    "offbeat",
+    "claptrap",
+    "sizzle",
+    "burst"
+  ],
+  "idm": [
+    "glitch",
+    "fullrandom",
+    "stomp"
+  ]
+}

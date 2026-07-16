@@ -1,10 +1,10 @@
 #pragma once
 #include <cstdint>
 
-// idm/fullonrandom — authored in tools/pattern_editor.html
+// idm/fullrandom — authored in tools/pattern_editor.html
 // Step byte encoding 0xCW: W = weight 0–4, C = chance 0=always 1=75% 2=50% 3=25%.
 // Track order: 0=Kick 1=Snare 2=CHH 3=OHH 4=Clap 5=Tom 6=Perc.
-static constexpr uint8_t kPat_idm_01_idm[7][64] = {
+static constexpr uint8_t kPat_idm_01_fullrandom[7][64] = {
     // Kick
     { 4,2,0x34,0x33, 4,0x31,0x14,0x12, 0x11,2,4,0x14, 4,0x14,0x31,3,
       4,0x21,3,0x11, 4,0x21,1,3, 4,1,0x33,0x11, 0x22,4,0x31,3,

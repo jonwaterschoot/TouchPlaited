@@ -1,10 +1,10 @@
 #pragma once
 #include <cstdint>
 
-// electro/mypattern — authored in tools/pattern_editor.html
+// electro/claptrap — authored in tools/pattern_editor.html
 // Step byte encoding 0xCW: W = weight 0–4, C = chance 0=always 1=75% 2=50% 3=25%.
 // Track order: 0=Kick 1=Snare 2=CHH 3=OHH 4=Clap 5=Tom 6=Perc.
-static constexpr uint8_t kPat_electro_02_electro[7][64] = {
+static constexpr uint8_t kPat_electro_03_claptrap[7][64] = {
     // Kick
     { 0,4,0,0, 4,0,4,0, 0,0,0,0, 4,0,0,0,
       0,4,0,0, 4,0,4,0, 0,0,0,0, 4,0,0,0,
