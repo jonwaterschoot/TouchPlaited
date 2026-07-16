@@ -52,7 +52,8 @@ function describeControl(i: number, s: DeviceState): { combo: string; fn: string
   if (i === 5 && s.pads[0]) return { combo: 'P0 + S35', fn: 'Model select · bank 0' };
   if (i === 5 && s.pads[2]) return { combo: 'P2 + S35', fn: 'Model select · bank 1' };
   if (i === 7 && s.pads[0]) return { combo: 'P0 + S37', fn: 'Stereo width' };
-  return { combo: meta.name, fn: (s.mode === 0 ? meta.seq : meta.main) ?? meta.main };
+  const fn = s.mode === 0 ? meta.seq : s.mode === 1 ? meta.arp : meta.main;
+  return { combo: meta.name, fn: fn ?? meta.main };
 }
 
 /** Name a pad press including modifier gestures; null = pure modifier, not
@@ -187,7 +188,9 @@ export class Labels {
       }
       case 'sw': {
         if (ev.which === 'A') {
-          const names = s.mode === 0 ? SW1_POSITIONS.seq : SW1_POSITIONS.pitch;
+          const names = s.mode === 0 ? SW1_POSITIONS.seq
+                      : s.mode === 1 ? SW1_POSITIONS.arp
+                                     : SW1_POSITIONS.pitch;
           const html = `<b>SW1</b> <span>${names[ev.v] ?? ev.v}</span>`;
           this.show('sw1', html);
           this.addLog('SW1', html);

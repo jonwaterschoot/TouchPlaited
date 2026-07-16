@@ -1,15 +1,23 @@
 # Arp / Mel playmode — design review & implementation plan
 
-> **Status (2026-07-15, branch `arp-mel`)**: Phases 0–4a implemented and
+> **Status (2026-07-16, branch `arp-mel`)**: Phases 0–4a implemented and
 > compiling — arp core (`synth/arp.h`), Hold, octave range (P1+P10/P11),
 > melodic transport (P2+P10), swing, Euclid density, and the basic layered
 > Rec recorder (`synth/note_rec.h`, fixed 2-bar loop, undo = P0+P10 in Rec).
-> Confirmed decisions: arp sound = Basic Pitch model latched on BP→Arp entry
-> (§2 C5); per-note slot editing retired outside Seq (§2 C3); SW1 states are
-> persistent + change-latched (never applied on mode entry — supersedes the
-> "always enter plain Arp" wording in C1, see commit message).
-> NOT yet done: Rec knob morphs (4b), MIDI-in → pool, README/MANUAL rewrite,
-> arp state in telemetry. Untested on hardware — iterate from here.
+> Confirmed decisions: per-note slot editing retired outside Seq (§2 C3);
+> SW1 states are persistent + change-latched (never applied on mode entry —
+> supersedes the "always enter plain Arp" wording in C1, see commit message).
+> **First hardware round (15–16/07/26, see §6)**: arp sound is now fully
+> independent of Basic Pitch — seeded from BP once on first-ever entry, then
+> edited via the P0+P1 sound-edit layer (supersedes the C5 latch-on-every-
+> BP→Arp-entry decision); arp/loop voices are `arp_owned` in the pool so BP's
+> live knobs never reach them. Rec gained clear gestures: hold P0+P10 ~1.5s =
+> clear all, P0+pad 1–4 = clear that layer. Loop length stays fixed at 2 bars
+> (confirmed on hardware).
+> Docs are current: README/MANUAL rewritten for Arp/Mel, notes.md sketch
+> marked implemented, visualizer knob/SW1 labels updated for mode 1.
+> NOT yet done: Rec knob morphs (4b), MIDI-in → pool, arp state in telemetry
+> (the visualizer can't show the SW1 sub-state or pool yet).
 
 Replaces the Random playmode (SW2 center). Design notes live in `notes.md` → "Playmode overhaul".
 Last Random-mode firmware is preserved on tag `random-mode`.
@@ -226,3 +234,47 @@ branch `arp-mel`, merge to main when the mode is usable end-to-end.
   needs on-hardware feel testing (Phase 2/4 exit criteria).
 - **Rec morphs (4b)** are the most speculative part of the design — build 4a first
   and re-evaluate; the notes' per-knob table may change after playing with 4a.
+
+
+---
+
+## 6. First hardware round (15–16/07/26) — problems & resolutions
+
+Raw notes from the first build, with what was decided and implemented.
+
+### Rec: no stop/clear (loop plays on regardless of SW1 state — by design)
+Stop already existed (P2+P10 gates arp + loop together); clearing was
+undo-only. **Implemented:**
+- **Clear all**: hold **P0+P10 ~1.5 s** while SW1 is in Rec — wipes every
+  layer and resets the clock (the tap stays single-step undo; the initial
+  undo the tap fires is subsumed by the full clear). LED CONFIRM.
+- **Clear one layer**: **P0 + playing pad 1–4** while SW1 is in Rec clears
+  that committed layer (pad 1 = oldest). Under P0 the pads neither sound nor
+  record. LED = layer number; LIMIT blink when there's no such layer.
+- **Layer model kept as overdub passes** (each 2-bar pass = one layer), not
+  bars-as-layers: pass-layers are what makes overdubbing and undo-my-last-
+  take work; the pad combo makes them addressable, which was the point of
+  the bar idea. **Loop length stays fixed at 2 bars** (confirmed).
+
+### Sound entanglement between Basic Pitch and Arp/Mel (SW2)
+The arp re-latched BP's sound on *every* BP→Arp flick, and BP's live global
+knob writes reached background arp/loop voices (they're unlocked so they ride
+the pitched group). The two modes were impossible to tell apart and fought
+over the sound. **Implemented — the notes' own proposal:**
+- `arp_snd` is seeded from the live BP sound **once, on the first Arp/Mel
+  entry ever**, then fully independent.
+- Arp/loop trigger voices are **`arp_owned`** in the voice pool: skipped by
+  every global setter (like `locked`) but still mixed in the pitched group.
+  BP's knobs can no longer morph a background arp, held Rec notes, or MIDI
+  notes playing the arp sound.
+- **Sound edit sub-mode**: hold **P0+P1 ~1 s** (without P2 — that's mutate)
+  to toggle. The knobs swap to the BP layout on the arp's own model —
+  S30 drive, S31 decay, S32 harmonics, S33 timbre, S34 morph — and the arp
+  functions freeze until toggled back. The running arp is its own audition
+  (entry also fires one). Exits on re-toggle, SW1 state change, or mode
+  re-entry; all knob hand-offs go through pickups. P0/P2+S35 model select
+  and P0+P2 mutate still work as before.
+  Chosen over long-press P0/P1/P2 alone: P1 alone is the FX layer, P0 alone
+  arms width/root combos — a solo long-press on either misfires while
+  reaching for a combo; the two-finger chord can't happen accidentally and
+  pads stay free for long held notes.

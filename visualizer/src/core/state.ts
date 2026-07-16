@@ -14,10 +14,10 @@ export interface DeviceState {
   pads: boolean[];        // P0..P11 (index 1 = P1FX)
   controls: number[];     // S30..S37 as 0..1
   swA: number;            // SW1 position 0..2 (left/mid/right)
-  swB: number;            // SW2 position 0..2 (up=Seq / mid=Random / down=Pitch)
+  swB: number;            // SW2 position 0..2 (up=Seq / mid=Arp/Mel / down=Pitch)
   led: number;            // user LED brightness 0..1
   model: number;          // Plaits engine 0..23
-  mode: number;           // 0 Seq, 1 Random, 2 Pitch (mirrors SW2)
+  mode: number;           // 0 Seq, 1 Arp/Mel, 2 Pitch (mirrors SW2)
   playing: boolean;       // drum sequencer transport
   seqStep: number | null;
   octave: number;         // pitched-mode octave offset, −3..+3

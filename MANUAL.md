@@ -2,36 +2,65 @@
 
 ## Controls at a glance
 
-### Basic Pitch (SW2 Down) · Random (SW2 Center)
+### Basic Pitch (SW2 Down)
 
-The two pitched modes share the same layout — one table, one column per mode. *same* = identical to Basic Pitch; — = no function.
+| Control | Function | MIDI CC |
+|---------|----------|---------|
+| S30 | Drive | 24 |
+| S31 | Decay | 23 |
+| S32 | Harmonics | 20 |
+| S33 | Timbre | 21 |
+| S34 | Morph (no effect on engines 19–23) | 22 |
+| S35 | — *(only active with P0/P2 held)* | — |
+| S36 | Output level | 26 |
+| S37 | Model mix — OUT↔AUX blend | — |
+| — | LPG colour (no knob) | 25 |
+| SW1 | Scale: minor (left) / chromatic (center) / major (right) | — |
+| P3–P9 | Play notes | notes in, ch 1 |
+| P10 / P11 | Octave down / up | — |
+| **Hold P0 (shift)** | | |
+| P0 + S35 | Model select, bank 0 (engines 0–11) | — |
+| P0 + S37 | Stereo width | — |
+| P0 + P10 / P11 | Root semitone down / up | — |
+| P0 + P2 hold 1 s / 2 s / 3 s | Randomize tight / randomize wide / back to clean | — |
+| **Hold P2 (shift)** | | |
+| P2 + S35 | Model select, bank 1 (engines 12–23) | — |
+| P2 (hold) + P10 | Melodic transport — arp + Rec loop run / stop | — |
+| P2 (hold) + P11 | Drum seq play / pause | Start/Continue/Stop |
+| **Hold P1 (FX shift)** | | |
+| P1 + S30 | Reverb (pitched voices) — center = off; left half = room, right half = hall; wet grows outward | — |
+| P1 + S35 | Delay (pitched voices) — center = off; left half = slapback, right half = synced dotted 1/8 | — |
 
-| Control | Basic Pitch | Random | MIDI CC |
-|---------|-------------|--------|---------|
-| S30 | Drive | Drive (global) | 24 |
-| S31 | Decay | Decay anchor for randomize | 23 |
-| S32 | Harmonics | Harmonics center (for P0/P2 + S35 engine force) | 20 |
-| S33 | Timbre | Timbre center | 21 |
-| S34 | Morph (no effect on engines 19–23) | Morph center | 22 |
-| S35 | — *(only active with P0/P2 held)* | *same* | — |
-| S36 | Output level | *same* | 26 |
-| S37 | Model mix — OUT↔AUX blend | Blend center | — |
-| — | LPG colour (no knob) | *same* | 25 |
-| SW1 | Scale: minor (left) / chromatic (center) / major (right) | *same* | — |
-| P3–P9 | Play notes | Play the 7 slot sounds | notes in, ch 1 |
-| Hold P3–P9 2 s | — | Enter Recording for that slot | — |
-| P10 / P11 | Octave down / up | *same* | — |
-| **Hold P0 (shift)** | | | |
-| P0 + S35 | Model select, bank 0 (engines 0–11) | Force bank-0 engine onto all 7 slots (spread around the S31–S34 centers) | — |
-| P0 + S37 | Stereo width | Stereo width (all pitched voices) | — |
-| P0 + P10 / P11 | Root semitone down / up | *same* | — |
-| P0 + P2 hold 1 s / 2 s / 3 s | Randomize tight / randomize wide / back to clean | Full random / full random with decay spread / — | — |
-| **Hold P2 (shift)** | | | |
-| P2 + S35 | Model select, bank 1 (engines 12–23) | Force bank-1 engine onto all 7 slots | — |
-| P2 (hold) + P11 | Drum seq play / pause | *same* | Start/Continue/Stop |
-| **Hold P1 (FX shift)** | | | |
-| P1 + S30 | Reverb (pitched voices) — center = off; left half = room, right half = hall; wet grows outward | *same* | — |
-| P1 + S35 | Delay (pitched voices) — center = off; left half = slapback, right half = synced dotted 1/8 | *same* | — |
+### Arp/Mel (SW2 Center)
+
+SW1 picks the sub-state — **Hold** (left) · **Arp** (center) · **Rec** (right) — change-latched like scale/genre: it takes effect only when flicked *while in the mode*. The knobs shape the arp in every sub-state; the Rec loop replays notes as recorded.
+
+| Control | Function | MIDI CC |
+|---------|----------|---------|
+| S30 | Drive — live, applied to every arp/loop trigger | 24 |
+| S31 | Division — 1/4 · 1/8 · 1/8T · 1/16 · 1/16T · 1/32 against the master tempo (center = 1/16) | — |
+| S32 | Swing — delays odd arp steps, up to 50% of the division | — |
+| S33 | Density — Euclidean fill: upper half steady 0–100%, lower half the same sweep with a 75% chance roll | — |
+| S34 | Decay — live on the arp; stamped per note into a Rec take | — |
+| S35 | Order — played / up / down / ping-pong / random (default) | — |
+| S36 | Output level (pitched group) | 26 |
+| S37 | Blend (hold P0: stereo width) | — |
+| SW1 | Sub-state: Hold (left) / Arp (center) / Rec (right) | — |
+| P3–P9 | Arp: feed the pool while held · Hold: latch, re-touch removes · Rec: play + record | notes in, ch 1 (play the arp sound) |
+| P10 / P11 | Base octave − / + (transposes the running arp; Rec: your live notes) | — |
+| **Hold P0 (shift)** | | |
+| P0 + P10 / P11 | Root semitone − / + · **in Rec: P0+P10 tap = undo layer, hold 1.5 s = clear all** | — |
+| P0 + pad 1–4 | **Rec only:** clear that layer (pad 1 = oldest) | — |
+| P0 + S35 | Model select on the arp's sound, bank 0 | — |
+| P0 + S37 | Stereo width (pitched group) | — |
+| P0 + P1 hold 1 s | **Sound edit** toggle — knobs become S30 drive · S31 decay · S32 harmonics · S33 timbre · S34 morph on the arp's own sound; arp functions freeze until toggled back | — |
+| P0 + P2 hold 1 s / 2 s | Vary the arp's sound — tight / wide | — |
+| **Hold P1 / P2 (shift)** | | |
+| P1 + P10 / P11 | Octave range − / + (0–3 extra octaves the arp climbs) | — |
+| P1 + S30 / P1 + S35 | Reverb / delay (pitched group) | — |
+| P2 + S35 | Model select on the arp's sound, bank 1 | — |
+| P2 (hold) + P10 | Melodic transport — arp + Rec loop run / stop (any playmode) | — |
+| P2 (hold) + P11 | Drum seq play / pause | Start/Continue/Stop |
 
 ### Seq (SW2 Up)
 
@@ -54,7 +83,7 @@ The two pitched modes share the same layout — one table, one column per mode. 
 | P2 (hold) + P11 | Play / pause | Start/Continue/Stop |
 | SW1 | Genre: IDM (left) / techno (center) / electro (right) | — |
 
-### Recording (hold a musical pad 2 s in Random or Seq)
+### Recording (hold a musical pad 2 s in Seq)
 
 | Control | Function |
 |---------|----------|
@@ -65,13 +94,13 @@ The two pitched modes share the same layout — one table, one column per mode. 
 | S37 | Per-slot blend |
 | P0 / P2 + S35 | Per-slot model select (bank 0 / bank 1) |
 | P0 + S37 | Per-slot stereo width |
-| P1 + S30 / P1 + S35 | Per-slot reverb / delay send trim (Seq only) |
-| P10 / P11 | Drum pitch −1 / +1 semitone (Seq only) |
+| P1 + S30 / P1 + S35 | Per-slot reverb / delay send trim |
+| P10 / P11 | Drum pitch −1 / +1 semitone |
 | Hold source pad 1.2 s | Confirm — save and exit |
 | Tap any other pad | Cancel — restore and exit |
 | Source pad + other pad 1.2 s | Copy slot to the other pad |
 
-MIDI CCs keep addressing the *global* functions while recording — they never edit the slot being recorded.
+MIDI CCs keep addressing the *global* functions while recording — they never edit the slot being recorded. Recording is Seq-only: in Arp/Mel holding a pad is the playing gesture, so pitched per-slot editing retired with the old Random mode.
 
 ---
 
@@ -90,9 +119,9 @@ Two toggles, eight knobs, twelve touch pads. **SW2** (right toggle) picks the pl
 2. **Play drums live.** Tap the musical pads **P3–P9** — kick, snare, closed hat, open hat, clap, tom, perc.
 3. **Add a synth on top.** Flick **SW2 Down** (Basic Pitch) — the drums keep playing. P3–P9 now play notes; **P10 / P11** shift the octave down / up, and SW1 picks the scale (minor / chromatic / major).
 4. **Shape the sound.** **S32** harmonics, **S33** timbre, **S34** morph, **S31** decay, **S30** drive, **S37** OUT↔AUX blend. Choose an engine by holding **P0** (bank 0) or **P2** (bank 1) while turning **S35**.
-5. **Get surprised.** Flick **SW2 Center** (Random), then hold **P0 + P2**: after ~1 s every pad gets its own random sound; keep holding to ~2 s for a wilder spread. The same gesture in Seq mode re-randomizes the drum kit.
-6. **Fine-tune one sound.** Hold any musical pad for 2 s to enter **Recording** — the LED counts down with an accelerating blink, then the knobs edit just that slot. Release, then hold the same pad 1.2 s to save.
-7. **Pause / resume the drums** from any mode: hold **P2**, then tap **P11**.
+5. **Let it play itself.** Flick **SW2 Center** (Arp/Mel) and hold a few pads — the arpeggiator plays them. Turn **S31** for the rate, **S35** for the note order, **S33** to thin the pattern out. Flick **SW1 left** (Hold) and the notes latch — hands free. Flick **SW1 right** (Rec) and the pads play directly while recording into a 2-bar loop.
+6. **Fine-tune one drum.** In Seq mode, hold any musical pad for 2 s to enter **Recording** — the LED counts down with an accelerating blink, then the knobs edit just that slot. Release, then hold the same pad 1.2 s to save.
+7. **Pause / resume the drums** from any mode: hold **P2**, then tap **P11**. Same for the arp and its loop: **P2**, then **P10**.
 
 Everything below is the full reference.
 
@@ -114,24 +143,34 @@ Everything below is the full reference.
 | Position | Mode |
 |----------|------|
 | Down | **Basic Pitch** — single shared engine, all params live on knobs |
-| Center | **Random** — 7 independent slots, each with a frozen param snapshot |
+| Center | **Arp/Mel** — arpeggiator + layered note recorder, playing its own sound |
 | Up | **Seq** — 16-step generative drum sequencer |
 
 Switching SW2 always takes effect immediately. Each mode remembers its last state — switching back returns to the same sounds that were last set, not a fresh randomize.
 
-**The drum sequencer is independent of the switch position.** It auto-starts on the first Seq entry (including booting with SW2 Up) and keeps playing when you flick to Basic Pitch or Random — drums and synth playing together. **P2 + P11** (P2 first) pauses/resumes it from any mode. While the seq plays behind a pitched mode, all its settings (tempo, shuffle, density, punch, tightness, drive, genre) stay locked at their last Seq-mode values, so every knob is free for the active mode. A fresh drum kit is generated only on first use or via P0+P2 stage 2 in Seq mode.
+**The drum sequencer is independent of the switch position.** It auto-starts on the first Seq entry (including booting with SW2 Up) and keeps playing when you flick to Basic Pitch or Arp/Mel — drums and synth playing together. **P2 + P11** (P2 first) pauses/resumes it from any mode. While the seq plays behind a pitched mode, all its settings (tempo, shuffle, density, punch, tightness, drive, genre) stay locked at their last Seq-mode values, so every knob is free for the active mode. A fresh drum kit is generated only on first use or via P0+P2 stage 2 in Seq mode.
+
+**The arp and its Rec loop are just as independent.** A latched (Hold) arp and a recorded loop keep playing when you flick SW2 to another mode, with their settings locked at the last Arp/Mel values. **P2 + P10** (P2 first) stops/starts them together from any mode — the melodic mirror of P2+P11. Both follow the master tempo: the seq tempo (S31 in Seq, CC27, or an external MIDI clock); when the drum seq is running the arp aligns to its grid.
 
 ---
 
-## SW1 — Scale / Genre (left toggle)
+## SW1 — Scale / Genre / Arp state (left toggle)
 
-In **Basic Pitch and Random** modes:
+In **Basic Pitch**:
 
 | Position | Scale |
 |----------|-------|
 | Center | Chromatic |
 | Right flick | Major |
 | Left flick | Minor |
+
+In **Arp/Mel** SW1 selects the sub-state instead (the arp plays the scale last set in Basic Pitch):
+
+| Position | Sub-state |
+|----------|-----------|
+| Center | **Arp** — the pool is your held pads |
+| Left flick | **Hold** — latch: touch adds, re-touch removes |
+| Right flick | **Rec** — pads play directly and record into the loop |
 
 In **Seq** mode SW1 selects the drum pattern genre instead:
 
@@ -143,14 +182,14 @@ In **Seq** mode SW1 selects the drum pattern genre instead:
 
 Each genre holds its own bank of patterns (the files in `synth/patterns/<genre>/`); turn **S35** in Seq mode to step through the patterns of the selected genre.
 
-**Each role remembers its own setting.** A flick only takes effect in the mode you are in: moving SW1 in a pitched mode changes the scale but leaves the genre untouched, and vice versa — so flicking back and forth between playmodes never changes a setting by itself (the switch equivalent of the knob pickup). The genre starts at Techno and changes only when SW1 is moved while in Seq.
+**Each role remembers its own setting.** A flick only takes effect in the mode you are in: moving SW1 in Basic Pitch changes the scale but leaves the genre and arp state untouched, and so on — so flicking back and forth between playmodes never changes a setting by itself (the switch equivalent of the knob pickup). The genre starts at Techno and changes only when SW1 is moved while in Seq; the arp sub-state starts at Arp and changes only when SW1 is moved while in Arp/Mel — which is what lets a latched arp keep playing in the background across mode flicks.
 
 ---
 
 ## Pads — layout
 
 Modifiers / Buttons / Togglers
-Notes in Playmode Basic Pitch + Random
+Notes in Basic Pitch · arp pool / loop notes in Arp/Mel
 Drums in Playmode Seq
 
 ```
@@ -178,7 +217,7 @@ P3–P9 map to slots 0–6. In Seq mode these are fixed drum roles:
 
 **Model mix & stereo width — S37 / P0 + S37.** Every Plaits engine renders two *different* signals: OUT (the canonical sound) and AUX (a variant — e.g. a lo-fi rendition, an alternate noise source, the raw exciter). **S37 is the Blend fader**: 0 = OUT only, 0.5 = 50/50, 1 = AUX only — always summed to mono on both outputs. Holding **P0** turns S37 into the **stereo width** control instead: 0 = mono blend (the default), 1 = the raw OUT-left/AUX-right split (at full width the blend has no effect). Global width and per-slot width (set in Recording) multiply, so a slot set to mono stays dead center no matter what the global width does. The width control engages on *movement*: hold P0 and nudge the fader (~3% of travel) — from then on, while P0 stays held, the fader position is the width. Blend/tightness go through normal knob pickup on P0 release, so flipping P0 never jumps them.
 
-**Unified Decay — S31.** One Decay control, always: for most engines it sets the LPG envelope decay; for engines 19–23 (String, Modal, Bass/Snare drum, Hi-hat) — whose real decay lives on their MORPH parameter — it drives that too. S34 Morph has no effect on those five engines. LPG Colour was retired to make room (fixed at its neutral midpoint).
+**Unified Decay.** One Decay control per mode (S31 in Basic Pitch, S34 in Arp/Mel, S31 in Arp/Mel sound edit): for most engines it sets the LPG envelope decay; for engines 19–23 (String, Modal, Bass/Snare drum, Hi-hat) — whose real decay lives on their MORPH parameter — it drives that too. Morph has no effect on those five engines. LPG Colour was retired to make room (fixed at its neutral midpoint).
 
 ### Basic Pitch (SW2 Down)
 
@@ -199,21 +238,51 @@ After a P0+P2 randomize (see *Re-randomize gestures*), each pad plays its own fr
 | — | LPG colour — has no knob since the unified Decay took S31; neutral 0.5 unless a CC sets it | 25 |
 | P1 + S30 / P1 + S35 | Reverb / delay for the pitched voices — see *FX* below | — |
 
-### Random (SW2 Center)
+### Arp/Mel (SW2 Center)
 
-Each of the 7 pads plays its own stored snapshot (engine, harmonics, timbre, morph, decay, blend, width). Knobs S31–S34 do not change currently playing notes.
+An arpeggiator plus a layered note recorder, sharing one sound and one transport. SW1 picks the sub-state (see *SW1* above): **Arp** (center), **Hold** (left), **Rec** (right). The knobs are the same in all three — they shape the arp; the Rec loop replays notes exactly as recorded.
 
 | Knob | Function | MIDI CC |
 |------|----------|---------|
-| S30 | Drive — soft-clip saturation (global) | 24 |
-| S31 | Decay anchor — P0+P2 stage 1 locks every slot's decay to this value; stage 2 spreads around it | 23 |
-| S32 | Harmonics center — used when P0/P2 + S35 forces a new engine onto all slots | 20 |
-| S33 | Timbre center — used when P0/P2 + S35 forces a new engine onto all slots | 21 |
-| S34 | Morph center — used when P0/P2 + S35 forces a new engine onto all slots | 22 |
-| S35 | Model select — hold P0 (bank 0, engines 0–11) or P2 (bank 1, engines 12–23) while turning; forces the chosen engine onto all 7 slots with a soft spread around the S31–S34 centers; blend taken from S37. Bare S35 does nothing | — |
-| S36 | Output level (pitched voices only - the drum seq keeps its own volume) | 26 |
-| S37 | Blend center — stamped onto all slots when P0/P2 + S35 forces a new engine; refine per slot in Recording. Hold P0: stereo width for all pitched voices (0 = mono, 1 = raw OUT/AUX split) | — |
-| P1 + S30 / P1 + S35 | Reverb / delay for the pitched voices — see *FX* below | — |
+| S30 | Drive — live, applied to every arp/loop trigger | 24 |
+| S31 | Division — the arp's rate against the master tempo: 1/4 · 1/8 · 1/8T · 1/16 · 1/16T · 1/32, center = 1/16 | — |
+| S32 | Swing — delays odd arp steps, 0 to ~50% of the division | — |
+| S33 | Density — Euclidean fill over a 16-step cycle. Upper half: steady fill from silence (left of full) to all steps (full right). Lower half: the same fill sweep with a 75% chance roll on each sounding step. The note order holds its place on masked steps | — |
+| S34 | Decay — live on arp notes; stamped per note into a Rec take as you record | — |
+| S35 | Order — how the arp walks the pool: played / up / down / ping-pong / random (default). Octave range (P1+P10/P11) expands the walk | — |
+| S36 | Output level (pitched group, shared with Basic Pitch) | 26 |
+| S37 | Blend — OUT↔AUX, written into every trigger. Hold P0: stereo width | — |
+| P1 + S30 / P1 + S35 | Reverb / delay for the pitched group — see *FX* below | — |
+
+All six arp knobs go through pickup on mode entry, so pots that served another mode don't jump the settings.
+
+#### The sub-states
+
+- **Arp** — hold pads and the arp plays them; release everything and it stops. Pads never sound directly (the arp does the sounding), and what you hold is the whole pool — leaving the mode clears it.
+- **Hold** — the pool latches: touch a pad to add a note, touch it again to remove it. Flicking Hold away (to Arp or Rec) drops the latch, keeping only pads you're still physically holding. A latched arp keeps playing in the background of every playmode.
+- **Rec** — a layered note recorder over a fixed **2-bar loop**. Pads play directly (with the arp's sound) and are stamped into the take; the **first note starts the clock**. Every 2-bar pass commits what you played as one **layer** and opens a fresh one — committed layers replay every pass, the open take is heard live and joins the loop on the wrap. Max **4 layers × 48 notes** (LIMIT blink when full). P10/P11 transpose your live playing; the recording replays as recorded. With the drum seq stopped, the LED pulses quarter notes as a metronome.
+
+**Rec editing gestures** (SW1 in Rec):
+
+| Gesture | Result |
+|---------|--------|
+| P0 + P10 tap | **Undo** — clears the open take first, then pops committed layers newest-first; when nothing is left, the clock resets and waits for a fresh first note |
+| P0 + P10 hold ~1.5 s | **Clear all** — wipes every layer and resets the clock (3 rapid blinks) |
+| P0 + pad 1–4 | **Clear one layer** — pad 1 = oldest; the LED blinks the layer number, LIMIT if there's no such layer. Pads neither sound nor record while P0 is held |
+
+**Transport** — the plain arp is gate-driven: it runs whenever the pool has notes. The latched arp and the Rec loop are transport-driven: **P2 + P10** (P2 first) stops/starts them together, from any playmode, mirroring the drum seq's P2+P11. Both stay running in the background across SW2 flicks.
+
+#### The arp's sound
+
+Arp/Mel plays **its own sound model**, independent of Basic Pitch. It is seeded from the live Basic Pitch sound once — on the very first Arp/Mel entry — and never re-latched: tweak Basic Pitch all you want, the arp keeps its identity, and vice versa.
+
+To shape it:
+
+| Gesture | Result |
+|---------|--------|
+| **P0 + P1 hold ~1 s** | Toggle **sound edit**: the knobs become S30 drive · S31 decay · S32 harmonics · S33 timbre · S34 morph on the arp's sound (the Basic Pitch layout), and the arp functions freeze. Entry = 3 rapid blinks + an audition; with the arp running every trigger is live feedback. Toggle again (2 blinks), flick SW1, or leave and re-enter the mode to get the arp knobs back — every hand-off is pickup-protected |
+| P0 / P2 + S35 | Model select on the arp's sound (bank 0 / bank 1) — works without leaving play |
+| P0 + P2 hold 1 s / 2 s | Vary the sound around where it is — tight (±0.10) / wide (±0.25); the engine stays |
 
 ### Seq (SW2 Up)
 
@@ -260,7 +329,7 @@ Recording lets you edit a single slot's parameters while hearing it in real time
 
 ### Entering recording
 
-One gesture everywhere: hold a musical pad (P3–P9) for **2 s** — in Seq mode *and* in Random mode. The threshold is deliberately long so holding a sustained note in Random doesn't enter recording by accident, and the LED shows where you are in it: from ~0.2 s into the hold it blinks with steadily accelerating speed, ending very fast as the 2 s mark lands. Release at any point before that to abort. When the threshold is reached the LED plays a short rapid burst — you're in.
+**Seq mode only:** hold a musical pad (P3–P9) for **2 s**. The LED shows where you are in the hold: from ~0.2 s in it blinks with steadily accelerating speed, ending very fast as the 2 s mark lands. Release at any point before that to abort. When the threshold is reached the LED plays a short rapid burst — you're in. (In Arp/Mel holding a pad is the playing gesture, so per-slot recording retired from the pitched modes with the old Random mode — the arp's sound is edited with P0+P1 sound edit instead.)
 
 While in Recording mode the LED shows a **fast double blink on every audible hit** of the slot being edited (each forced seq step while playing, each 0.5 s audition while paused) — locked to the audio and clearly distinct from the sequencer's single beat flash. Keeping the pad held past the 2 s entry does nothing further; confirm requires releasing first.
 
@@ -270,21 +339,21 @@ All six timbral knobs are per-slot and require pickup before changing the slot.
 
 | Knob | Function |
 |------|----------|
-| S30 | Per-slot drive — in Seq this is a ratio (0–100%) of the overall S30 drive, which stays frozen at its entry value while recording |
+| S30 | Per-slot drive — a ratio (0–100%) of the overall S30 drive, which stays frozen at its entry value while recording |
 | S31 | Per-slot decay — for engines 19–23 this controls the model's own tail length |
 | S32 | Per-slot harmonics |
 | S33 | Per-slot timbre |
 | S34 | Per-slot morph (no effect on engines 19–23) |
 | S35 | Per-slot model select — hold P0 (bank 0) or P2 (bank 1), turn S35 |
-| S36 | Per-slot volume — this slot's level in the mix (Seq drums and Random pads alike); audible live in the audition |
+| S36 | Per-slot volume — this slot's level in the mix; audible live in the audition |
 | S37 | Per-slot model mix — OUT↔AUX blend for this slot. Hold P0: per-slot stereo width — fader fully down = mono; a mono'd slot stays dead center regardless of group width. Blend/width reset to defaults when the kit is regenerated (P0+P2 stage 2) |
-| P1 + S30 / P1 + S35 | **Seq recording only** — per-slot reverb / delay send trim: this drum's share (0–100%) of the drum group's wet set on the global mirror knobs (level only; the character stays global). Same pickup hand-off as everywhere: each role catches its own stored value, so flipping between drive and reverb send on S30 never jumps either |
+| P1 + S30 / P1 + S35 | Per-slot reverb / delay send trim: this drum's share (0–100%) of the drum group's wet set on the global mirror knobs (level only; the character stays global). Same pickup hand-off as everywhere: each role catches its own stored value, so flipping between drive and reverb send on S30 never jumps either |
 
-In Seq mode the tempo (S31's idle role) stays frozen at its entry value while recording and is pickup-protected afterwards.
+The tempo (S31's idle role) stays frozen at its entry value while recording and is pickup-protected afterwards.
 
-In **Seq** mode the sequencer keeps running and fires the slot being edited every other step (8th notes), so you hear changes in rhythmic context without it dominating the mix. In **Random** mode — and in Seq while the sequencer is paused — the slot re-auditions at a steady pulse every 0.5 s from the moment you enter, playing at the slot's stored volume. Paused-seq drum auditions go through the drum group's level, width and FX sends and carry the full seq-trigger shaping (punch, tightness, overall drive × slot ratio), so what you hear while tweaking is exactly what the pattern will play.
+While the sequencer runs it fires the slot being edited every other step (8th notes), so you hear changes in rhythmic context without it dominating the mix. While the sequencer is paused the slot re-auditions at a steady pulse every 0.5 s from the moment you enter, playing at the slot's stored volume. Paused-seq drum auditions go through the drum group's level, width and FX sends and carry the full seq-trigger shaping (punch, tightness, overall drive × slot ratio), so what you hear while tweaking is exactly what the pattern will play.
 
-### Drum pitch (Seq recording only)
+### Drum pitch
 
 | Gesture | Effect |
 |---------|--------|
@@ -301,14 +370,15 @@ In **Seq** mode the sequencer keeps running and fires the slot being edited ever
 
 ---
 
-## Pitch controls (Basic Pitch and Random)
+## Pitch controls (Basic Pitch and Arp/Mel)
 
 | Gesture | Effect |
 |---------|--------|
-| P10 | Octave down (range −3 to +3) |
+| P10 | Octave down (range −3 to +3; transposes a running arp live) |
 | P11 | Octave up (disabled while P2 is held — P2+P11 is the seq play/pause combo) |
-| P0 + P10 | Root semitone down (within one octave) |
+| P0 + P10 | Root semitone down (within one octave) — in Arp/Mel's Rec state this is **undo** instead |
 | P0 + P11 | Root semitone up |
+| P1 + P10 / P11 | *(Arp/Mel only)* octave range down / up — 0–3 extra octaves the arp climbs beyond the base octave |
 
 ---
 
@@ -328,16 +398,16 @@ The LED lights while held and shows a brief flash at each stage.
 
 After stage 1 or 2 the pads play frozen snapshots. To return to live knob control: hold on to stage 3, move any timbral knob (S31/S32/S33/S34), or pick a model with P0/P2+S35.
 
-### In Random mode — P0 + P2 hold
+### In Arp/Mel mode — P0 + P2 hold
 
-Hold both pads together. Two stages fire in sequence; releasing before a stage cancels the hold.
+Hold both pads together. Two stages fire in sequence; releasing before a stage cancels the hold. Both vary the arp's own sound around where it is — the engine stays (change it with P0/P2 + S35, or fine-edit with P0+P1 sound edit).
 
 | Hold time | Stage | Result |
 |-----------|-------|--------|
-| 1 s | 1 — Full random | Each slot gets a random engine + params from the full pool (all engines except Chiptune; drum engines play at scale pitches). Decay locked to current S37 value. |
-| 2 s | 2 — Full random spread | Each slot gets a random engine + params. Decay spread around current S37 value. |
+| 1 s | 1 — Tight | Harmonics / timbre / morph nudged ±0.10 around the current sound |
+| 2 s | 2 — Wide | Harmonics / timbre / morph thrown ±0.25 |
 
-The LED lights while held and shows a brief flash at each stage.
+The LED lights while held and shows a brief flash at each stage, with an audition of the new sound.
 
 ### In Seq mode — drum re-randomize
 
@@ -348,19 +418,18 @@ Hold both pads together. Two stages fire in sequence.
 | 1 s | 1 — Soft variance | Randomizes parameters of current loaded drum models with slight variance; engines stay the same |
 | 2 s | 2 — Full new kit | Fully randomizes all drum models and parameters; new engines picked from drum pools. Sequencer restarts from bar 0. |
 
-**Mode memory:** switching between Basic Pitch, Random, and Seq always restores the last state for that mode — no re-randomize on mode switch. Only P0+P2 forces a re-randomize. On first power-on Seq generates a fresh drum kit automatically.
+**Mode memory:** switching between Basic Pitch, Arp/Mel, and Seq always restores the last state for that mode — no re-randomize on mode switch. Only P0+P2 forces a change. On first power-on Seq generates a fresh drum kit automatically.
 
 ---
 
-## Sequencer play/pause — P2 + P11 (any mode)
+## Transport — P2 + P11 (drums) · P2 + P10 (melody), any mode
 
 | Gesture | Result |
 |---------|--------|
 | Hold P2, then tap P11 | Toggle drum seq play / pause (2 blinks = paused; 3 blinks = playing) |
+| Hold P2, then tap P10 | Toggle the melodic transport — the arp and the Rec loop together (same blink code) |
 
-The order matters: **P2 first, then P11**. While P2 is held, P11's octave-up function is disabled; after both are released, P11 works normally again. Starting the seq from a pitched mode before ever entering Seq generates a drum kit automatically.
-
-P1 is currently unused (reserved for a future melodic-seq trigger).
+The order matters: **P2 first**. While P2 is held, P10/P11's octave functions are disabled; after both are released they work normally again. Starting the seq from a pitched mode before ever entering Seq generates a drum kit automatically. Stopping the melodic transport closes all open arp/loop gates; starting it again resumes in phase with the master tempo.
 
 ---
 
@@ -378,7 +447,8 @@ Both ports behave identically, in and out.
 **Channel 1 — pitched.** The note number **is** the pitch (0–127, 60 = C4) — scale, root and octave settings don't apply, so a keyboard is always chromatic. Velocity scales loudness. Notes play the current playmode's sound:
 
 - *Basic Pitch (live):* the global knob sound; knob moves affect notes you're holding.
-- *Random / Basic Pitch after a randomize:* each key picks one of the 7 slot sounds (key number mod 7), so every key has a stable timbre.
+- *Basic Pitch after a randomize:* each key picks one of the 7 snapshot sounds (key number mod 7), so every key has a stable timbre.
+- *Arp/Mel:* the arp's own sound — external notes play alongside the arp (they don't join the pool yet).
 - *While in Seq mode:* the last pitched mode's sound — play synth lines over the drum machine.
 
 Held notes are released by NoteOff, by CC 120/123 (All Sound Off / All Notes Off — what a DAW sends when you press stop), and MIDI-held voices participate in normal voice stealing (6 voices).
@@ -403,10 +473,10 @@ CCs control *functions*, not knobs — so a CC always does the same thing no mat
 
 | CC | Function | Panel knob it shadows |
 |----|----------|-----------------------|
-| 20 | Harmonics | S32 (pitched modes) |
-| 21 | Timbre | S33 (pitched modes) |
-| 22 | Morph | S34 (pitched modes) |
-| 23 | Decay | S31 (pitched modes) |
+| 20 | Harmonics | S32 (Basic Pitch) |
+| 21 | Timbre | S33 (Basic Pitch) |
+| 22 | Morph | S34 (Basic Pitch) |
+| 23 | Decay | S31 (Basic Pitch) |
 | 24 | Drive — sets pitched drive *and* drum drive together | S30 (all modes) |
 | 25 | LPG colour | none — CC only (knob retired) |
 | 26 | Output level, pitched voices | S36 (pitched modes) |
@@ -423,11 +493,14 @@ CCs control *functions*, not knobs — so a CC always does the same thing no mat
 
 CCs 85–88 use the same center-off encoding as the FX mirror knobs: value 64 ≈ off, below 64 the wet grows with character A (room / slapback), above 64 with character B (hall / synced dotted-1/8). The panel knob edits whichever group the current playmode plays; over MIDI each group has its own CC, so you can automate the drum reverb while playing a pitched mode. The character (which side, how deep) is shared by both groups — the last edit wins, from knob or CC alike.
 
-Not reachable over MIDI: model select (S35), pattern/variant select, seq volume (S36 in Seq), blend (S37), stereo widths, the per-slot FX send trims (P1+S30/S35 in drum recording), and everything else in Recording mode — CCs keep addressing the global functions while you record.
+CCs 20–23 address the Basic Pitch sound; the arp's own sound (Arp/Mel) is edited only on the device (P0+P1 sound edit, P0/P2+S35, P0+P2).
+
+Not reachable over MIDI: model select (S35), pattern/variant select, the arp controls (division, swing, density, order, octave range) and the arp's sound, seq volume (S36 in Seq), blend (S37), stereo widths, the per-slot FX send trims (P1+S30/S35 in drum recording), and everything else in Recording mode — CCs keep addressing the global functions while you record.
 
 ### MIDI out
 
-- Pad presses in pitched modes send NoteOn/NoteOff on **channel 1** — the actual pitch you hear, with scale/octave/root applied. The NoteOff always matches even if you shift octave or root while holding the pad.
+- Pad presses in Basic Pitch (and Rec live notes in Arp/Mel) send NoteOn/NoteOff on **channel 1** — the actual pitch you hear, with scale/octave/root applied. The NoteOff always matches even if you shift octave or root while holding the pad.
+- In Arp/Mel, every arp step and Rec-loop note goes out on **channel 1** as it sounds — record the arp into a DAW, or drive external gear from it.
 - Drum hits — sequencer steps and Seq-mode pad taps — go out on **channel 10** as NoteOn+NoteOff pairs using the bold GM notes in the table above.
 - The pads aren't pressure-sensitive, so all outgoing notes use velocity 100.
 - Knob moves are not sent, and incoming notes/CCs are never echoed back out (clock and start/stop are — see below).
@@ -447,15 +520,16 @@ TouchPlaited always puts a clock on its MIDI outputs, and follows one when you g
 
 | Pattern | Meaning |
 |---------|---------|
-| 1 blink | Mode / scale position 1 (SW2 Down or SW1 right flick) |
-| 2 blinks | Mode / scale position 2 (SW2 Center or SW1 center) |
-| 3 blinks | Mode / scale position 3 (SW2 Up or SW1 left flick); also: Seq resumed |
-| 3 rapid blinks | Confirm — recording saved, copy completed, or Seq entered/re-randomized |
-| 3 fast triple | At octave/root limit |
+| 1 blink | Mode / scale / arp-state position 1 (SW2 Down or SW1 right flick); also: Rec undo landed |
+| 2 blinks | Mode / scale / arp-state position 2 (SW2 Center or SW1 center); also: transport paused (P2+P10/P11), sound edit left |
+| 3 blinks | Mode / scale / arp-state position 3 (SW2 Up or SW1 left flick); also: Seq resumed |
+| N blinks | Numbered feedback — arp octave range (1–4 = range 0–3), Rec layer cleared (its number) |
+| 3 rapid blinks | Confirm — recording saved, copy completed, Seq entered/re-randomized, transport started, sound edit entered, Rec cleared |
+| 3 fast triple | At a limit — octave/root range, Rec layers/notes full, nothing to undo/clear |
 | Accelerating blink | Hold in progress — recording entry (2 s) or copy (1.2 s); speeds up as the threshold nears |
 | Short rapid burst | Recording entered (the 2 s hold landed) |
 | Fast double blink | Recording mode active — one double blink per audible hit of the slot being edited, in sync with the audio (unlike the single beat flash) |
-| Single flash on beat | Quarter-note pulse from the sequencer — lowest priority: shows only when the LED is otherwise idle, and stays off during Recording, for ~2 s after leaving it (so the confirm blink is clearly visible), and around any other blink |
+| Single flash on beat | Quarter-note pulse — from the sequencer, or from the Rec loop as a metronome while the seq is stopped. Lowest priority: shows only when the LED is otherwise idle, and stays off during Recording, for ~2 s after leaving it, and around any other blink |
 
 ---
 
@@ -499,4 +573,4 @@ The 24 Plaits models are spread over the two shift pads: hold **P0** and turn S3
 
 \* Engines 19–23 are the **morph-decay engines**: their real decay lives on the model's MORPH parameter, so S31 Decay drives it and S34 Morph has no effect (see *Unified Decay*). In Seq mode, S37 Tightness compresses their tails.
 
-The random drum kits draw from a curated subset of these: kicks from 21 and 10 (an FM kick), snares/claps from 22 and 17, hats from 23 and 17, toms from 21 and 20, perc from 20/22/23. Particle (18) is deliberately excluded — its sporadic crackle reads as a hardware fault in a kit. The full-random pool (Random mode P0+P2) uses every engine except Chiptune.
+The random drum kits draw from a curated subset of these: kicks from 21 and 10 (an FM kick), snares/claps from 22 and 17, hats from 23 and 17, toms from 21 and 20, perc from 20/22/23. Particle (18) is deliberately excluded — its sporadic crackle reads as a hardware fault in a kit.

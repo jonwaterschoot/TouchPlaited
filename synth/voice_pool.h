@@ -39,6 +39,7 @@ public:
             voice_rev_send[i] = 1.0f;
             voice_dly_send[i] = 1.0f;
             locked[i]       = false;
+            arp_owned[i]    = false;
             awake[i]        = false;
             gate_held[i]    = false;
             quiet_chunks[i] = 0;
@@ -49,18 +50,20 @@ public:
     }
 
     // Global setters skip param-locked voices (background drum-seq triggers) so
-    // the active playmode's knobs can't stomp a drum sound mid-decay. Each value
-    // is cached so NoteOn can rehydrate a reused voice — a voice that was locked
-    // when a global setter ran still holds stale (drum) params otherwise.
-    void SetEngine(int e)      { g_engine = e; for (int i = 0; i < kVoices; i++) if (!locked[i]) voices[i].SetEngine(e); }
-    void SetHarmonics(float v) { g_harm = v;   for (int i = 0; i < kVoices; i++) if (!locked[i]) voices[i].SetHarmonics(v); }
-    void SetTimbre(float v)    { g_timbre = v; for (int i = 0; i < kVoices; i++) if (!locked[i]) voices[i].SetTimbre(v); }
-    void SetMorph(float v)     { g_morph = v;  for (int i = 0; i < kVoices; i++) if (!locked[i]) voices[i].SetMorph(v); }
-    void SetDecay(float v)     { g_decay = v;  for (int i = 0; i < kVoices; i++) if (!locked[i]) voices[i].SetDecay(v); }
-    void SetBlend(float v)     { g_blend = v;  for (int i = 0; i < kVoices; i++) if (!locked[i]) voice_blend[i] = v; }
+    // the active playmode's knobs can't stomp a drum sound mid-decay, and
+    // arp-owned voices (arp/Rec-loop triggers), whose params are per-trigger
+    // only — a background arp must not morph under the Basic Pitch knobs.
+    // Each value is cached so NoteOn can rehydrate a reused voice — a voice
+    // that was skipped when a global setter ran still holds stale params.
+    void SetEngine(int e)      { g_engine = e; for (int i = 0; i < kVoices; i++) if (!skip(i)) voices[i].SetEngine(e); }
+    void SetHarmonics(float v) { g_harm = v;   for (int i = 0; i < kVoices; i++) if (!skip(i)) voices[i].SetHarmonics(v); }
+    void SetTimbre(float v)    { g_timbre = v; for (int i = 0; i < kVoices; i++) if (!skip(i)) voices[i].SetTimbre(v); }
+    void SetMorph(float v)     { g_morph = v;  for (int i = 0; i < kVoices; i++) if (!skip(i)) voices[i].SetMorph(v); }
+    void SetDecay(float v)     { g_decay = v;  for (int i = 0; i < kVoices; i++) if (!skip(i)) voices[i].SetDecay(v); }
+    void SetBlend(float v)     { g_blend = v;  for (int i = 0; i < kVoices; i++) if (!skip(i)) voice_blend[i] = v; }
 
-    void SetLPGColour(float v) { g_lpg = v;    for (int i = 0; i < kVoices; i++) if (!locked[i]) voices[i].SetLPGColour(v); }
-    void SetDrive(float v)     { g_drive = v;  for (int i = 0; i < kVoices; i++) if (!locked[i]) voices[i].SetDrive(v); }
+    void SetLPGColour(float v) { g_lpg = v;    for (int i = 0; i < kVoices; i++) if (!skip(i)) voices[i].SetLPGColour(v); }
+    void SetDrive(float v)     { g_drive = v;  for (int i = 0; i < kVoices; i++) if (!skip(i)) voices[i].SetDrive(v); }
 
     // Group volumes: locked voices (drum seq) and pitched voices have separate
     // output levels, so S36 in Seq mode balances the drums against the synth
@@ -84,7 +87,7 @@ public:
     // Skip the audition voice — its FM stays at 0 for the full note duration.
     void SetFMAmount(float v) {
         for (int i = 0; i < kVoices; i++) {
-            if (i != audition_idx && !locked[i]) voices[i].SetFMAmount(v);
+            if (i != audition_idx && !skip(i)) voices[i].SetFMAmount(v);
         }
     }
 
@@ -111,6 +114,7 @@ public:
         voice_rev_send[idx] = 1.0f;
         voice_dly_send[idx] = 1.0f;
         locked[idx]       = false;
+        arp_owned[idx]    = false;
         gate_chunks[idx]  = 0;   // gate held until the pad's NoteOff
         wake(idx, true);
     }
@@ -118,8 +122,11 @@ public:
     // Modes 2/3: note + full patch snapshot; params persist until stolen.
     // lock_params=true isolates the voice from all global setters (drum-seq
     // triggers playing behind a pitched mode) and pins LPG/FM to drum defaults.
+    // arp_own=true does the same isolation but keeps the voice in the pitched
+    // group (volume/width/FX) — arp/Rec-loop triggers, whose sound is the
+    // latched arp model refreshed per trigger, never the live knobs.
     void NoteOnWithParams(int slot, float note, const VoiceParams& p,
-                          bool lock_params = false) {
+                          bool lock_params = false, bool arp_own = false) {
         int idx = find_free_or_steal();
         voices[idx].SetEngine(p.engine);
         voices[idx].SetHarmonics(p.harmonics);
@@ -129,6 +136,11 @@ public:
         voices[idx].SetDrive(p.drive);
         if (lock_params) {
             voices[idx].SetLPGColour(0.5f);
+            voices[idx].SetFMAmount(0.0f);
+        } else if (arp_own) {
+            // Isolated from the per-block globals, so take LPG colour (CC25)
+            // from the cache at trigger time; FM stays off like any pitched voice.
+            voices[idx].SetLPGColour(g_lpg);
             voices[idx].SetFMAmount(0.0f);
         }
         voices[idx].SetNote(note);
@@ -141,6 +153,7 @@ public:
         voice_rev_send[idx] = p.rev_send;
         voice_dly_send[idx] = p.dly_send;
         locked[idx]       = lock_params;
+        arp_owned[idx]    = arp_own;
         // Locked (drum-seq) voices are one-shots: gate drops on a decay-scaled
         // timer instead of a NoteOff, and they're free to sleep as soon as
         // their tail decays.
@@ -165,6 +178,7 @@ public:
             voices[i].Trigger(false);
             pad_slot[i]  = -1;
             locked[i]    = false;
+            arp_owned[i] = false;
             gate_held[i] = false;
             gate_chunks[i] = 0;
         }
@@ -176,6 +190,7 @@ public:
         int idx = find_free_or_steal();
         audition_idx = idx;
         locked[idx]  = false;
+        arp_owned[idx] = false;
         // engine < 0 = "current global engine" — never trust the recycled
         // voice's own engine, it may be a stale drum-seq voice.
         voices[idx].SetEngine(engine >= 0 ? engine : g_engine);
@@ -213,6 +228,7 @@ public:
         int idx = find_free_or_steal();
         audition_idx = idx;
         locked[idx]  = seq_group;
+        arp_owned[idx] = false;
         voices[idx].SetEngine(p.engine);
         voices[idx].SetHarmonics(p.harmonics);
         voices[idx].SetTimbre(p.timbre);
@@ -304,6 +320,7 @@ public:
         awake[victim]    = false;
         pad_slot[victim] = -1;
         locked[victim]   = false;
+        arp_owned[victim] = false;
         gate_chunks[victim] = 0;
         if (victim == audition_idx) audition_idx = -1;
         return true;
@@ -353,12 +370,17 @@ private:
     float    voice_rev_send[kVoices];
     float    voice_dly_send[kVoices];
     bool     locked[kVoices];
+    bool     arp_owned[kVoices];     // arp/Rec-loop voice: per-trigger params only
     bool     awake[kVoices];
     bool     gate_held[kVoices];
     uint32_t quiet_chunks[kVoices];
     uint16_t gate_chunks[kVoices];   // one-shot gate countdown; 0 = no timer
     uint32_t tick;
     int      audition_idx;
+
+    // Voices the global setters must not touch. arp_owned voices stay in the
+    // pitched group in Render (unlike locked), so this is params-only.
+    bool skip(int i) const { return locked[i] || arp_owned[i]; }
 
     void wake(int idx, bool hold_gate) {
         awake[idx]        = true;

@@ -14,9 +14,11 @@
 //    played during that pass as one layer and opens a fresh one.
 //  - Committed layers replay every pass; the open layer is heard live only,
 //    then joins the loop on the next wrap.
-//  - Undo (P0+P10) clears the open take first, then pops committed layers,
-//    newest first; when nothing is left the clock resets and waits for a
-//    fresh first note.
+//  - Undo (P0+P10 tap) clears the open take first, then pops committed
+//    layers, newest first; when nothing is left the clock resets and waits
+//    for a fresh first note. Holding P0+P10 clears everything at once
+//    (ClearAll); P0 + playing pad 1–4 clears that committed layer, oldest
+//    first (ClearLayer).
 //  - Max 4 layers × 48 events. A full recorder rejects notes (caller blinks
 //    LIMIT).
 
@@ -102,6 +104,39 @@ public:
         }
         return false;
     }
+
+    // Wipe every layer, the open take and the clock — back to waiting for a
+    // fresh first note. Recording state (SW1) is untouched.
+    void ClearAll() {
+        for (int i = 0; i < kMaxLayers; i++) n_ev_[i] = 0;
+        n_committed_ = 0;
+        started_     = false;
+        cur_tick_    = 0;
+        tick_f_      = 0.f;
+    }
+
+    // Clear committed layer i (0 = oldest), compacting the stack — the open
+    // take, when a slot for it exists, shifts down with the rest. Returns
+    // false when there is no such layer.
+    bool ClearLayer(int i) {
+        if (i < 0 || i >= n_committed_) return false;
+        const int top = (n_committed_ < kMaxLayers) ? n_committed_
+                                                    : kMaxLayers - 1;
+        for (int l = i; l < top; l++) {
+            n_ev_[l] = n_ev_[l + 1];
+            for (int e = 0; e < n_ev_[l]; e++) ev_[l][e] = ev_[l + 1][e];
+        }
+        n_ev_[top] = 0;   // vacated slot: fresh open take (or stale copy)
+        n_committed_--;
+        if (!HasContent()) {           // emptied out: reset like Undo does
+            started_  = false;
+            cur_tick_ = 0;
+            tick_f_   = 0.f;
+        }
+        return true;
+    }
+
+    int Layers() const { return n_committed_; }
 
     bool HasContent() const {
         if (n_committed_ > 0) return true;

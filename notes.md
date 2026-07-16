@@ -740,6 +740,12 @@ file.
 
 Playmode overhaul:
 
+> **Status 2026-07-16: implemented** (branch `arp-mel`) — this sketch became
+> ARP-MEL-PLAN.md, which resolves every open question below (transport =
+> P2+P10, octave range = P1+P10/P11, 4 layers, clear gestures, and the arp's
+> own independent sound + P0+P1 sound edit after the first hardware round,
+> see its §6). Current reference: MANUAL.md. Kept as the original design note.
+
 instead of Random we'll introduce ARP / MEL
 
 So we'll have 

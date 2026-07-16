@@ -5,21 +5,22 @@
 export interface ControlMeta {
   svgId: string;
   name: string;      // silk-screen designator, e.g. "S31"
-  main: string;      // pitched-mode function (panel bottom label)
+  main: string;      // Basic Pitch function (panel bottom label)
   seq?: string;      // Seq-mode function (panel top label)
+  arp?: string;      // Arp/Mel function (mode 1; falls back to main)
   fx?: string;       // FX-layer function (P1FX held)
 }
 
 /** Index = S30..S37 (controls[] order). */
 export const CONTROLS: ControlMeta[] = [
-  { svgId: 'knob-s30', name: 'S30', main: 'Drive', seq: 'Drive', fx: 'Reverb' },
-  { svgId: 'knob-s31', name: 'S31', main: 'Decay', seq: 'Tempo' },
-  { svgId: 'knob-s32', name: 'S32', main: 'Harmonics', seq: 'Swing' },
-  { svgId: 'knob-s33', name: 'S33', main: 'Timbre', seq: 'Density' },
-  { svgId: 'knob-s34', name: 'S34', main: 'Morph', seq: 'Punch' },
-  { svgId: 'knob-s35', name: 'S35', main: 'Model sel', seq: 'Pattern', fx: 'Delay' },
-  { svgId: 'fader-s36', name: 'S36', main: 'Volume', seq: 'Volume' },
-  { svgId: 'fader-s37', name: 'S37', main: 'Blend', seq: 'Tightness' },
+  { svgId: 'knob-s30', name: 'S30', main: 'Drive', seq: 'Drive', arp: 'Drive', fx: 'Reverb' },
+  { svgId: 'knob-s31', name: 'S31', main: 'Decay', seq: 'Tempo', arp: 'Division' },
+  { svgId: 'knob-s32', name: 'S32', main: 'Harmonics', seq: 'Swing', arp: 'Swing' },
+  { svgId: 'knob-s33', name: 'S33', main: 'Timbre', seq: 'Density', arp: 'Density' },
+  { svgId: 'knob-s34', name: 'S34', main: 'Morph', seq: 'Punch', arp: 'Decay' },
+  { svgId: 'knob-s35', name: 'S35', main: 'Model sel', seq: 'Pattern', arp: 'Order', fx: 'Delay' },
+  { svgId: 'fader-s36', name: 'S36', main: 'Volume', seq: 'Volume', arp: 'Volume' },
+  { svgId: 'fader-s37', name: 'S37', main: 'Blend', seq: 'Tightness', arp: 'Blend' },
 ];
 
 export interface PadMeta {
@@ -45,10 +46,12 @@ export const PADS: PadMeta[] = [
   { svgId: 'pad-p11', name: 'P11', hint: 'Oct + / pitch +1' },
 ];
 
-/** SW1 positions (left / mid / right), per mode family. */
+/** SW1 positions (left / mid / right), per mode family. In Arp/Mel SW1 is
+ * the sub-state (change-latched on the device — this shows the live lever). */
 export const SW1_POSITIONS = {
   seq: ['IDM', 'Techno', 'Electro'],
   pitch: ['Minor', 'Chromatic', 'Major'],
+  arp: ['Hold', 'Arp', 'Rec'],
 };
 
 /** SW2 positions (up / mid / down). */
