@@ -2,6 +2,8 @@
 
 A Synthux Simple Touch firmware based on Mutable Instruments Plaits (Émilie Gillet, MIT License): a 7-voice touch synth plus a 16-step generative drum sequencer, playable at the same time (though limited by voice stealing).
 
+![The visualizer webapp mirroring the panel live](img/TouchPlaited_dynamicvisualizer.png)
+
 Full controls reference: [MANUAL.md](MANUAL.md).
 
 **On the web:** [visualizer](https://jonwaterschoot.github.io/TouchPlaited/visualizer/) · [pattern editor](https://jonwaterschoot.github.io/TouchPlaited/editor/) · [manual](https://jonwaterschoot.github.io/TouchPlaited/manual.html) — hosted from this repo via GitHub Pages.
@@ -16,9 +18,16 @@ Using a fader to mix between the models AUX or OUT outputs. Adding a way to spre
 
 **MIDI in/out** on USB and on TRS (USART1, D13/D14 — for hardware-modded boards): notes on ch1 (pitched, chromatic) and ch10 (GM drums), CC20–31 for sound and sequencer functions, the pads/sequencer mirrored to MIDI out, and full clock sync — it follows an external MIDI clock (with start/stop) and sends its own when there isn't one. See *MIDI at a glance* below and the full mapping in [MANUAL.md](MANUAL.md#midi).
 
-Still working on this, so things might move around.
+Note: While playable and pretty stable; I am still working on this, so things might move around.
 
 ## Cheat sheet
+
+> **Tip**: use the visualizer and connect midi to get feedback, hover the info screen and select "DYN".
+
+![hover to see the labels](img/TouchPlaited_dynamicvisualizer_hovernotconnected.png)
+
+Hover the info screen, toggle **dyn** (live callouts on top of the drawing) / **S#** (label numbers only) / **Aa** (full labels + text)
+
 
 **SW2 — playmode:** Down = Basic Pitch · Center = Arp/Mel · Up = Seq
 **SW1 — scale** minor / chromatic / major *(Basic Pitch)* · **arp state** hold / arp / rec *(Arp/Mel)* · **genre** IDM / techno / electro *(Seq)*

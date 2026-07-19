@@ -1,5 +1,7 @@
 # TouchPlaited — Controls Reference
 
+> **Tip:** the [visualizer webapp](https://jonwaterschoot.github.io/TouchPlaited/visualizer/) shows all of this live on a drawing of the panel while you play — see [Visualizer webapp](#visualizer-webapp) below.
+
 ## Controls at a glance
 
 ### Basic Pitch (SW2 Down)
@@ -430,6 +432,20 @@ Hold both pads together. Two stages fire in sequence.
 | Hold P2, then tap P10 | Toggle the melodic transport — the arp and the Rec loop together (same blink code) |
 
 The order matters: **P2 first**. While P2 is held, P10/P11's octave functions are disabled; after both are released they work normally again. Starting the seq from a pitched mode before ever entering Seq generates a drum kit automatically. Stopping the melodic transport closes all open arp/loop gates; starting it again resumes in phase with the master tempo.
+
+---
+
+## Visualizer webapp
+
+[The visualizer](https://jonwaterschoot.github.io/TouchPlaited/visualizer/) mirrors the panel live in the browser while you learn or play: connect the device over USB MIDI (Chrome/Edge, grant the SysEx permission) and the pads light up as you touch them, the knobs follow the pots, and contextual callouts name whatever you're using — quantized settings show their actual names (Six-Op patch x/32, chord types, arp Order Played/Up/Down/Ping-pong/Random). A **Demo** button runs a scripted loop when no hardware is connected.
+
+![The visualizer with dynamic labels following the panel](img/TouchPlaited_dynamicvisualizer.png)
+
+The draggable info panel shows model / mode / step, a knob map of what every pot does *right now* (engine-aware — it also tells you which knobs have no effect on the current model), the drum kit in Seq, and a log of your last gestures. Hover it for the font-size buttons and the label-overlay toggle, which cycles **dyn** (live callouts only, the default) / **S#** (permanent S30…S37 / P0…P11 designators) / **Aa** (full faceplate-style labels for the current mode and model).
+
+![Hover the info screen for the size buttons and label toggle](img/TouchPlaited_dynamicvisualizer_hovernotconnected.png)
+
+It also sends MIDI *to* the device: click the drum pads on the drawing, or open the MIDI drawer for a fader per supported CC and a piano on ch 1. URL flags for OBS overlays and the full feature list: [visualizer/README.md](visualizer/README.md).
 
 ---
 
