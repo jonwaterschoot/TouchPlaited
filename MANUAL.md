@@ -38,10 +38,10 @@ SW1 picks the sub-state — **Hold** (left) · **Arp** (center) · **Rec** (righ
 | Control | Function | MIDI CC |
 |---------|----------|---------|
 | S30 | Drive — live, applied to every arp/loop trigger | 24 |
-| S31 | Division — 1/4 · 1/8 · 1/8T · 1/16 · 1/16T · 1/32 against the master tempo (center = 1/16) | — |
-| S32 | Swing — delays odd arp steps, up to 50% of the division | — |
-| S33 | Density — Euclidean fill: upper half steady 0–100%, lower half the same sweep with a 75% chance roll | — |
-| S34 | Decay — live on the arp; stamped per note into a Rec take | — |
+| S31 | Decay — live on the arp; stamped per note into a Rec take (same knob as every mode) | — |
+| S32 | Division — 1/4 · 1/8 · 1/8T · 1/16 · 1/16T · 1/32 against the master tempo (center = 1/16) | — |
+| S33 | Swing — delays odd arp steps, up to 50% of the division | — |
+| S34 | Density — Euclidean fill: upper half steady 0–100%, lower half the same sweep with a 75% chance roll | — |
 | S35 | Order — played / up / down / ping-pong / random (default) | — |
 | S36 | Output level (pitched group) | 26 |
 | S37 | Blend (hold P0: stereo width) | — |
@@ -217,7 +217,7 @@ P3–P9 map to slots 0–6. In Seq mode these are fixed drum roles:
 
 **Model mix & stereo width — S37 / P0 + S37.** Every Plaits engine renders two *different* signals: OUT (the canonical sound) and AUX (a variant — e.g. a lo-fi rendition, an alternate noise source, the raw exciter). **S37 is the Blend fader**: 0 = OUT only, 0.5 = 50/50, 1 = AUX only — always summed to mono on both outputs. Holding **P0** turns S37 into the **stereo width** control instead: 0 = mono blend (the default), 1 = the raw OUT-left/AUX-right split (at full width the blend has no effect). Global width and per-slot width (set in Recording) multiply, so a slot set to mono stays dead center no matter what the global width does. The width control engages on *movement*: hold P0 and nudge the fader (~3% of travel) — from then on, while P0 stays held, the fader position is the width. Blend/tightness go through normal knob pickup on P0 release, so flipping P0 never jumps them.
 
-**Unified Decay.** One Decay control per mode (S31 in Basic Pitch, S34 in Arp/Mel, S31 in Arp/Mel sound edit): for most engines it sets the LPG envelope decay; for engines 19–23 (String, Modal, Bass/Snare drum, Hi-hat) — whose real decay lives on their MORPH parameter — it drives that too. Morph has no effect on those five engines. LPG Colour was retired to make room (fixed at its neutral midpoint).
+**Unified Decay.** One Decay control, always on **S31** — Basic Pitch, Arp/Mel, Arp/Mel sound edit and per-slot in Recording: for most engines it sets the LPG envelope decay; for the engines whose real decay lives on their MORPH parameter it drives that instead. Those are Six-Op A/B/C (2–4, MORPH is the DX7 envelope time — their LPG is bypassed entirely), String and Modal (19–20, damping) and the drum engines (21–23, tail length). Morph has no effect on those eight engines — the Decay knob owns it. LPG Colour was retired to make room (fixed at its neutral midpoint).
 
 ### Basic Pitch (SW2 Down)
 
@@ -228,13 +228,13 @@ After a P0+P2 randomize (see *Re-randomize gestures*), each pad plays its own fr
 | Knob | Function | MIDI CC |
 |------|----------|---------|
 | S30 | Drive — soft-clip saturation | 24 |
-| S31 | Decay — unified: LPG envelope, plus the model's own decay for engines 19–23 | 23 |
+| S31 | Decay — unified: LPG envelope, or the model's own decay for engines 2–4 and 19–23 | 23 |
 | S32 | Harmonics | 20 |
 | S33 | Timbre | 21 |
-| S34 | Morph (no effect on engines 19–23 — their morph is the decay, owned by S31) | 22 |
+| S34 | Morph (no effect on engines 2–4 and 19–23 — their morph is the decay, owned by S31) | 22 |
 | S35 | Model select — hold P0 while turning for bank 0 (engines 0–11); hold P2 for bank 1 (engines 12–23) | — |
 | S36 | Output level (pitched voices only - the drum seq keeps its own volume) | 26 |
-| S37 | Model mix — OUT↔AUX blend, mono to both outputs. Hold P0: stereo width (0 = mono, 1 = raw OUT/AUX split) | — |
+| S37 | Model mix — OUT↔AUX blend, mono to both outputs. Hold P0: stereo width (0 = mono, 1 = raw OUT/AUX split). No effect on Six-Op (2–4): their AUX output is identical to OUT | — |
 | — | LPG colour — has no knob since the unified Decay took S31; neutral 0.5 unless a CC sets it | 25 |
 | P1 + S30 / P1 + S35 | Reverb / delay for the pitched voices — see *FX* below | — |
 
@@ -245,16 +245,16 @@ An arpeggiator plus a layered note recorder, sharing one sound and one transport
 | Knob | Function | MIDI CC |
 |------|----------|---------|
 | S30 | Drive — live, applied to every arp/loop trigger | 24 |
-| S31 | Division — the arp's rate against the master tempo: 1/4 · 1/8 · 1/8T · 1/16 · 1/16T · 1/32, center = 1/16 | — |
-| S32 | Swing — delays odd arp steps, 0 to ~50% of the division | — |
-| S33 | Density — Euclidean fill over a 16-step cycle. Upper half: steady fill from silence (left of full) to all steps (full right). Lower half: the same fill sweep with a 75% chance roll on each sounding step. The note order holds its place on masked steps | — |
-| S34 | Decay — live on arp notes; stamped per note into a Rec take as you record | — |
+| S31 | Decay — live on arp notes; stamped per note into a Rec take as you record. The unified Decay knob, same position as Basic Pitch and sound edit | — |
+| S32 | Division — the arp's rate against the master tempo: 1/4 · 1/8 · 1/8T · 1/16 · 1/16T · 1/32, center = 1/16 | — |
+| S33 | Swing — delays odd arp steps, 0 to ~50% of the division | — |
+| S34 | Density — Euclidean fill over a 16-step cycle. Upper half: steady fill from silence (left of full) to all steps (full right). Lower half: the same fill sweep with a 75% chance roll on each sounding step. The note order holds its place on masked steps | — |
 | S35 | Order — how the arp walks the pool: played / up / down / ping-pong / random (default). Octave range (P1+P10/P11) expands the walk | — |
 | S36 | Output level (pitched group, shared with Basic Pitch) | 26 |
 | S37 | Blend — OUT↔AUX, written into every trigger. Hold P0: stereo width | — |
 | P1 + S30 / P1 + S35 | Reverb / delay for the pitched group — see *FX* below | — |
 
-All six arp knobs go through pickup on mode entry, so pots that served another mode don't jump the settings.
+All six arp knobs go through pickup on mode entry, so pots that served another mode don't jump the settings. A setting stored at a pot extreme (e.g. the boot defaults for Density and Order, both 100%) also engages on a small deliberate turn (~3%), so the knob never feels dead just because the rail is out of reach.
 
 #### The sub-states
 
@@ -543,9 +543,9 @@ The 24 Plaits models are spread over the two shift pads: hold **P0** and turn S3
 |---|-------|-----------|
 | 0 | Virtual analog VCF | Classic waveshapes through a resonant filter |
 | 1 | Phase distortion | CZ-style phase distortion / phase modulation |
-| 2 | Six-Op A | 6-operator FM, patch bank A — harmonics steps through the patches, timbre is the modulator level |
-| 3 | Six-Op B | 6-operator FM, patch bank B |
-| 4 | Six-Op C | 6-operator FM, patch bank C |
+| 2 | Six-Op A * | 6-operator FM, patch bank A — harmonics steps through the patches, timbre is the modulator level |
+| 3 | Six-Op B * | 6-operator FM, patch bank B |
+| 4 | Six-Op C * | 6-operator FM, patch bank C |
 | 5 | Wave terrain | Wave terrain synthesis — an orbit scanned over a 2-D surface |
 | 6 | String machine | 70s string-ensemble chords |
 | 7 | *Chiptune — skipped* | Its built-in arpeggiator free-runs without a gate, so it never lands on the knob |
@@ -571,6 +571,6 @@ The 24 Plaits models are spread over the two shift pads: hold **P0** and turn S3
 | 22 | Snare drum * | Analog snare model |
 | 23 | Hi-hat * | Analog hi-hat model |
 
-\* Engines 19–23 are the **morph-decay engines**: their real decay lives on the model's MORPH parameter, so S31 Decay drives it and S34 Morph has no effect (see *Unified Decay*). In Seq mode, S37 Tightness compresses their tails.
+\* Starred engines (Six-Op 2–4, and 19–23) are the **morph-decay engines**: their real decay lives on the model's MORPH parameter — the DX7 envelope time for Six-Op, damping/tail for 19–23 — so S31 Decay drives it and S34 Morph has no effect (see *Unified Decay*). In Seq mode, S37 Tightness compresses the tails of 19–23. Six-Op additionally renders identical OUT and AUX signals, so the S37 blend fader and P0+S37 stereo width do nothing on 2–4.
 
 The random drum kits draw from a curated subset of these: kicks from 21 and 10 (an FM kick), snares/claps from 22 and 17, hats from 23 and 17, toms from 21 and 20, perc from 20/22/23. Particle (18) is deliberately excluded — its sporadic crackle reads as a hardware fault in a kit.

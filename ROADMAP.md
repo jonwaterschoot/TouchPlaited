@@ -80,6 +80,48 @@ Full write-up in notes.md "Six-Op: silent/alternating pad triggers".
   accent is currently pinned at 0.8); revisit `kSixOpAud` anchors / random
   ranges now that the full banks actually speak; patch-index LED blink could
   fold into the P2 "LED blink on model load" item.
+- [x] Step G — Six-Op joins the unified Decay (2026-07-18): `decay_via_morph`
+      (ex `morph_is_decay`) now includes 2–4, so S31 Decay drives the DX7
+      envelope time via MORPH (the LPG is bypassed there and the real decay
+      param was dead) and S34 goes inert — same story as 19–23. The
+      visualizer gained per-engine knob labels (`ENGINE_KNOBS` in
+      controls-meta.ts, mirrored predicate) and reports unassigned knobs as
+      "no effect on <model>". Hardware check open: S31 sweep on a Six-Op
+      patch shortens/stretches the envelope; S34 confirmed silent.
+- [x] Step H — app info-screen round (2026-07-18): S37 blend/width labeled
+      dead on Six-Op (their `aux[i] = out[i]` — AUX identical to OUT);
+      telemetry adds `rec slot` to STATE and a KIT frame (7 × engine/h/t/m/d/
+      note, ≤10 Hz + 2 s heartbeat) so the app labels rec-mode knobs with the
+      edited slot's engine and shows a collapsible model section in the info
+      panel (per-engine functions + live values, Six-Op patch x/32, chord
+      names; Seq view lists the whole kit). Needs reflash + webapp check.
+- [x] Step I — hardware feedback round (2026-07-18): STATE mode-flags bit 3
+      exposes the Arp/Mel sound-edit layer, so the app swaps to engine labels
+      there like it does in Seq rec; info panel grip now resizes the box
+      (wrap + scroll) with separate A−/A+ font buttons, dblclick resets all;
+      kit shown as an aligned grid with h/t/m/d/note columns. Fix: arp
+      Density (S33) felt dead — its pickup was armed to the 1.0 boot default,
+      practically unreachable at the pot rail; KnobPickup now also catches on
+      ~3% movement when armed to a rail target (same idea as the width
+      MoveCatch). Applies to Density/Order and any future rail-stored value.
+      Also: the Arp/Mel base layer moved Decay to S31 (the unified Decay knob,
+      matching every other mode) — Division/Swing/Density shifted one knob
+      right to S32/S33/S34, Order stays on S35. Firmware, app labels and docs
+      updated together.
+- [x] Step J — app UI round 2 (2026-07-18, webapp only, no reflash): model
+      section collapse fixed (the panel-drag pointer capture swallowed the
+      header click); the section is now a full knob map — all S30–S37 with
+      their current function and engine-aware values in every mode (Seq adds
+      BPM on S31 and the kit grid below); hovering a row highlights the
+      control on the drawing; new label-overlay cycle button (dyn / S# / Aa):
+      static designators or full faceplate-style labels in Sofia Sans Extra
+      Condensed (Google font, loaded in index.html), pads showing roles (Seq)
+      or live note names (pitched). Callouts stay on top in all modes.
+      Feedback round (2026-07-19): static labels re-render when the drawing
+      is dragged/zoomed (layout.ts fires `tp-panel-layout`, rAF-throttled);
+      knob designators moved inside the caps; label font bumped (0.72 ×
+      knob-radius px, clamp 8.5–22); arp Order callout names its setting
+      (Played/Up/Down/Ping-pong/Random, mirroring arp.h SetOrder).
 
 ## Priority 2 — after the open verification
 

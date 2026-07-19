@@ -1,5 +1,6 @@
 // Contextual label callouts ("S33 · Timbre · 64%") plus a draggable live-info
-// panel (model / mode / transport / step + action log). Callouts appear next
+// panel (model / mode / transport / step + a collapsible model section with
+// per-engine knob functions and values + action log). Callouts appear next
 // to whatever just changed and fade out, so a tutorial viewer's eye is guided
 // to the control being used.
 
@@ -7,8 +8,10 @@ import type { Panel } from './panel';
 import type { DeviceStore, StateEvent, DeviceState } from '../core/state';
 import {
   CONTROLS, PADS, SW1_POSITIONS, SW2_POSITIONS, MODE_NAMES, modelName,
-  DRUM_NOTES, noteName, fxValueLabel,
+  DRUM_NOTES, noteName, fxValueLabel, engineKnobLabel, formatKnobValue,
+  ENGINE_KNOBS, pitchedNote, arpOrderName,
 } from '../core/controls-meta';
+import type { KnobParam } from '../core/controls-meta';
 
 const CALLOUT_TTL_MS = 1600;
 
@@ -27,6 +30,17 @@ const SHOW_EPS = 2.2 / 127;
 const INFO_DEFAULT = { fx: 0.07, fy: 0.075 };
 const INFO_POS_KEY = 'tp-info-pos';
 const INFO_SCALE_KEY = 'tp-info-scale';
+const INFO_SIZE_KEY = 'tp-info-size';
+const MODEL_OPEN_KEY = 'tp-model-open';
+const OVERLAY_MODE_KEY = 'tp-overlay-mode';
+
+/** Label overlay modes: dynamic callouts only / static designators (S32, P3…)
+ * / static full labels of the current model & mode, faceplate-style. */
+type OverlayMode = 'dynamic' | 'ids' | 'full';
+const OVERLAY_MODES: OverlayMode[] = ['dynamic', 'ids', 'full'];
+const OVERLAY_MODE_LABEL: Record<OverlayMode, string> = {
+  dynamic: 'dyn', ids: 'S#', full: 'Aa',
+};
 
 // Knob circle radius incl. ring stroke, in SVG user units — used to compute
 // label anchors geometrically (the rendered bbox is useless: it wobbles with
@@ -45,13 +59,70 @@ interface LogEntry {
 
 /** Name a control move including its modifier-pad gesture, e.g. "P0 + S35 ·
  * Model select · bank 0" — used by both the callout and the action log. */
-function describeControl(i: number, s: DeviceState): { combo: string; fn: string } {
+/** S37 Blend on a given engine: names what AUX carries; dead when the engine
+ * renders AUX identical to OUT (Six-Op) so blend and width do nothing. */
+function blendInfo(model: number): { fn: string; dead: boolean } {
+  const aux = ENGINE_KNOBS[model]?.aux;
+  if (aux === null) return { fn: 'Blend', dead: true };
+  return { fn: aux ? `Blend · OUT↔${aux}` : 'Blend', dead: false };
+}
+
+/** `engine` (when set) is the model the label was resolved against — apply()
+ * uses it for engine-aware value formatting and the dead-knob message. */
+function describeControl(
+  i: number, s: DeviceState,
+): { combo: string; fn: string; dead?: boolean; engine?: number } {
   const meta = CONTROLS[i];
+  // Recording (Seq): every knob edits the selected drum slot — label it for
+  // that slot's engine (from the KIT frame), not the global model.
+  const recEngine =
+    s.mode === 0 && s.recSlot !== null ? s.kit?.[s.recSlot]?.engine : undefined;
+  if (recEngine !== undefined) {
+    if (s.pads[1] && meta.fx)
+      return { combo: `P1 + ${meta.name}`, fn: i === 0 ? 'Slot reverb send' : 'Slot delay send' };
+    if (i === 5 && s.pads[0]) return { combo: 'P0 + S35', fn: 'Slot model · bank 0' };
+    if (i === 5 && s.pads[2]) return { combo: 'P2 + S35', fn: 'Slot model · bank 1' };
+    if (i === 7 && s.pads[0]) return { combo: 'P0 + S37', fn: 'Slot width' };
+    if (i === 0) return { combo: 'S30', fn: 'Slot drive' };
+    if (i === 5) return { combo: 'S35', fn: 'Slot model select' };
+    if (i === 6) return { combo: 'S36', fn: 'Slot volume' };
+    if (i === 7) {
+      const b = blendInfo(recEngine);
+      return { combo: 'S37', fn: b.fn.replace('Blend', 'Slot blend'), dead: b.dead, engine: recEngine };
+    }
+    const ek = engineKnobLabel(i, recEngine);
+    if (ek) return { combo: meta.name, fn: ek.fn, dead: ek.dead, engine: recEngine };
+  }
   if (s.pads[1] && meta.fx)
     return { combo: `P1 + ${meta.name}`, fn: `${meta.fx} ${s.mode === 0 ? '(drums)' : '(pitched)'}` };
   if (i === 5 && s.pads[0]) return { combo: 'P0 + S35', fn: 'Model select · bank 0' };
   if (i === 5 && s.pads[2]) return { combo: 'P2 + S35', fn: 'Model select · bank 1' };
+  // S37 in the pitched modes is Blend (bare) / stereo width (P0) — both
+  // meaningless on engines whose AUX output equals OUT.
+  if (i === 7 && s.mode !== 0) {
+    const b = blendInfo(s.model);
+    if (s.pads[0]) return { combo: 'P0 + S37', fn: 'Stereo width', dead: b.dead, engine: s.model };
+    return { combo: 'S37', fn: b.fn, dead: b.dead, engine: s.model };
+  }
   if (i === 7 && s.pads[0]) return { combo: 'P0 + S37', fn: 'Stereo width' };
+  // Arp/Mel base layer: S31 is the arp's Decay — same engine routing as
+  // everywhere, so it gets the engine-specific label too.
+  if (s.mode === 1 && !s.sndEdit && i === 1) {
+    const ek = engineKnobLabel(1, s.model);
+    if (ek) return { combo: meta.name, fn: ek.fn, dead: ek.dead, engine: s.model };
+  }
+  // Basic Pitch — and the Arp/Mel sound-edit layer, which borrows the same
+  // knob layout on the arp's model: timbral knobs get their engine-specific
+  // function, and a knob the current engine ignores says so instead of
+  // pretending to work.
+  if (s.mode === 2 || (s.mode === 1 && s.sndEdit)) {
+    const ek = engineKnobLabel(i, s.model);
+    if (ek) return { combo: meta.name, fn: ek.fn, dead: ek.dead, engine: s.model };
+    if (s.mode === 1) {
+      if (i === 0) return { combo: 'S30', fn: 'Drive (sound edit)' };
+      if (i === 5) return { combo: 'S35', fn: 'Order — frozen in sound edit' };
+    }
+  }
   const fn = s.mode === 0 ? meta.seq : s.mode === 1 ? meta.arp : meta.main;
   return { combo: meta.name, fn: fn ?? meta.main };
 }
@@ -75,6 +146,12 @@ export class Labels {
   private lastLabeled = new Map<number, number>(); // control i → value last shown
   private infoPanel: HTMLDivElement;
   private status: HTMLDivElement;
+  private modelHead: HTMLDivElement;
+  private modelBody: HTMLDivElement;
+  private modelOpen: boolean;
+  private staticWrap: HTMLDivElement;
+  private overlayMode: OverlayMode = 'dynamic';
+  private hlTarget: Element | null = null;
   private logEl: HTMLDivElement;
   private log: LogEntry[] = [];
   private heldPads: number[] = []; // press order, newest last
@@ -84,31 +161,131 @@ export class Labels {
   constructor(
     private overlay: HTMLElement,
     private panel: Panel,
-    store: DeviceStore,
+    private store: DeviceStore,
   ) {
+    // Static label layer sits under the info panel and callouts.
+    this.staticWrap = document.createElement('div');
+    this.staticWrap.className = 'static-labels';
+    overlay.appendChild(this.staticWrap);
+
     this.infoPanel = document.createElement('div');
     this.infoPanel.className = 'info-panel';
     this.status = document.createElement('div');
     this.status.className = 'status-chip';
+    // Collapsible model section — the current engine's knob functions and
+    // values (Seq: the whole drum kit). Collapsed by default on small
+    // screens, remembered across sessions.
+    const modelSection = document.createElement('div');
+    modelSection.className = 'model-section';
+    this.modelHead = document.createElement('div');
+    this.modelHead.className = 'model-head';
+    this.modelBody = document.createElement('div');
+    this.modelBody.className = 'model-body';
+    modelSection.append(this.modelHead, this.modelBody);
+    const storedOpen = localStorage.getItem(MODEL_OPEN_KEY);
+    this.modelOpen = storedOpen !== null
+      ? storedOpen === '1'
+      : !matchMedia('(max-width: 820px), (max-height: 500px)').matches;
+    // stopPropagation: the panel-drag pointerdown captures the pointer, which
+    // would swallow this click — the collapse toggle never fired.
+    this.modelHead.addEventListener('pointerdown', (e) => e.stopPropagation());
+    this.modelHead.addEventListener('click', () => {
+      this.modelOpen = !this.modelOpen;
+      localStorage.setItem(MODEL_OPEN_KEY, this.modelOpen ? '1' : '0');
+      this.renderModel(store.state);
+    });
+    // Hovering a row lights the matching control on the drawing.
+    this.modelBody.addEventListener('mouseover', (e) => {
+      const row = (e.target as HTMLElement).closest<HTMLElement>('[data-ctl],[data-pad]');
+      this.setHl(row);
+    });
+    this.modelBody.addEventListener('mouseleave', () => this.setHl(null));
     this.logEl = document.createElement('div');
     this.logEl.className = 'action-log';
     const grip = document.createElement('div');
     grip.className = 'info-grip';
     grip.textContent = '◢';
-    this.infoPanel.append(this.status, this.logEl, grip);
+    // Content scrolls inside a wrapper so a user-set panel height clips the
+    // list, not the grip (which hangs outside the panel bounds).
+    const scroll = document.createElement('div');
+    scroll.className = 'info-scroll';
+    scroll.append(this.status, modelSection, this.logEl);
+    // Font size is its own control now — the grip resizes the box only.
+    const fontCtl = document.createElement('div');
+    fontCtl.className = 'info-font';
+    const mkFont = (txt: string, d: number) => {
+      const b = document.createElement('button');
+      b.textContent = txt;
+      b.addEventListener('pointerdown', (e) => e.stopPropagation());
+      b.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.applyInfoScale(this.infoScale + d);
+        localStorage.setItem(INFO_SCALE_KEY, String(this.infoScale));
+      });
+      return b;
+    };
+    // Label-overlay mode cycle: dynamic → designators → full labels.
+    const storedMode = localStorage.getItem(OVERLAY_MODE_KEY) as OverlayMode | null;
+    if (storedMode && OVERLAY_MODES.includes(storedMode)) this.overlayMode = storedMode;
+    const ovBtn = document.createElement('button');
+    ovBtn.textContent = OVERLAY_MODE_LABEL[this.overlayMode];
+    ovBtn.title = 'Label overlay: dynamic callouts / designators / full labels';
+    ovBtn.addEventListener('pointerdown', (e) => e.stopPropagation());
+    ovBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const next =
+        OVERLAY_MODES[(OVERLAY_MODES.indexOf(this.overlayMode) + 1) % OVERLAY_MODES.length];
+      this.overlayMode = next;
+      localStorage.setItem(OVERLAY_MODE_KEY, next);
+      ovBtn.textContent = OVERLAY_MODE_LABEL[next];
+      this.renderStatic(this.store.state);
+    });
+    fontCtl.append(ovBtn, mkFont('A−', -0.15), mkFont('A+', 0.15));
+    this.infoPanel.append(scroll, grip, fontCtl);
     overlay.appendChild(this.infoPanel);
     this.initInfoDrag();
     this.initInfoResize(grip);
     this.applyInfoScale(parseFloat(localStorage.getItem(INFO_SCALE_KEY) ?? '1'));
+    try {
+      const sz = JSON.parse(localStorage.getItem(INFO_SIZE_KEY) ?? 'null');
+      if (sz) this.applyInfoSize(sz.w, sz.h);
+    } catch { /* keep defaults */ }
     this.placeInfoPanel();
-    window.addEventListener('resize', () => this.placeInfoPanel());
+    window.addEventListener('resize', () => {
+      this.placeInfoPanel();
+      this.renderStatic(this.store.state);
+    });
+    // The device drawing itself can be dragged / pinch-zoomed (layout.ts
+    // fires this on every transform change, incl. per-pointermove) — follow
+    // it, throttled to one re-render per frame.
+    let layoutRaf = 0;
+    window.addEventListener('tp-panel-layout', () => {
+      if (layoutRaf) return;
+      layoutRaf = requestAnimationFrame(() => {
+        layoutRaf = 0;
+        this.renderStatic(this.store.state);
+      });
+    });
 
     store.on((ev, s) => this.apply(ev, s));
     this.renderStatus(store.state);
+    this.renderModel(store.state);
+    this.renderStatic(store.state);
     setInterval(() => this.expire(), 250);
   }
 
   private apply(ev: StateEvent, s: DeviceState) {
+    // The model section reflects knob values, engine, mode, kit and rec state.
+    if (ev.kind === 'control' || ev.kind === 'model' || ev.kind === 'mode' ||
+        ev.kind === 'kit' || ev.kind === 'recSlot' || ev.kind === 'sndEdit' ||
+        ev.kind === 'sync')
+      this.renderModel(s);
+    // The static label overlays additionally track switches and pitch state
+    // (pad note names) — cheap full re-render, they're a handful of divs.
+    if (ev.kind === 'mode' || ev.kind === 'model' || ev.kind === 'sw' ||
+        ev.kind === 'kit' || ev.kind === 'recSlot' || ev.kind === 'sndEdit' ||
+        ev.kind === 'octave' || ev.kind === 'root' || ev.kind === 'sync')
+      this.renderStatic(s);
     switch (ev.kind) {
       case 'control': {
         const meta = CONTROLS[ev.i];
@@ -119,15 +296,38 @@ export class Labels {
           if (prev !== undefined && Math.abs(ev.v - prev) < SHOW_EPS) return;
         }
         this.lastLabeled.set(ev.i, ev.v);
-        const { combo, fn } = describeControl(ev.i, s);
+        const { combo, fn, dead, engine } = describeControl(ev.i, s);
         let value: string;
-        if (s.pads[1] && meta.fx) {
+        if (dead) {
+          // Unassigned knob on this engine — name the fact, skip the %.
+          const html = `<b>${combo}</b> ${fn} <i>no effect on ${modelName(engine ?? s.model)}</i>`;
+          this.show(meta.svgId, html);
+          this.addLog(combo, html);
+          break;
+        }
+        if (engine !== undefined && ev.i >= 1 && ev.i <= 4) {
+          // Engine-aware rendering: quantized selectors (Six-Op patch, chord
+          // type) show the selected item instead of a %.
+          const param: KnobParam =
+            (['decay', 'harmonics', 'timbre', 'morph'] as const)[ev.i - 1];
+          value = formatKnobValue(engine, param, ev.v);
+          const html = `<b>${combo}</b> ${fn} <span>${value}</span>`;
+          this.show(meta.svgId, html);
+          this.addLog(combo, html);
+          break;
+        }
+        if (s.pads[1] && meta.fx && !(s.mode === 0 && s.recSlot !== null)) {
           // FX layer: show the decoded result ("Room 45%", "Off"), not the
           // knob %. The FX frame carries the device's own decode; fall back
-          // to the raw knob until the first frame lands.
+          // to the raw knob until the first frame lands. In rec mode the same
+          // combo edits the slot's raw send trim — plain % there.
           value = ev.i === 0
             ? fxValueLabel('reverb', s.fx.reverb ?? ev.v)
             : fxValueLabel('delay', s.fx.delay ?? ev.v);
+        } else if (meta.name === 'S35' && s.mode === 1 && !s.pads[0] && !s.pads[2]) {
+          // Bare S35 in Arp/Mel is the note Order — name the setting, same
+          // spirit as the model names on Basic Pitch's S35.
+          value = arpOrderName(ev.v);
         } else if (meta.name === 'S35' && s.mode !== 0) {
           // s.model may be one frame stale mid-turn; the model event that
           // follows rewrites this line (see the 'model' case).
@@ -220,10 +420,176 @@ export class Labels {
       case 'mode':
       case 'playing':
       case 'seqStep':
+      case 'recSlot':
+      case 'sndEdit':
       case 'connected':
       case 'sync':
         this.renderStatus(s);
         break;
+    }
+  }
+
+  /** Row hover → highlight the matching control/pad on the drawing. */
+  private setHl(row: HTMLElement | null) {
+    let target: Element | null = null;
+    if (row?.dataset.ctl !== undefined) {
+      const i = parseInt(row.dataset.ctl!, 10);
+      target = this.panel.knobs.get(i)?.g ?? this.panel.faders.get(i)?.rect ?? null;
+    } else if (row?.dataset.pad !== undefined) {
+      target = this.panel.pads[parseInt(row.dataset.pad!, 10)] ?? null;
+    }
+    if (target === this.hlTarget) return;
+    this.hlTarget?.classList.remove('ctl-hl');
+    this.hlTarget = target;
+    target?.classList.add('ctl-hl');
+  }
+
+  /** The collapsible model section: the full knob map — what every pot and
+   * fader does right now, with values — plus the drum kit in Seq. Rows
+   * highlight their control on the drawing on hover (see setHl). */
+  private renderModel(s: DeviceState) {
+    const arrow = this.modelOpen ? '▾' : '▸';
+    this.modelBody.style.display = this.modelOpen ? '' : 'none';
+    const edit = s.mode === 1 && s.sndEdit;
+    const title = s.mode === 0 ? 'Drum kit' : `${modelName(s.model)} #${s.model}`;
+    const sub = s.mode === 0 && s.recSlot !== null ? ` · rec P${s.recSlot + 3}`
+              : edit ? ' · sound edit' : '';
+    this.modelHead.innerHTML = `${arrow} <b>${title}</b>${sub}`;
+    if (!this.modelOpen) return;
+
+    // Knob map: every control's bare role right now (held-pad combos still
+    // announce themselves via callouts). Values are the pot positions; in
+    // Arp/Mel play the settings are latched, so values are hidden there.
+    const bare: DeviceState = { ...s, pads: new Array(12).fill(false) };
+    const showValues = s.mode !== 1 || edit;
+    const rows: string[] = [];
+    for (let i = 0; i < CONTROLS.length; i++) {
+      const d = describeControl(i, bare);
+      let value = '';
+      if (d.dead) value = '—';
+      else if (!showValues) value = '';
+      else if (d.engine !== undefined && i >= 1 && i <= 4) {
+        const param: KnobParam =
+          (['decay', 'harmonics', 'timbre', 'morph'] as const)[i - 1];
+        value = formatKnobValue(d.engine, param, s.controls[i]);
+      } else if (s.mode === 0 && s.recSlot === null && i === 1) {
+        value = `${Math.round(60 + s.controls[1] * 120)} BPM`;
+      } else {
+        value = `${Math.round(s.controls[i] * 100)}%`;
+      }
+      rows.push(`<div class="model-row${d.dead ? ' dead' : ''}" data-ctl="${i}">` +
+        `<span class="k"><b>${CONTROLS[i].name}</b> ${d.fn}</span>` +
+        `<span class="v">${value}</span></div>`);
+    }
+    if (s.mode === 1 && !edit)
+      rows.push('<div class="model-row"><span class="k"><i>arp knob values follow the latched settings</i></span></div>');
+
+    // Seq: the drum kit below the knob map.
+    if (s.mode === 0) {
+      if (!s.kit) {
+        rows.push('<div class="model-row"><span class="k"><i>waiting for kit data…</i></span></div>');
+      } else {
+        const pct = (v: number) => Math.round(v * 100);
+        const cells: string[] = [
+          '<span></span><span></span>',
+          '<span class="n head">h</span><span class="n head">t</span>',
+          '<span class="n head">m</span><span class="n head">d</span>',
+          '<span class="n head">note</span>',
+        ];
+        s.kit.forEach((slot, i) => {
+          const dead = ENGINE_KNOBS[slot.engine]?.morph === null;
+          const rec = s.recSlot === i ? ' rec' : '';
+          const role = PADS[i + 3]?.seqRole ?? '';
+          const pad = ` data-pad="${i + 3}"`;
+          cells.push(
+            `<span class="pad${rec}"${pad}><b>P${i + 3}</b> ${role}</span>`,
+            `<span class="eng${rec}"${pad}>${modelName(slot.engine)}</span>`,
+            `<span class="n${rec}"${pad}>${pct(slot.harmonics)}</span>`,
+            `<span class="n${rec}"${pad}>${pct(slot.timbre)}</span>`,
+            `<span class="n${rec}"${pad}>${dead ? '–' : pct(slot.morph)}</span>`,
+            `<span class="n${rec}"${pad}>${pct(slot.decay)}</span>`,
+            `<span class="n${rec}"${pad}>${noteName(slot.note)}</span>`,
+          );
+        });
+        rows.push(`<div class="kit-grid">${cells.join('')}</div>`);
+      }
+    }
+    this.modelBody.innerHTML = rows.join('');
+  }
+
+  /** Static label overlay ('ids' / 'full' modes): permanent labels anchored
+   * to the panel geometry in a condensed faceplate font. 'ids' shows the
+   * designators only; 'full' shows each control's current function and the
+   * pads' roles/notes. Values stay on the dynamic callouts. */
+  private renderStatic(s: DeviceState) {
+    this.staticWrap.innerHTML = '';
+    if (this.overlayMode === 'dynamic') return;
+    const ids = this.overlayMode === 'ids';
+    // Font tracks the rendered panel size: KNOB_R svg units → overlay px.
+    const scale = this.svgToOverlay(KNOB_R, 0).x - this.svgToOverlay(0, 0).x;
+    const fontPx = Math.max(8.5, Math.min(22, scale * 0.72));
+    const mk = (x: number, y: number, text: string, cls = '') => {
+      if (!text) return;
+      const el = document.createElement('div');
+      el.className = `static-label${cls}`;
+      el.style.left = `${x.toFixed(1)}px`;
+      el.style.top = `${y.toFixed(1)}px`;
+      el.style.fontSize = `${fontPx.toFixed(1)}px`;
+      el.textContent = text;
+      this.staticWrap.appendChild(el);
+    };
+    const bare: DeviceState = { ...s, pads: new Array(12).fill(false) };
+    const fullText = (i: number, withName = true) => {
+      const d = describeControl(i, bare);
+      return {
+        text: `${withName ? `${CONTROLS[i].name}\n` : ''}${d.fn.replace(/ · /g, '\n')}`,
+        cls: d.dead ? ' dead' : '',
+      };
+    };
+    // Knobs: the designator sits inside the cap, faceplate-style; the
+    // function text (full mode) hangs below it on its own.
+    for (const [i, knob] of this.panel.knobs) {
+      const c = this.svgToOverlay(knob.cx, knob.cy);
+      mk(c.x, c.y, CONTROLS[i].name, ' in-knob');
+      if (!ids) {
+        const t = fullText(i, false);
+        const p = this.svgToOverlay(knob.cx, knob.cy + KNOB_R + 1.5);
+        mk(p.x, p.y, t.text, t.cls);
+      }
+    }
+    for (const [i, fader] of this.panel.faders) {
+      const bb = fader.rect.getBBox();
+      const p = this.svgToOverlay(bb.x + bb.width / 2, fader.maxY + 4);
+      if (ids) mk(p.x, p.y, CONTROLS[i].name);
+      else { const t = fullText(i); mk(p.x, p.y, t.text, t.cls); }
+    }
+    const ov = this.overlay.getBoundingClientRect();
+    this.panel.pads.forEach((el, i) => {
+      const t = el.getBoundingClientRect();
+      const x = t.left - ov.left + t.width / 2;
+      const y = t.top - ov.top + t.height / 2;
+      let text = PADS[i].name.replace(' FX', '');
+      if (!ids) {
+        if (i >= 3 && i <= 9) {
+          text = s.mode === 0
+            ? (PADS[i].seqRole ?? text)
+            : noteName(pitchedNote(i, s.swA, s.root, s.octave));
+        } else if (PADS[i].hint) {
+          text = `${text}\n${PADS[i].hint}`;
+        }
+      }
+      mk(x, y, text, ' pad');
+    });
+    for (const which of ['A', 'B'] as const) {
+      const g = which === 'A' ? this.panel.sw1 : this.panel.sw2;
+      const t = g.getBoundingClientRect();
+      const x = t.left - ov.left + t.width / 2;
+      const y = t.top - ov.top + t.height + 2;
+      if (ids) { mk(x, y, which === 'A' ? 'SW1' : 'SW2'); continue; }
+      const pos = which === 'A'
+        ? (s.mode === 0 ? SW1_POSITIONS.seq : s.mode === 1 ? SW1_POSITIONS.arp : SW1_POSITIONS.pitch)[s.swA]
+        : SW2_POSITIONS[s.swB];
+      mk(x, y, `${which === 'A' ? 'SW1' : 'SW2'}\n${pos ?? ''}`);
     }
   }
 
@@ -259,6 +625,8 @@ export class Labels {
       s.playing ? '▶' : '⏸',
     ];
     if (s.seqStep !== null) parts.push(`step ${s.seqStep + 1}`);
+    if (s.mode === 1 && s.sndEdit) parts.push('<i>sound edit</i>');
+    if (s.recSlot !== null) parts.push(`<i>REC P${s.recSlot + 3}</i>`);
     if (!s.connected) parts.push('<i>not connected</i>');
     this.status.innerHTML = parts.join(' · ');
   }
@@ -439,11 +807,13 @@ export class Labels {
         fy: p.offsetTop / Math.max(1, o.height),
       }));
     });
-    // double-click: back to the default spot and size
+    // double-click: back to the default spot, size and font
     p.addEventListener('dblclick', () => {
       localStorage.removeItem(INFO_POS_KEY);
       localStorage.removeItem(INFO_SCALE_KEY);
+      localStorage.removeItem(INFO_SIZE_KEY);
       this.applyInfoScale(1);
+      this.applyInfoSize(null, null);
       this.placeInfoPanel();
     });
   }
@@ -455,25 +825,36 @@ export class Labels {
     this.infoPanel.style.fontSize = `${(14 * this.infoScale).toFixed(1)}px`;
   }
 
-  /** Corner grip: drag toward bottom-right to grow (everything is em-based). */
+  /** Explicit box size in px (null = the 30ch default). Text wraps and the
+   * content scrolls to fit — resizing never changes the font. */
+  private applyInfoSize(w: number | null, h: number | null) {
+    this.infoPanel.style.width = w ? `${Math.round(w)}px` : '';
+    this.infoPanel.style.height = h ? `${Math.round(h)}px` : '';
+  }
+
+  /** Corner grip: drag resizes the panel box. Font size lives on the A−/A+
+   * buttons instead, so a bigger box means more text fits, not bigger text. */
   private initInfoResize(grip: HTMLDivElement) {
-    let startX = 0, startY = 0, startScale = 1;
+    let startX = 0, startY = 0, startW = 0, startH = 0;
+    let w: number | null = null, h: number | null = null;
 
     grip.addEventListener('pointerdown', (e) => {
       e.stopPropagation(); // don't start a panel drag
       grip.setPointerCapture(e.pointerId);
       startX = e.clientX;
       startY = e.clientY;
-      startScale = this.infoScale;
+      startW = this.infoPanel.offsetWidth;
+      startH = this.infoPanel.offsetHeight;
     });
     grip.addEventListener('pointermove', (e) => {
       if (!grip.hasPointerCapture(e.pointerId)) return;
-      const d = (e.clientX - startX + e.clientY - startY) / 2;
-      this.applyInfoScale(startScale * (1 + d / 120));
+      w = Math.min(900, Math.max(180, startW + e.clientX - startX));
+      h = Math.min(1000, Math.max(90, startH + e.clientY - startY));
+      this.applyInfoSize(w, h);
     });
     grip.addEventListener('pointerup', (e) => {
       grip.releasePointerCapture(e.pointerId);
-      localStorage.setItem(INFO_SCALE_KEY, String(this.infoScale));
+      if (w !== null) localStorage.setItem(INFO_SIZE_KEY, JSON.stringify({ w, h }));
     });
   }
 }

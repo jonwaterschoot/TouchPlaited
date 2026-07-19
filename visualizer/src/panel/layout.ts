@@ -26,6 +26,9 @@ export function enablePanelLayout(panel: Panel) {
   const apply = () => {
     svg.style.transform =
       dx || dy || scale !== 1 ? `translate(${dx}px, ${dy}px) scale(${scale})` : '';
+    // Static label overlays are positioned in overlay px — tell them to
+    // follow the drawing (labels.ts listens, rAF-throttled).
+    window.dispatchEvent(new Event('tp-panel-layout'));
   };
   const save = () => localStorage.setItem(KEY, JSON.stringify({ dx, dy, scale }));
   const clampScale = (s: number) => Math.min(MAX_SCALE, Math.max(MIN_SCALE, s));

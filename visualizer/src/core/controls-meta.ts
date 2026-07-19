@@ -14,10 +14,10 @@ export interface ControlMeta {
 /** Index = S30..S37 (controls[] order). */
 export const CONTROLS: ControlMeta[] = [
   { svgId: 'knob-s30', name: 'S30', main: 'Drive', seq: 'Drive', arp: 'Drive', fx: 'Reverb' },
-  { svgId: 'knob-s31', name: 'S31', main: 'Decay', seq: 'Tempo', arp: 'Division' },
-  { svgId: 'knob-s32', name: 'S32', main: 'Harmonics', seq: 'Swing', arp: 'Swing' },
-  { svgId: 'knob-s33', name: 'S33', main: 'Timbre', seq: 'Density', arp: 'Density' },
-  { svgId: 'knob-s34', name: 'S34', main: 'Morph', seq: 'Punch', arp: 'Decay' },
+  { svgId: 'knob-s31', name: 'S31', main: 'Decay', seq: 'Tempo', arp: 'Decay' },
+  { svgId: 'knob-s32', name: 'S32', main: 'Harmonics', seq: 'Swing', arp: 'Division' },
+  { svgId: 'knob-s33', name: 'S33', main: 'Timbre', seq: 'Density', arp: 'Swing' },
+  { svgId: 'knob-s34', name: 'S34', main: 'Morph', seq: 'Punch', arp: 'Density' },
   { svgId: 'knob-s35', name: 'S35', main: 'Model sel', seq: 'Pattern', arp: 'Order', fx: 'Delay' },
   { svgId: 'fader-s36', name: 'S36', main: 'Volume', seq: 'Volume', arp: 'Volume' },
   { svgId: 'fader-s37', name: 'S37', main: 'Blend', seq: 'Tightness', arp: 'Blend' },
@@ -89,6 +89,113 @@ export const MODELS: string[] = [
 
 export function modelName(n: number): string {
   return MODELS[n] ?? `Model ${n}`;
+}
+
+// ── Per-engine knob functions (pitched modes) ───────────────────────────────
+// What the four timbral knobs actually do on each engine — sourced from the
+// Plaits manual and the engine sources. `morph: null` marks the engines where
+// S34 has no effect: the firmware routes the unified Decay knob to MORPH
+// there (decay_via_morph() in TouchPlaited.cpp — keep the two in sync).
+// `aux` names what the engine's AUX output carries (the S37 Blend fader mixes
+// OUT↔AUX); null = AUX is identical to OUT, so Blend and stereo width have no
+// effect (six_op_engine.cc writes aux[i] = out[i]).
+
+export interface EngineKnobs {
+  harmonics: string;   // S32
+  timbre: string;      // S33
+  morph: string | null; // S34; null = unassigned on this engine
+  decay: string;       // S31 — what the unified Decay knob reaches
+  aux: string | null;  // S37 blend target; null = blend/width unassigned
+}
+
+/** Mirrors decay_via_morph() in TouchPlaited.cpp: engines whose intrinsic
+ * decay lives on MORPH. S31 drives it there; S34 goes dead. */
+export function decayViaMorph(e: number): boolean {
+  return (e >= 2 && e <= 4) || (e >= 19 && e <= 23);
+}
+
+const SIX_OP: EngineKnobs = {
+  harmonics: 'Patch select', timbre: 'Mod level', morph: null, decay: 'Envelope time', aux: null,
+};
+
+export const ENGINE_KNOBS: Record<number, EngineKnobs> = {
+  0:  { harmonics: 'Resonance / character', timbre: 'Filter cutoff', morph: 'Waveform & sub', decay: 'Decay', aux: 'Highpass' },
+  1:  { harmonics: 'Distortion freq', timbre: 'Distortion amount', morph: 'Asymmetry', decay: 'Decay', aux: 'Free-running' },
+  2:  SIX_OP,
+  3:  SIX_OP,
+  4:  SIX_OP,
+  5:  { harmonics: 'Terrain', timbre: 'Path radius', morph: 'Path offset', decay: 'Decay', aux: 'Alt path' },
+  6:  { harmonics: 'Chord', timbre: 'Filter / chorus', morph: 'Waveform', decay: 'Decay', aux: 'Filtered mix' },
+  8:  { harmonics: 'Detune', timbre: 'Square shape', morph: 'Saw shape', decay: 'Decay', aux: 'Synced variant' },
+  9:  { harmonics: 'Waveshaper', timbre: 'Fold amount', morph: 'Asymmetry', decay: 'Decay', aux: 'Sine fold' },
+  10: { harmonics: 'Freq ratio', timbre: 'Mod index', morph: 'Feedback', decay: 'Decay', aux: 'Sub oscillator' },
+  11: { harmonics: 'Freq ratio', timbre: 'Formant freq', morph: 'Formant shape', decay: 'Decay', aux: 'Alt formant' },
+  12: { harmonics: 'Spectrum bumps', timbre: 'Main harmonic', morph: 'Bump width', decay: 'Decay', aux: 'High harmonics' },
+  13: { harmonics: 'Bank', timbre: 'Row', morph: 'Column', decay: 'Decay', aux: 'Lo-fi' },
+  14: { harmonics: 'Chord type', timbre: 'Inversion', morph: 'Waveform', decay: 'Decay', aux: 'Chord subset' },
+  15: { harmonics: 'Synth mode', timbre: 'Species', morph: 'Phoneme / word', decay: 'Decay', aux: 'Unfiltered' },
+  16: { harmonics: 'Detune spread', timbre: 'Grain rate', morph: 'Grain duration', decay: 'Decay', aux: 'Sine grains' },
+  17: { harmonics: 'Filter response', timbre: 'Clock freq', morph: 'Resonance', decay: 'Decay', aux: 'Bandpass' },
+  18: { harmonics: 'Freq spread', timbre: 'Density', morph: 'Filter / diffusion', decay: 'Decay', aux: 'Raw particles' },
+  19: { harmonics: 'Inharmonicity', timbre: 'Excitation brightness', morph: null, decay: 'Damping', aux: 'Raw exciter' },
+  20: { harmonics: 'Material', timbre: 'Excitation brightness', morph: null, decay: 'Damping', aux: 'Raw exciter' },
+  21: { harmonics: 'Attack / overdrive', timbre: 'Brightness', morph: null, decay: 'Tail', aux: 'Alt model' },
+  22: { harmonics: 'Tone–noise mix', timbre: 'Brightness', morph: null, decay: 'Tail', aux: 'Alt model' },
+  23: { harmonics: 'Noise colour', timbre: 'HPF cutoff', morph: null, decay: 'Tail', aux: 'Alt model' },
+};
+
+/** The 11-chord bank shared by String machine (6) and Chord (14) — order
+ * matches chord_bank.cc. */
+export const CHORD_NAMES = [
+  'Oct', '5th', 'sus4', 'm', 'm7', 'm9', 'm11', '69', 'M9', 'M7', 'M',
+];
+
+/** Arp note orders (S35 in Arp/Mel) — mirrors arp.h SetOrder: floor(v·5),
+ * clamped to the 5 entries. */
+export const ARP_ORDERS = ['Played', 'Up', 'Down', 'Ping-pong', 'Random'];
+
+export function arpOrderName(v: number): string {
+  return ARP_ORDERS[Math.min(4, Math.max(0, Math.floor(v * 5)))];
+}
+
+export type KnobParam = 'harmonics' | 'timbre' | 'morph' | 'decay';
+
+/** Engine-aware value rendering: quantized selectors show the selected item
+ * ("Patch 12/32", a chord name) instead of a meaningless %. Mirrors each
+ * engine's own quantizer (× 1.02, same as the firmware's blink mirror). */
+export function formatKnobValue(engine: number, param: KnobParam, v: number): string {
+  if (param === 'harmonics') {
+    if (engine >= 2 && engine <= 4) {
+      const idx = Math.min(31, Math.floor(v * 1.02 * 32));
+      return `Patch ${idx + 1}/32`;
+    }
+    if (engine === 6 || engine === 14) {
+      const idx = Math.min(CHORD_NAMES.length - 1, Math.floor(v * 1.02 * CHORD_NAMES.length));
+      return CHORD_NAMES[idx];
+    }
+  }
+  return `${Math.round(v * 100)}%`;
+}
+
+/** Engine-specific label for a timbral control in Basic Pitch, by controls[]
+ * index (1=S31 … 4=S34). `dead: true` = the knob does nothing on this engine.
+ * Returns null for non-timbral controls or unknown engines. */
+export function engineKnobLabel(
+  i: number, model: number,
+): { fn: string; dead: boolean } | null {
+  const ek = ENGINE_KNOBS[model];
+  if (!ek) return null;
+  const pair = (generic: string, specific: string) =>
+    ({ fn: generic === specific ? generic : `${generic} · ${specific}`, dead: false });
+  switch (i) {
+    case 1: return pair('Decay', ek.decay);
+    case 2: return pair('Harmonics', ek.harmonics);
+    case 3: return pair('Timbre', ek.timbre);
+    case 4: return ek.morph === null
+      ? { fn: 'Morph', dead: true }
+      : pair('Morph', ek.morph);
+    default: return null;
+  }
 }
 
 // ── MIDI facts (MANUAL.md "MIDI" section / TouchPlaited.cpp) ────────────────

@@ -28,15 +28,15 @@ Still working on this, so things might move around.
 | Knob | Basic Pitch | Arp/Mel | Seq |
 |------|-------------|---------|-----|
 | S30 | Drive | Drive | Drive |
-| S31 | Decay | Division | Tempo |
-| S32 | Harmonics | Swing | Shuffle |
-| S33 | Timbre | Density (Euclid) | Density |
-| S34 | Morph | Decay | Kick punch |
+| S31 | Decay | Decay | Tempo |
+| S32 | Harmonics | Division | Shuffle |
+| S33 | Timbre | Swing | Density |
+| S34 | Morph | Density (Euclid) | Kick punch |
 | S35 | *(model select — needs P0 or P2)* | Order | Pattern |
 | S36 | Volume | Volume | Seq volume |
 | S37 | Model mix OUT ↔ AUX | Model mix | Tightness |
 
-- Morph does nothing on engines 19–23; Seq *Tightness* is the decay of those same engines.
+- Morph does nothing on engines 2–4 and 19–23 — their real decay lives on morph, and the Decay knob drives it there (DX7 envelope time on Six-Op, damping/tail on 19–23). Seq *Tightness* compresses the tails of 19–23. On Six-Op the S37 blend/width fader is also inert (AUX = OUT).
 - The arp plays **its own sound** (seeded from Basic Pitch once, then independent) — edit it by holding **P0 + P1 ~1 s**: the knobs become drive / decay / harmonics / timbre / morph until you toggle back.
 
 ### Pads
@@ -90,7 +90,7 @@ Knobs now edit **that slot only**: drive, decay, harmonics/timbre/morph, volume,
 | S31 | Decay | 23 |
 | S32 | Harmonics | 20 |
 | S33 | Timbre | 21 |
-| S34 | Morph (no effect on engines 19–23) | 22 |
+| S34 | Morph (no effect on engines 2–4 and 19–23) | 22 |
 | S35 | — *(only active with P0/P2 held)* | — |
 | S36 | Output level | 26 |
 | S37 | Model mix — OUT↔AUX blend | — |
@@ -113,10 +113,10 @@ SW1 picks the sub-state: **Hold** (left) · **Arp** (center) · **Rec** (right) 
 | Control | Function | MIDI CC |
 |---------|----------|---------|
 | S30 | Drive (live per trigger) | 24 |
-| S31 | Division — 1/4 … 1/32 against the master tempo (center = 1/16) | — |
-| S32 | Swing | — |
-| S33 | Density — Euclidean fill; lower half adds a 75% chance roll | — |
-| S34 | Decay (stamped per note into a Rec take) | — |
+| S31 | Decay (stamped per note into a Rec take) | — |
+| S32 | Division — 1/4 … 1/32 against the master tempo (center = 1/16) | — |
+| S33 | Swing | — |
+| S34 | Density — Euclidean fill; lower half adds a 75% chance roll | — |
 | S35 | Order — played / up / down / ping-pong / random | — |
 | S36 | Output level (pitched group) | 26 |
 | S37 | Blend (hold P0: stereo width) | — |

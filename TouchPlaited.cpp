@@ -137,10 +137,14 @@ struct PadSlot {
     float dly_send  = 1.0f;   // P1+S35 in drum recording); 1 = follow fully
 };
 
-// Engines whose internal decay lives on MORPH: String and Modal route it to
-// the physical model's damping, the drum engines (21–23) to their tail. The
+// Engines whose internal decay lives on MORPH: Six-Op FM (2–4) route it to
+// the DX7 envelope-time control (their LPG is bypassed — already_enveloped —
+// so the real Decay param does nothing there), String and Modal to the
+// physical model's damping, the drum engines (21–23) to their tail. The
 // Decay knob owns morph for these; S34 has no effect on them.
-static bool morph_is_decay(int e) { return e >= 19 && e <= 23; }
+static bool decay_via_morph(int e) {
+    return (e >= 2 && e <= 4) || (e >= 19 && e <= 23);
+}
 
 // Build render params from a slot, routing decay→morph for morph-decay
 // engines. tight >= 0 additionally scales that tail (Seq S37 tightness).
@@ -158,7 +162,7 @@ static VoiceParams slot_params(const PadSlot& s, float tight = -1.f) {
     // Squared like the group sends (audio taper — see the fx_decode block).
     p.rev_send  = s.rev_send * s.rev_send;
     p.dly_send  = s.dly_send * s.dly_send;
-    if (morph_is_decay(s.engine))
+    if (decay_via_morph(s.engine))
         p.morph = (tight < 0.f) ? s.decay : s.decay * (0.2f + tight * 0.8f);
     return p;
 }
@@ -214,6 +218,9 @@ static void generate_soft_random(PadSlot* slots, int engine,
 // space: harmonics is a quantized DX7 patch selector and timbre is the FM
 // modulator level (quiet near zero). These presets land on audible spots —
 // used for the model-change audition AND as the anchor for random generation.
+// m is the DX7 envelope-time anchor (morph): auditions apply it directly via
+// VoiceParams; live play ignores stored morph on these engines and routes the
+// Decay knob there instead (decay_via_morph).
 struct AudPreset { float h, t, m; };
 static const AudPreset kSixOpAud[3] = {
     { 0.15f, 0.75f, 0.40f },  // 2 Six-Op A
@@ -354,7 +361,7 @@ static ArpState arp_state = ArpState::ARP;
 // re-latch-on-every-BP-entry made the two modes impossible to tell apart).
 // Editing it: P0+P1 hold toggles the sound-edit knob layer (arp_snd_edit),
 // P0/P2+S35 swaps the engine, P0+P2 staged hold varies h/t/m around it.
-// Decay (S34), drive (S30) and blend stay live via their own arp knobs and
+// Decay (S31), drive (S30) and blend stay live via their own arp knobs and
 // are written into this slot at every trigger.
 static PadSlot arp_snd;
 static bool    arp_snd_ready = false;
@@ -440,20 +447,38 @@ static volatile bool rec_hit_flash = false;
 // value. Inclusive comparison + a near-window, so targets at the pot extremes
 // (0.0 / 1.0) are reachable — a strict crossing test can never fire there,
 // which is how S30/S34 went dead after seq re-entry with drive/punch at zero.
+// Rail targets additionally catch on deliberate movement (~3%, like the width
+// MoveCatch): a pot can sit fractionally under its rail forever, which left
+// knobs armed to 1.0 feeling dead — the arp Density/Order defaults were
+// practically unreachable (hardware feedback 18/07/26).
 struct KnobPickup {
-    static constexpr float kNear = 0.01f;
+    static constexpr float kNear     = 0.01f;
+    static constexpr float kMoveZone = 0.03f;
     float thresh = 0.f;
     float prev   = 0.f;
+    float ref    = 0.f;
     bool  caught = false;
+    bool  rail   = false;
     // Arm against a stored value: the pot takes over when it reaches it.
-    void arm_to(float target, float current_val) { thresh = target; prev = current_val; caught = false; }
-    void force_catch(float current_val) { thresh = current_val; prev = current_val; caught = true; }
+    void arm_to(float target, float current_val) {
+        thresh = target;
+        prev   = current_val;
+        ref    = current_val;
+        caught = false;
+        rail   = target <= 0.015f || target >= 0.985f;
+    }
+    void force_catch(float current_val) {
+        thresh = current_val; prev = current_val; ref = current_val;
+        caught = true; rail = false;
+    }
     bool update(float curr) {
         if (!caught) {
             bool crossed = (prev <= thresh && curr >= thresh) ||
                            (prev >= thresh && curr <= thresh);
             bool near    = (curr - thresh <= kNear) && (thresh - curr <= kNear);
-            if (crossed || near) caught = true;
+            bool moved   = rail && ((curr - ref >= kMoveZone) ||
+                                    (ref - curr >= kMoveZone));
+            if (crossed || near || moved) caught = true;
         }
         prev = curr;
         return caught;
@@ -499,8 +524,9 @@ static MoveCatch fx_mc_dly;   // P1+S35 = delay mirror knob (any mode)
 // and re-armed after recording (rec mode borrows most of these pots).
 static KnobPickup seq_pu30, seq_pu31, seq_pu32, seq_pu33, seq_pu34, seq_pu35, seq_pu36,
                   seq_pu37;
-// Pickups for the Arp/Mel knob layer (S30 drive, S31 division, S32 swing,
-// S33 density, S34 decay, S35 order) — armed on every Arp/Mel entry.
+// Pickups for the Arp/Mel knob layer (S30 drive, S31 decay, S32 division,
+// S33 swing, S34 density, S35 order — decay sits on S31 like every other
+// mode, the arp functions shift one knob right) — armed on every entry.
 static KnobPickup arp_pu30, arp_pu31, arp_pu32, arp_pu33, arp_pu34, arp_pu35;
 // Pickups for the Arp/Mel sound-edit layer (BP layout on arp_snd) — armed on
 // every P0+P1 toggle into sound edit.
@@ -529,10 +555,10 @@ static void rearm_seq_pickups() {
 static void rearm_arp_pickups() {
     auto& kn = touch.knobs();
     arp_pu30.arm_to(arp_drive_lk, kn.s30().Value());
-    arp_pu31.arm_to(arp_div_lk,   kn.s31().Value());
-    arp_pu32.arm_to(arp_swing_lk, kn.s32().Value());
-    arp_pu33.arm_to(arp_dens_lk,  kn.s33().Value());
-    arp_pu34.arm_to(arp_decay_lk, kn.s34().Value());
+    arp_pu31.arm_to(arp_decay_lk, kn.s31().Value());
+    arp_pu32.arm_to(arp_div_lk,   kn.s32().Value());
+    arp_pu33.arm_to(arp_swing_lk, kn.s33().Value());
+    arp_pu34.arm_to(arp_dens_lk,  kn.s34().Value());
     arp_pu35.arm_to(arp_order_lk, kn.s35().Value());
 }
 
@@ -613,7 +639,7 @@ static void on_midi_note_on(uint8_t ch, uint8_t note, uint8_t vel) {
         p.engine    = current_engine;
         p.harmonics = eff_h;
         p.timbre    = eff_t;
-        p.morph     = morph_is_decay(current_engine) ? eff_d : eff_m;
+        p.morph     = decay_via_morph(current_engine) ? eff_d : eff_m;
         p.decay     = eff_d;
         p.drive     = eff_drive;
         p.blend     = pitched_blend_lk;
@@ -780,6 +806,10 @@ static void service_telemetry() {
     t.mode     = seq_mode_on ? 0
                : (current_mode == PlayMode::ARP_MEL ? 1 : 2);
     t.playing  = seq.IsActive();
+    // Arp/Mel sound-edit layer (P0+P1 toggle) — the app swaps its knob labels
+    // to the Basic Pitch layout on the arp's model while this is on.
+    t.snd_edit = !seq_mode_on && current_mode == PlayMode::ARP_MEL
+                 && rec_mode == RecMode::IDLE && arp_snd_edit;
     t.seq_step = t.playing ? static_cast<uint8_t>(seq.Step() & 0x7F) : 0x7F;
     t.octave   = static_cast<uint8_t>(octave_offset + 3);
     t.root     = static_cast<uint8_t>(root_semitone);
@@ -788,6 +818,22 @@ static void service_telemetry() {
     t.fx_drive  = to7(seq_mode_on ? seq_drive_lk : eff_drive);
     t.fx_reverb = to7(seq_mode_on ? fx_rev_seq_lk : fx_rev_pitched_lk);
     t.fx_delay  = to7(seq_mode_on ? fx_dly_seq_lk : fx_dly_pitched_lk);
+
+    // Recording state + drum kit snapshot (KIT frame) — the app labels the
+    // rec knob layer with the edited slot's engine and shows the kit in its
+    // info screen.
+    t.rec_slot = (rec_mode == RecMode::RECORDING && rec_slot >= 0)
+                     ? static_cast<uint8_t>(rec_slot) : 0x7F;
+    for (int i = 0; i < kPadSlots; i++) {
+        const PadSlot& s = drum_slots[i];
+        t.kit[i][0] = static_cast<uint8_t>(s.engine) & 0x7F;
+        t.kit[i][1] = to7(s.harmonics);
+        t.kit[i][2] = to7(s.timbre);
+        t.kit[i][3] = to7(s.morph);
+        t.kit[i][4] = to7(s.decay);
+        const int n = static_cast<int>(s.note + 0.5f);
+        t.kit[i][5] = static_cast<uint8_t>(n < 0 ? 0 : (n > 127 ? 127 : n));
+    }
 
     telemetry.Service(t, System::GetNow(), midi);
 }
@@ -1005,7 +1051,8 @@ static void process_model_select(float s35_val) {
                 const auto& a = kSixOpAud[new_engine - 2];
                 arp_snd.harmonics = a.h;
                 arp_snd.timbre    = a.t;
-                arp_snd.morph     = a.m;
+                // No morph write: decay_via_morph routes the arp Decay knob
+                // (arp_decay_lk) to the DX7 envelope at every trigger.
             }
             arp_snd_ready = true;
         }
@@ -1448,9 +1495,10 @@ void AudioCallback(AudioHandle::InputBuffer in, AudioHandle::OutputBuffer out, s
         seq.SetDensity(seq_dens_lk);
         seq.SetVariant(seq_var_lk);
     }
-    // Arp/Mel knob layer — S30 drive, S31 division, S32 swing, S33 density,
-    // S34 decay, S35 order, all through pickups. S30/S35 freeze under P1 (FX
-    // layer); S35 also under P0/P2 (model select owns it there).
+    // Arp/Mel knob layer — S30 drive, S31 decay, S32 division, S33 swing,
+    // S34 density, S35 order, all through pickups (decay lives on S31 in
+    // every mode; the arp functions shift one knob right). S30/S35 freeze
+    // under P1 (FX layer); S35 also under P0/P2 (model select owns it there).
     // Sound edit (P0+P1 toggle) swaps the whole layer for the Basic Pitch
     // layout on the arp's own model: S30 drive, S31 decay, S32 harmonics,
     // S33 timbre, S34 morph — the arp functions freeze until you toggle back.
@@ -1465,10 +1513,10 @@ void AudioCallback(AudioHandle::InputBuffer in, AudioHandle::OutputBuffer out, s
         } else {
             bool p0p2 = touch.pads().IsTouched(0) || touch.pads().IsTouched(2);
             if (!p1_fx && arp_pu30.update(drive))       arp_drive_lk = drive;
-            if (arp_pu31.update(k.s31().Value()))       arp_div_lk   = k.s31().Value();
-            if (arp_pu32.update(k.s32().Value()))       arp_swing_lk = k.s32().Value();
-            if (arp_pu33.update(k.s33().Value()))       arp_dens_lk  = k.s33().Value();
-            if (arp_pu34.update(k.s34().Value()))       arp_decay_lk = k.s34().Value();
+            if (arp_pu31.update(k.s31().Value()))       arp_decay_lk = k.s31().Value();
+            if (arp_pu32.update(k.s32().Value()))       arp_div_lk   = k.s32().Value();
+            if (arp_pu33.update(k.s33().Value()))       arp_swing_lk = k.s33().Value();
+            if (arp_pu34.update(k.s34().Value()))       arp_dens_lk  = k.s34().Value();
             if (!p1_fx && !p0p2 && arp_pu35.update(k.s35().Value()))
                                                         arp_order_lk = k.s35().Value();
         }
@@ -1574,7 +1622,7 @@ void AudioCallback(AudioHandle::InputBuffer in, AudioHandle::OutputBuffer out, s
                 vp.engine    = current_engine;
                 vp.harmonics = eff_h;
                 vp.timbre    = eff_t;
-                vp.morph     = morph_is_decay(current_engine) ? eff_d : eff_m;
+                vp.morph     = decay_via_morph(current_engine) ? eff_d : eff_m;
                 vp.decay     = eff_d;
                 vp.blend     = pitched_blend_lk;
                 pool.AuditionWithParams(root_note_f(), vp);
@@ -1786,7 +1834,7 @@ void AudioCallback(AudioHandle::InputBuffer in, AudioHandle::OutputBuffer out, s
             // (tightness on the tail, punch on the kick) — otherwise the
             // sound jumps on the next retrigger.
             float upd_morph = slot.morph;
-            if (morph_is_decay(slot.engine))
+            if (decay_via_morph(slot.engine))
                 upd_morph = is_drum_mode ? slot.decay * (0.2f + seq_tight_lk * 0.8f)
                                          : slot.decay;
             float upd_timbre = slot.timbre;
@@ -1861,9 +1909,10 @@ void AudioCallback(AudioHandle::InputBuffer in, AudioHandle::OutputBuffer out, s
         } else {
             fm_patch_blink_idx = -1;
         }
-        // Unified decay: engines 19–23 keep their real decay on MORPH — the
-        // Decay knob drives it there and S34 has no effect on those engines.
-        pool.SetMorph(morph_is_decay(current_engine) ? eff_d : eff_m);
+        // Unified decay: the decay_via_morph engines (Six-Op 2–4, 19–23) keep
+        // their real decay on MORPH — the Decay knob drives it there and S34
+        // has no effect on those engines.
+        pool.SetMorph(decay_via_morph(current_engine) ? eff_d : eff_m);
         pool.SetDecay(eff_d);
         pool.SetBlend(pitched_blend_lk);
     }

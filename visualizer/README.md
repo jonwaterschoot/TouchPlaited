@@ -32,10 +32,24 @@ npm run dev        # http://localhost:5173
 `http://localhost:5173/?midi&transparent&bare` — the panel floats over your
 footage with no visible browser window.
 
-The live-info panel (model / mode / step, the **last-4 action log** with smart
-gesture names like `P0 + S35 · Model select · bank 0`, and the FX readout) is
-**draggable** — put it wherever the shot needs it; position and size (corner
-grip on hover) are remembered. Double-click resets both.
+The live-info panel (model / mode / step, a collapsible **knob map** showing
+what every pot/fader does right now with engine-aware values, the drum kit in
+Seq, the **last-4 action log** with smart gesture names like `P0 + S35 · Model
+select · bank 0`, and the FX readout) is **draggable** — put it wherever the
+shot needs it. The corner grip resizes the box (text wraps and scrolls, it
+never scales), the hover-revealed **A− / A+** buttons set the font size, and
+double-click resets everything. **Hovering a knob-map or kit row highlights
+that control on the drawing.**
+
+**Label overlays** — the button next to A−/A+ cycles three modes: `dyn`
+(default, transient callouts only), `S#` (permanent designators S30…S37 /
+P0…P11 / SW1-2 on the panel), and `Aa` (permanent full labels of the current
+mode and model in a condensed faceplate font — pads show their drum role in
+Seq or their live note name in the pitched modes). Knob designators sit
+inside the knob caps; the labels follow the drawing when you drag, zoom or
+resize it. Callouts with values stay active in every mode — quantized
+settings show their names (Six-Op patch x/32, chord types, arp Order
+Played/Up/Down/Ping-pong/Random).
 
 P10 and P11 are the two halves of the **TouCH logo** ("Tou" / "CH") — the
 letters themselves light up when touched, like every other pad.

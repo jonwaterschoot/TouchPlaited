@@ -18,6 +18,16 @@ export class MockTransport implements Transport {
   async connect(): Promise<void> {
     this.store.setConnected(true);
     this.store.setModel(2); // Six-Op A
+    // A plausible random kit so the info panel's Seq view has data.
+    this.store.setKit([
+      { engine: 21, harmonics: 0.35, timbre: 0.4, morph: 0.5, decay: 0.6, note: 40 },
+      { engine: 22, harmonics: 0.5, timbre: 0.6, morph: 0.5, decay: 0.55, note: 52 },
+      { engine: 23, harmonics: 0.6, timbre: 0.7, morph: 0.5, decay: 0.5, note: 90 },
+      { engine: 23, harmonics: 0.55, timbre: 0.6, morph: 0.5, decay: 0.7, note: 86 },
+      { engine: 17, harmonics: 0.1, timbre: 0.8, morph: 0.4, decay: 0.4, note: 60 },
+      { engine: 21, harmonics: 0.45, timbre: 0.25, morph: 0.5, decay: 0.65, note: 55 },
+      { engine: 20, harmonics: 0.2, timbre: 0.4, morph: 0.5, decay: 0.6, note: 70 },
+    ]);
     this.timer = window.setInterval(() => this.tick(), 33);
   }
 
@@ -74,10 +84,12 @@ export class MockTransport implements Transport {
       const drum = 3 + (step % 7);
       for (let p = 3; p <= 9; p++) s.setPad(p, p === drum && ((t * 4) % 1) < 0.4);
       s.setControl(1, 0.6); // tempo parked
+      s.setRecSlot(t > 13.5 ? 1 : null); // last stretch: editing the snare slot
     } else if (t < 19) {
       // Phase 4 — switches and model select
       s.setPlaying(false);
       s.setSeqStep(null);
+      s.setRecSlot(null);
       for (let p = 3; p <= 9; p++) s.setPad(p, false);
       const k = Math.floor(t - 16);
       s.setSw('A', k % 3);

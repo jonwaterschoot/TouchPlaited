@@ -3,8 +3,8 @@
 //
 //   F0 7D 54 50 <ver> <type> <payload…> F7      "TP" = 0x54 0x50, mfr 0x7D
 //
-// STATE (0x01) payload, 18 bytes, all 7-bit (bytes 16-17 appended in fw v2;
-// decode guards on length so 16-byte v1 frames still parse):
+// STATE (0x01) payload, 19 bytes, all 7-bit (bytes 16-17 appended in fw v2,
+// byte 18 in fw v3; decode guards on length so older frames still parse):
 //   0    pads P0..P6 bitmask (bit0 = P0)
 //   1    pads P7..P11 bitmask (bit0 = P7)
 //   2-9  S30..S37, 0..127
@@ -12,12 +12,16 @@
 //   11   SW2 position 0..2
 //   12   user LED brightness 0..127
 //   13   model 0..23
-//   14   mode flags: bits0-1 mode (0 Seq, 1 Arp/Mel, 2 Pitch), bit2 playing
+//   14   mode flags: bits0-1 mode (0 Seq, 1 Arp/Mel, 2 Pitch), bit2 playing,
+//        bit3 Arp/Mel sound-edit layer active
 //   15   seq step, 0x7F = none
 //   16   octave offset + 3, 0..6
 //   17   root semitone, 0..11
+//   18   recording slot 0..6, 0x7F = not recording
 //
 // FX (0x04) payload: drive, reverb, delay, nTrims, trims…   (all 0..127)
+// KIT (0x05) payload: nSlots, then per slot 6 bytes: engine, harmonics,
+//   timbre, morph, decay, MIDI note — the Seq drum kit (P3..P9)
 // EVENT (0x02) payload: id, arg — 1 padDown, 2 padUp (low-latency touch feel)
 // HELLO (0x03) payload: verMajor, verMinor, featureBits
 // REQUEST (0x7E), host→device, no payload: please send HELLO + STATE + FX now.
@@ -38,6 +42,7 @@ export const FrameType = {
   EVENT: 0x02,
   HELLO: 0x03,
   FX: 0x04,
+  KIT: 0x05,
   REQUEST: 0x7e,
 } as const;
 
@@ -81,10 +86,14 @@ export function applySysex(data: Uint8Array, store: DeviceStore): boolean {
       store.setModel(p[13]);
       store.setMode(p[14] & 0x03);
       store.setPlaying((p[14] & 0x04) !== 0);
+      store.setSndEdit((p[14] & 0x08) !== 0);
       store.setSeqStep(p[15] === 0x7f ? null : p[15]);
       if (p.length >= 18) {
         store.setOctave(p[16] - 3);
         store.setRoot(p[17]);
+      }
+      if (p.length >= 19) {
+        store.setRecSlot(p[18] === 0x7f ? null : p[18]);
       }
       return true;
     }
@@ -105,6 +114,24 @@ export function applySysex(data: Uint8Array, store: DeviceStore): boolean {
         delay: p[2] / 127,
         ...(trims.length ? { trims } : {}),
       });
+      return true;
+    }
+    case FrameType.KIT: {
+      if (p.length < 1) return true;
+      const n = Math.min(p[0], Math.floor((p.length - 1) / 6));
+      const slots = [];
+      for (let i = 0; i < n; i++) {
+        const b = 1 + i * 6;
+        slots.push({
+          engine: p[b],
+          harmonics: p[b + 1] / 127,
+          timbre: p[b + 2] / 127,
+          morph: p[b + 3] / 127,
+          decay: p[b + 4] / 127,
+          note: p[b + 5],
+        });
+      }
+      if (slots.length) store.setKit(slots);
       return true;
     }
     case FrameType.HELLO:

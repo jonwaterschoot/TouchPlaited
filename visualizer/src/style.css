@@ -144,6 +144,14 @@ body.transparent {
   margin-left: 6px;
   font-variant-numeric: tabular-nums;
 }
+/* Unassigned-knob note ("no effect on Six-Op A") — muted, not a value. */
+.callout i,
+.action-line i {
+  color: var(--text);
+  opacity: 0.55;
+  font-style: italic;
+  margin-left: 6px;
+}
 .callout.fading {
   opacity: 0;
 }
@@ -155,17 +163,27 @@ body.transparent {
   position: absolute;
   display: flex;
   flex-direction: column;
-  gap: 0.4em;
-  /* Fixed footprint (font-relative, so the grip still scales it): content
-     updates must not make the box grow/shrink on screen recordings. */
+  /* Default footprint; the grip sets an explicit px width/height instead of
+     scaling the font — more room means more text fits. Font size has its own
+     A−/A+ buttons. */
   width: 30ch;
-  font-size: 14px; /* scaled by the resize grip */
+  font-size: 14px;
   pointer-events: auto;
   cursor: grab;
   user-select: none;
   touch-action: none;
   padding: 0.5em;
   background: rgba(18, 17, 15, 0.55);
+}
+/* Content wrapper: scrolls when the user-set height clips it, so the grip
+   (which hangs outside the panel bounds) is never clipped away. */
+.info-scroll {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4em;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-width: thin;
 }
 .info-panel:hover {
   outline: 1px dashed var(--accent);
@@ -196,6 +214,30 @@ body.transparent {
   opacity: 1;
 }
 
+/* Font-size buttons (top-right, hover-revealed like the grip). */
+.info-font {
+  position: absolute;
+  top: -7px;
+  right: -7px;
+  display: flex;
+  gap: 2px;
+  opacity: 0;
+  transition: opacity 120ms linear;
+}
+.info-panel:hover .info-font {
+  opacity: 1;
+}
+.info-font button {
+  background: var(--overlay);
+  border: 1px solid var(--accent);
+  color: var(--accent);
+  font: inherit;
+  font-size: 10px;
+  line-height: 1;
+  padding: 3px 5px;
+  cursor: pointer;
+}
+
 .action-log {
   display: flex;
   flex-direction: column;
@@ -204,6 +246,122 @@ body.transparent {
   /* reserve ~4 log lines so the panel height is stable too */
   min-height: 4.8em;
 }
+/* Collapsible model section: engine name + per-knob functions and values. */
+.model-section {
+  background: var(--overlay);
+  border: 1px solid var(--line);
+  padding: 0.35em 0.85em;
+}
+.model-head {
+  font-size: 0.9em;
+  cursor: pointer;
+  user-select: none;
+  color: var(--text);
+}
+.model-head b {
+  color: var(--accent);
+}
+.model-row {
+  display: flex;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0 1em;
+  font-size: 0.8em;
+  line-height: 1.35;
+  color: var(--text);
+}
+.model-row b {
+  color: var(--accent);
+}
+.model-row .v {
+  color: var(--value);
+  font-variant-numeric: tabular-nums;
+}
+.model-row.dead {
+  opacity: 0.5;
+}
+.model-row.rec b {
+  color: var(--alert);
+}
+.model-row i {
+  opacity: 0.55;
+}
+.model-row[data-ctl]:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+/* Hover highlight on the drawing (from info-panel rows). */
+.ctl-hl {
+  filter: drop-shadow(0 0 4px var(--accent)) drop-shadow(0 0 10px var(--accent));
+}
+
+/* Static label overlays ('S#' / 'Aa' modes) — condensed faceplate text. */
+.static-labels {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.static-label {
+  position: absolute;
+  transform: translate(-50%, 0);
+  font-family: 'Sofia Sans Extra Condensed', 'Arial Narrow', 'Roboto Condensed', sans-serif;
+  font-weight: 500;
+  line-height: 1.05;
+  text-align: center;
+  white-space: pre-line;
+  color: #ece5d8;
+  letter-spacing: 0.02em;
+  text-shadow: 0 0 3px rgba(0, 0, 0, 0.95), 0 0 7px rgba(0, 0, 0, 0.75);
+}
+.static-label.pad {
+  transform: translate(-50%, -50%);
+  opacity: 0.9;
+}
+/* Knob designators sit inside the cap, over the pointer line. */
+.static-label.in-knob {
+  transform: translate(-50%, -50%);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-shadow: 0 0 3px rgba(0, 0, 0, 1), 0 0 6px rgba(0, 0, 0, 1);
+}
+.static-label.dead {
+  opacity: 0.4;
+}
+
+/* Seq drum kit: one aligned grid — pad/role, engine, then h/t/m/d/note
+   columns with a dimmed header row. */
+.kit-grid {
+  display: grid;
+  grid-template-columns: auto minmax(6ch, 1fr) repeat(4, auto) auto;
+  column-gap: 0.7em;
+  row-gap: 0.1em;
+  font-size: 0.8em;
+  line-height: 1.35;
+  color: var(--text);
+}
+.kit-grid b {
+  color: var(--accent);
+}
+.kit-grid .n {
+  text-align: right;
+  color: var(--value);
+  font-variant-numeric: tabular-nums;
+}
+.kit-grid .head {
+  color: var(--text);
+  opacity: 0.45;
+}
+.kit-grid .eng {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.kit-grid .rec,
+.kit-grid .rec b {
+  color: var(--alert);
+}
+
 .action-line {
   font-size: 0.85em;
   line-height: 1.25;
