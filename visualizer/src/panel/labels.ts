@@ -170,6 +170,16 @@ export class Labels {
 
     this.infoPanel = document.createElement('div');
     this.infoPanel.className = 'info-panel';
+    // Always-visible title bar: a drag handle (the hover-revealed grip/font
+    // controls don't work on touch, so grabbing the panel needs a permanent
+    // target), the overlay-mode + font-size controls, and a reset button
+    // replacing the old double-click gesture, which mobile users can't
+    // discover or reliably trigger.
+    const handle = document.createElement('div');
+    handle.className = 'info-handle';
+    const dragIcon = document.createElement('span');
+    dragIcon.className = 'info-drag-icon';
+    dragIcon.textContent = '⠿';
     this.status = document.createElement('div');
     this.status.className = 'status-chip';
     // Collapsible model section — the current engine's knob functions and
@@ -211,8 +221,9 @@ export class Labels {
     scroll.className = 'info-scroll';
     scroll.append(this.status, modelSection, this.logEl);
     // Font size is its own control now — the grip resizes the box only.
+    // Lives in the header, grouped with the overlay-mode and reset buttons.
     const fontCtl = document.createElement('div');
-    fontCtl.className = 'info-font';
+    fontCtl.className = 'info-controls';
     const mkFont = (txt: string, d: number) => {
       const b = document.createElement('button');
       b.textContent = txt;
@@ -241,9 +252,24 @@ export class Labels {
       this.renderStatic(this.store.state);
     });
     fontCtl.append(ovBtn, mkFont('A−', -0.15), mkFont('A+', 0.15));
-    this.infoPanel.append(scroll, grip, fontCtl);
+    const resetBtn = document.createElement('button');
+    resetBtn.textContent = '⟲';
+    resetBtn.title = 'Reset panel position, size and font';
+    resetBtn.addEventListener('pointerdown', (e) => e.stopPropagation());
+    resetBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      localStorage.removeItem(INFO_POS_KEY);
+      localStorage.removeItem(INFO_SCALE_KEY);
+      localStorage.removeItem(INFO_SIZE_KEY);
+      this.applyInfoScale(1);
+      this.applyInfoSize(null, null);
+      this.placeInfoPanel();
+    });
+    fontCtl.append(resetBtn);
+    handle.append(dragIcon, fontCtl);
+    this.infoPanel.append(handle, scroll, grip);
     overlay.appendChild(this.infoPanel);
-    this.initInfoDrag();
+    this.initInfoDrag(handle);
     this.initInfoResize(grip);
     this.applyInfoScale(parseFloat(localStorage.getItem(INFO_SCALE_KEY) ?? '1'));
     try {
@@ -781,40 +807,31 @@ export class Labels {
     this.infoPanel.style.top = `${y}px`;
   }
 
-  private initInfoDrag() {
+  private initInfoDrag(handle: HTMLDivElement) {
     const p = this.infoPanel;
     let startX = 0, startY = 0, origX = 0, origY = 0;
 
-    p.addEventListener('pointerdown', (e) => {
-      p.setPointerCapture(e.pointerId);
+    handle.addEventListener('pointerdown', (e) => {
+      handle.setPointerCapture(e.pointerId);
       p.classList.add('dragging');
       startX = e.clientX;
       startY = e.clientY;
       origX = p.offsetLeft;
       origY = p.offsetTop;
     });
-    p.addEventListener('pointermove', (e) => {
+    handle.addEventListener('pointermove', (e) => {
       if (!p.classList.contains('dragging')) return;
       p.style.left = `${origX + e.clientX - startX}px`;
       p.style.top = `${origY + e.clientY - startY}px`;
     });
-    p.addEventListener('pointerup', (e) => {
+    handle.addEventListener('pointerup', (e) => {
       p.classList.remove('dragging');
-      p.releasePointerCapture(e.pointerId);
+      handle.releasePointerCapture(e.pointerId);
       const o = this.overlay.getBoundingClientRect();
       localStorage.setItem(INFO_POS_KEY, JSON.stringify({
         fx: p.offsetLeft / Math.max(1, o.width),
         fy: p.offsetTop / Math.max(1, o.height),
       }));
-    });
-    // double-click: back to the default spot, size and font
-    p.addEventListener('dblclick', () => {
-      localStorage.removeItem(INFO_POS_KEY);
-      localStorage.removeItem(INFO_SCALE_KEY);
-      localStorage.removeItem(INFO_SIZE_KEY);
-      this.applyInfoScale(1);
-      this.applyInfoSize(null, null);
-      this.placeInfoPanel();
     });
   }
 
