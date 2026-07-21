@@ -53,10 +53,16 @@ public:
     Knob& s36() { return _knobs[6]; }
     Knob& s37() { return _knobs[7]; }
 
+    // S43 clock-in jack (A11) — rides the same ADC DMA scan as the knobs
+    // (hw.adc.Init can only run once). Raw counts, no AnalogControl: the
+    // clock edge detector wants the unfiltered level, not a smoothed pot.
+    uint16_t ClockInRaw() const { return _clock_in ? *_clock_in : 0; }
+
 private:
     NOCOPY(Knobs)
 
     std::array<Knob, 8> _knobs;
+    uint16_t* _clock_in = nullptr;
 };
 
 } // namespace synthux
