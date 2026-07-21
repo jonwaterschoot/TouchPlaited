@@ -23,6 +23,7 @@ bool StateChanged(const TelemetryState& a, const TelemetryState& b) {
     if (a.seq_step != b.seq_step) return true;
     if (a.octave != b.octave || a.root != b.root) return true;
     if (a.rec_slot != b.rec_slot) return true;
+    if (a.rec_layers != b.rec_layers || a.rec_mute != b.rec_mute) return true;
     for (int i = 0; i < 8; i++)
         if (a.controls[i] != b.controls[i]) return true;
     return false;
@@ -65,7 +66,7 @@ void Telemetry::Service(const TelemetryState& s, uint32_t now_ms, MidiIO& midi) 
 }
 
 void Telemetry::SendState(const TelemetryState& s, uint32_t now_ms, MidiIO& midi) {
-    uint8_t f[26];
+    uint8_t f[28];
     f[0] = 0xF0; f[1] = 0x7D; f[2] = 0x54; f[3] = 0x50; f[4] = 0x01;
     f[5]  = kFrameState;
     f[6]  = static_cast<uint8_t>(s.pads & 0x7F);         // P0..P6
@@ -81,7 +82,9 @@ void Telemetry::SendState(const TelemetryState& s, uint32_t now_ms, MidiIO& midi
     f[22] = s.octave & 0x7F;
     f[23] = s.root & 0x7F;
     f[24] = s.rec_slot & 0x7F;
-    f[25] = 0xF7;
+    f[25] = s.rec_layers & 0x7F;   // NoteRec committed layer count, 0..5
+    f[26] = s.rec_mute & 0x7F;     // bit i = NoteRec layer i muted
+    f[27] = 0xF7;
     midi.SendSysexUsb(f, sizeof(f));
     last_state_ = s;
     state_ms_   = now_ms;

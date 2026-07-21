@@ -443,6 +443,30 @@ export class Labels {
         this.renderStatus(s);
         break;
       }
+      case 'recLayers': {
+        // Distinguish a clear (layer count dropped) from a mute/unmute
+        // toggle (count unchanged, mask bit flipped) purely from the two
+        // snapshots — the firmware's LED already disambiguates these live
+        // (see MANUAL.md), this just gives the same story a log line.
+        if (ev.layers < ev.prevLayers) {
+          const html = ev.layers === 0 && ev.prevLayers > 1
+            ? `<b>Rec</b> all layers cleared`
+            : `<b>Rec</b> layer cleared <span>${ev.layers}/5 left</span>`;
+          this.addLog('rec-clear', html);
+        } else if (ev.layers > ev.prevLayers) {
+          this.addLog('rec-clear', `<b>Rec</b> layer ${ev.layers} recorded`);
+        } else {
+          const diff = ev.mute ^ ev.prevMute;
+          for (let i = 0; i < 5; i++) {
+            if (!(diff & (1 << i))) continue;
+            const muted = (ev.mute & (1 << i)) !== 0;
+            this.addLog(`rec-layer-${i + 1}`,
+              `<b>Rec</b> layer ${i + 1} <span>${muted ? 'muted' : 'unmuted'}</span>`);
+          }
+        }
+        this.renderStatus(s);
+        break;
+      }
       case 'mode':
       case 'playing':
       case 'seqStep':
@@ -652,6 +676,8 @@ export class Labels {
     ];
     if (s.seqStep !== null) parts.push(`step ${s.seqStep + 1}`);
     if (s.mode === 1 && s.sndEdit) parts.push('<i>sound edit</i>');
+    if (s.mode === 1 && s.recLayers > 0)
+      parts.push(`<i>${s.recLayers} layer${s.recLayers > 1 ? 's' : ''}</i>`);
     if (s.recSlot !== null) parts.push(`<i>REC P${s.recSlot + 3}</i>`);
     if (!s.connected) parts.push('<i>not connected</i>');
     this.status.innerHTML = parts.join(' · ');

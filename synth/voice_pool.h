@@ -4,6 +4,17 @@
 
 namespace synthux {
 
+// Per-group (Basic Pitch / arp / Rec / drum, matching VoiceGroup below) send
+// buses for Render() — 4 independent reverb + 4 independent delay sends
+// (21/07/26 follow-up), indexed by VoiceGroup's underlying int. A struct of
+// arrays rather than 16 positional params, same reasoning as VoiceParams.
+struct FxBuses {
+    float* rev_l[4];
+    float* rev_r[4];
+    float* dly_l[4];
+    float* dly_r[4];
+};
+
 // Full per-voice patch snapshot for NoteOnWithParams / AuditionWithParams.
 // Passed as a struct — the positional-parameter version grew past ten args
 // and call sites were becoming error-prone.
@@ -20,6 +31,13 @@ struct VoiceParams {
     float rev_send  = 1.0f;   // per-voice trim on the group FX sends —
     float dly_send  = 1.0f;   // multiplies like volume/width; 1 = follow fully
 };
+
+// Which per-group volume/width/FX-send set a voice draws from in Render, and
+// whether it's skipped by the global per-block setters (see skip()). kBP is
+// the only group those setters still reach — kArp/kRec/kDrum voices carry
+// their sound as a snapshot/trigger param instead (arp_snd, rec_snd, or a
+// drum slot), so a live BP knob write must never reach them.
+enum class VoiceGroup : uint8_t { kBP, kArp, kRec, kDrum };
 
 class VoicePool {
 public:
@@ -38,8 +56,7 @@ public:
             voice_width[i]  = 1.0f;
             voice_rev_send[i] = 1.0f;
             voice_dly_send[i] = 1.0f;
-            locked[i]       = false;
-            arp_owned[i]    = false;
+            voice_group[i]  = VoiceGroup::kBP;
             awake[i]        = false;
             gate_held[i]    = false;
             quiet_chunks[i] = 0;
@@ -65,24 +82,34 @@ public:
     void SetLPGColour(float v) { g_lpg = v;    for (int i = 0; i < kVoices; i++) if (!skip(i)) voices[i].SetLPGColour(v); }
     void SetDrive(float v)     { g_drive = v;  for (int i = 0; i < kVoices; i++) if (!skip(i)) voices[i].SetDrive(v); }
 
-    // Group volumes: locked voices (drum seq) and pitched voices have separate
-    // output levels, so S36 in Seq mode balances the drums against the synth
-    // without touching the pitched level, and vice versa.
+    // Group volumes: Basic Pitch, the arp, Rec and the drum seq each have
+    // separate output levels (20/07/26 notes: "each playmode has its own
+    // volume... REC is considered separate"), so S36 in one never touches
+    // another's level.
     void SetSeqVolume(float v)     { vol_seq = v; }
-    void SetPitchedVolume(float v) { vol_pitched = v; }
+    void SetPitchedVolume(float v) { vol_pitched = v; }   // Basic Pitch
+    void SetArpVolume(float v)     { vol_arp = v; }
+    void SetRecVolume(float v)     { vol_rec = v; }
 
     // Group stereo width (see Render): 1 = natural OUT/AUX split, 0 = mono.
+    // Not split per the 20/07/26 notes (volume + FX send only) — the arp and
+    // Rec share Basic Pitch's width, same as before.
     void SetSeqWidth(float v)     { width_seq = v; }
     void SetPitchedWidth(float v) { width_pitched = v; }
 
     // Per-group FX send levels (see Render): each voice's post-volume/width
     // output also feeds the reverb and delay send buses, scaled by its
     // group's send × the voice's own send trim — dry drums under a wet
-    // synth for free, like the volume/width pairs.
+    // synth for free, like the volume/width pairs. Basic Pitch, the arp and
+    // Rec each get their own (20/07/26 notes: separate send per playmode).
     void SetSeqReverbSend(float v)     { rev_send_seq = v; }
-    void SetPitchedReverbSend(float v) { rev_send_pitched = v; }
+    void SetPitchedReverbSend(float v) { rev_send_pitched = v; }   // Basic Pitch
+    void SetArpReverbSend(float v)     { rev_send_arp = v; }
+    void SetRecReverbSend(float v)     { rev_send_rec = v; }
     void SetSeqDelaySend(float v)      { dly_send_seq = v; }
-    void SetPitchedDelaySend(float v)  { dly_send_pitched = v; }
+    void SetPitchedDelaySend(float v)  { dly_send_pitched = v; }   // Basic Pitch
+    void SetArpDelaySend(float v)      { dly_send_arp = v; }
+    void SetRecDelaySend(float v)      { dly_send_rec = v; }
 
     // Skip the audition voice — its FM stays at 0 for the full note duration.
     void SetFMAmount(float v) {
@@ -113,20 +140,22 @@ public:
         voice_width[idx]  = 1.0f;
         voice_rev_send[idx] = 1.0f;
         voice_dly_send[idx] = 1.0f;
-        locked[idx]       = false;
-        arp_owned[idx]    = false;
+        voice_group[idx]  = VoiceGroup::kBP;
         gate_chunks[idx]  = 0;   // gate held until the pad's NoteOff
         wake(idx, true);
     }
 
     // Modes 2/3: note + full patch snapshot; params persist until stolen.
-    // lock_params=true isolates the voice from all global setters (drum-seq
-    // triggers playing behind a pitched mode) and pins LPG/FM to drum defaults.
-    // arp_own=true does the same isolation but keeps the voice in the pitched
-    // group (volume/width/FX) — arp/Rec-loop triggers, whose sound is the
-    // latched arp model refreshed per trigger, never the live knobs.
+    // grp selects both the render group (volume/FX-send set, see Render) and
+    // whether the voice is isolated from the global per-block setters:
+    // kBP is the only group those still reach. kDrum additionally pins
+    // LPG/FM to drum defaults (one-shot triggers, no gate held). kArp/kRec
+    // take LPG colour (CC25) from the cache at trigger time instead — their
+    // sound is a snapshot (arp_snd/rec_snd) refreshed per trigger, never the
+    // live knobs.
     void NoteOnWithParams(int slot, float note, const VoiceParams& p,
-                          bool lock_params = false, bool arp_own = false) {
+                          VoiceGroup grp = VoiceGroup::kBP) {
+        bool lock_params = grp == VoiceGroup::kDrum;
         int idx = find_free_or_steal();
         voices[idx].SetEngine(p.engine);
         voices[idx].SetHarmonics(p.harmonics);
@@ -137,7 +166,7 @@ public:
         if (lock_params) {
             voices[idx].SetLPGColour(0.5f);
             voices[idx].SetFMAmount(0.0f);
-        } else if (arp_own) {
+        } else if (grp != VoiceGroup::kBP) {
             // Isolated from the per-block globals, so take LPG colour (CC25)
             // from the cache at trigger time; FM stays off like any pitched voice.
             voices[idx].SetLPGColour(g_lpg);
@@ -152,8 +181,7 @@ public:
         voice_width[idx]  = p.width;
         voice_rev_send[idx] = p.rev_send;
         voice_dly_send[idx] = p.dly_send;
-        locked[idx]       = lock_params;
-        arp_owned[idx]    = arp_own;
+        voice_group[idx] = grp;
         // Locked (drum-seq) voices are one-shots: gate drops on a decay-scaled
         // timer instead of a NoteOff, and they're free to sleep as soon as
         // their tail decays.
@@ -166,7 +194,11 @@ public:
             if (pad_slot[i] == slot) {
                 voices[i].Trigger(false);
                 pad_slot[i]  = -1;
-                locked[i]    = false;
+                // Only a drum-seq voice returns to the global setters' reach
+                // here — an arp/Rec voice's isolation outlives its NoteOff
+                // (matches the pre-refactor locked/arp_owned split: NoteOff
+                // only ever cleared "locked", never "arp_owned").
+                if (voice_group[i] == VoiceGroup::kDrum) voice_group[i] = VoiceGroup::kBP;
                 gate_held[i] = false;   // release tail may now decay to sleep
                 gate_chunks[i] = 0;
             }
@@ -177,8 +209,7 @@ public:
         for (int i = 0; i < kVoices; i++) {
             voices[i].Trigger(false);
             pad_slot[i]  = -1;
-            locked[i]    = false;
-            arp_owned[i] = false;
+            voice_group[i] = VoiceGroup::kBP;
             gate_held[i] = false;
             gate_chunks[i] = 0;
         }
@@ -186,11 +217,10 @@ public:
     }
 
     // One-shot preview with neutral params. FM=0 is maintained by SetFMAmount skipping this voice.
-    void Audition(float note, int engine = -1) {
+    void Audition(float note, int engine = -1, VoiceGroup grp = VoiceGroup::kBP) {
         int idx = find_free_or_steal();
         audition_idx = idx;
-        locked[idx]  = false;
-        arp_owned[idx] = false;
+        voice_group[idx] = grp;
         // engine < 0 = "current global engine" — never trust the recycled
         // voice's own engine, it may be a stale drum-seq voice.
         voices[idx].SetEngine(engine >= 0 ? engine : g_engine);
@@ -217,18 +247,18 @@ public:
     // Preview using a specific slot's patch — P0+P2 hold feedback and rec-mode
     // auditions. volume defaults to full; rec passes the slot's stored volume
     // so S36 edits are audible while recording, not only after confirm.
-    // seq_group routes the voice through the drum group's volume/width/FX
-    // sends in Render — drum-slot auditions must sound like seq triggers, and
-    // the pitched fader may be sitting at zero. It rides on `locked`, which
-    // also shields the voice from the global setters (like any drum voice).
-    // Drive is taken from the params, not the global cache: for unlocked
-    // (pitched) auditions the per-block SetDrive overwrites it anyway, and a
-    // locked drum audition must keep the drive its params were shaped with.
-    void AuditionWithParams(float note, const VoiceParams& p, bool seq_group = false) {
+    // grp routes the voice through that group's volume/width/FX sends in
+    // Render — e.g. drum-slot auditions (kDrum) must sound like seq triggers,
+    // and the pitched fader may be sitting at zero; arp/Rec sound-edit
+    // auditions (kArp/kRec) must preview at that group's own level. Any
+    // non-kBP group also shields the voice from the global setters (like any
+    // locked voice). Drive is taken from the params, not the global cache:
+    // for kBP auditions the per-block SetDrive overwrites it anyway, and a
+    // locked/owned audition must keep the drive its params were shaped with.
+    void AuditionWithParams(float note, const VoiceParams& p, VoiceGroup grp = VoiceGroup::kBP) {
         int idx = find_free_or_steal();
         audition_idx = idx;
-        locked[idx]  = seq_group;
-        arp_owned[idx] = false;
+        voice_group[idx] = grp;
         voices[idx].SetEngine(p.engine);
         voices[idx].SetHarmonics(p.harmonics);
         voices[idx].SetTimbre(p.timbre);
@@ -256,8 +286,7 @@ public:
     // off, and wakes on the next trigger. Gate-held voices never sleep, so a
     // held pad on a quiet engine region still responds to knob sweeps.
     void Render(float* out_left, float* out_right,
-                float* rev_left, float* rev_right,
-                float* dly_left, float* dly_right, size_t size) {
+                const FxBuses& buses, size_t size) {
         static float tmp_l[24], tmp_r[24];
         for (int i = 0; i < kVoices; i++) {
             // One-shot gate countdown runs even for sleeping voices so a
@@ -269,29 +298,41 @@ public:
             __builtin_memset(tmp_l, 0, size * sizeof(float));
             __builtin_memset(tmp_r, 0, size * sizeof(float));
             voices[i].Render(tmp_l, tmp_r, size);
-            float vol  = voice_volume[i] * (locked[i] ? vol_seq : vol_pitched);
+            // Volume and FX send are per-group (Basic Pitch / arp / Rec /
+            // drum seq, each independent); width stays a two-way drum-vs-
+            // everything-else split, unchanged from before this group split.
+            float g_vol, rs, ds;
+            switch (voice_group[i]) {
+                case VoiceGroup::kDrum: g_vol = vol_seq;     rs = rev_send_seq;     ds = dly_send_seq;     break;
+                case VoiceGroup::kArp:  g_vol = vol_arp;     rs = rev_send_arp;     ds = dly_send_arp;     break;
+                case VoiceGroup::kRec:  g_vol = vol_rec;     rs = rev_send_rec;     ds = dly_send_rec;     break;
+                default:                g_vol = vol_pitched; rs = rev_send_pitched; ds = dly_send_pitched; break;
+            }
+            float vol  = voice_volume[i] * g_vol;
             // Plaits renders two different signals per engine (OUT and AUX).
             // Blend picks the mono mix between them; width crossfades from
             // that mono mix (0) toward the raw OUT-left/AUX-right split (1).
             // Per-voice and group widths multiply, so a slot set to mono
             // stays dead center whatever the group width does.
             float b    = voice_blend[i];
-            float w    = voice_width[i] * (locked[i] ? width_seq : width_pitched);
-            float rs   = locked[i] ? rev_send_seq : rev_send_pitched;
-            float ds   = locked[i] ? dly_send_seq : dly_send_pitched;
+            bool  is_drum = voice_group[i] == VoiceGroup::kDrum;
+            float w    = voice_width[i] * (is_drum ? width_seq : width_pitched);
             float peak = 0.f;
             float rsv = rs * voice_rev_send[i] * vol;
             float dsv = ds * voice_dly_send[i] * vol;
+            int g = static_cast<int>(voice_group[i]);
+            float* rl = buses.rev_l[g]; float* rr = buses.rev_r[g];
+            float* dl = buses.dly_l[g]; float* dr = buses.dly_r[g];
             for (size_t s = 0; s < size; s++) {
                 float m = tmp_l[s] + b * (tmp_r[s] - tmp_l[s]);
                 float l = m + w * (tmp_l[s] - m);
                 float r = m + w * (tmp_r[s] - m);
                 out_left[s]  += l * vol;
                 out_right[s] += r * vol;
-                rev_left[s]  += l * rsv;
-                rev_right[s] += r * rsv;
-                dly_left[s]  += l * dsv;
-                dly_right[s] += r * dsv;
+                rl[s] += l * rsv;
+                rr[s] += r * rsv;
+                dl[s] += l * dsv;
+                dr[s] += r * dsv;
                 float a = l < 0.f ? -l : l;
                 float b = r < 0.f ? -r : r;
                 if (a > peak) peak = a;
@@ -319,8 +360,7 @@ public:
         voices[victim].Trigger(false);
         awake[victim]    = false;
         pad_slot[victim] = -1;
-        locked[victim]   = false;
-        arp_owned[victim] = false;
+        voice_group[victim] = VoiceGroup::kBP;
         gate_chunks[victim] = 0;
         if (victim == audition_idx) audition_idx = -1;
         return true;
@@ -369,8 +409,7 @@ private:
     float    voice_width[kVoices];
     float    voice_rev_send[kVoices];
     float    voice_dly_send[kVoices];
-    bool     locked[kVoices];
-    bool     arp_owned[kVoices];     // arp/Rec-loop voice: per-trigger params only
+    VoiceGroup voice_group[kVoices]; // render group + global-setter isolation, see VoiceGroup
     bool     awake[kVoices];
     bool     gate_held[kVoices];
     uint32_t quiet_chunks[kVoices];
@@ -378,9 +417,8 @@ private:
     uint32_t tick;
     int      audition_idx;
 
-    // Voices the global setters must not touch. arp_owned voices stay in the
-    // pitched group in Render (unlike locked), so this is params-only.
-    bool skip(int i) const { return locked[i] || arp_owned[i]; }
+    // Voices the global setters must not touch — anything but kBP.
+    bool skip(int i) const { return voice_group[i] != VoiceGroup::kBP; }
 
     void wake(int idx, bool hold_gate) {
         awake[idx]        = true;
@@ -402,13 +440,14 @@ private:
     float g_harm  = 0.5f, g_timbre = 0.5f, g_morph = 0.5f, g_decay = 0.5f;
     float g_lpg   = 0.5f, g_drive  = 0.0f, g_blend = 0.5f;
 
-    // Per-group output levels (see SetSeqVolume/SetPitchedVolume).
-    float vol_seq = 1.0f, vol_pitched = 1.0f;
-    // Per-group stereo width (see SetSeqWidth/SetPitchedWidth).
+    // Per-group output levels (see SetSeqVolume/SetPitchedVolume/etc.).
+    float vol_seq = 1.0f, vol_pitched = 1.0f, vol_arp = 1.0f, vol_rec = 1.0f;
+    // Per-group stereo width (see SetSeqWidth/SetPitchedWidth) — only the
+    // drum-vs-everything-else split exists; arp/Rec share width_pitched.
     float width_seq = 1.0f, width_pitched = 1.0f;
     // Per-group FX send levels (see SetSeqReverbSend etc.). 0 = dry.
-    float rev_send_seq = 0.0f, rev_send_pitched = 0.0f;
-    float dly_send_seq = 0.0f, dly_send_pitched = 0.0f;
+    float rev_send_seq = 0.0f, rev_send_pitched = 0.0f, rev_send_arp = 0.0f, rev_send_rec = 0.0f;
+    float dly_send_seq = 0.0f, dly_send_pitched = 0.0f, dly_send_arp = 0.0f, dly_send_rec = 0.0f;
 
     int find_free_or_steal() {
         // Prefer a genuinely free voice (not the active audition slot).

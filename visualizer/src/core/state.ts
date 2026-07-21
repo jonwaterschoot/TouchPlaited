@@ -36,6 +36,8 @@ export interface DeviceState {
   fx: FxState;
   recSlot: number | null; // drum slot being edited in Recording, null = idle
   kit: KitSlot[] | null;  // Seq drum kit (P3..P9), null until a KIT frame lands
+  recLayers: number;      // NoteRec committed layer count, 0..5 (Arp/Mel Rec)
+  recMute: number;        // bitmask, bit i = NoteRec layer i muted
 }
 
 export type StateEvent =
@@ -53,6 +55,7 @@ export type StateEvent =
   | { kind: 'fx'; fx: FxState }
   | { kind: 'recSlot'; v: number | null }
   | { kind: 'kit' }
+  | { kind: 'recLayers'; layers: number; mute: number; prevLayers: number; prevMute: number }
   | { kind: 'connected'; v: boolean }
   | { kind: 'note'; channel: number; note: number; on: boolean } // transient, not stored
   | { kind: 'sync' }; // emitted after a bulk update; views should repaint all
@@ -77,6 +80,8 @@ function initialState(): DeviceState {
     fx: {},
     recSlot: null,
     kit: null,
+    recLayers: 0,
+    recMute: 0,
   };
 }
 
@@ -181,6 +186,18 @@ export class DeviceStore {
     if (this.state.recSlot === v) return;
     this.state.recSlot = v;
     this.emit({ kind: 'recSlot', v });
+  }
+
+  /** NoteRec layer count + mute mask (Arp/Mel Rec) — carries both the new
+   * and previous values so listeners can tell a clear (count dropped) from
+   * a mute toggle (count same, mask bit flipped) without re-deriving state. */
+  setRecLayers(layers: number, mute: number) {
+    const prevLayers = this.state.recLayers;
+    const prevMute = this.state.recMute;
+    if (layers === prevLayers && mute === prevMute) return;
+    this.state.recLayers = layers;
+    this.state.recMute = mute;
+    this.emit({ kind: 'recLayers', layers, mute, prevLayers, prevMute });
   }
 
   /** Replace the kit snapshot; the 2 s KIT heartbeat re-sends unchanged kits,

@@ -14,13 +14,12 @@ namespace {
 // A delay line is one sequential read + write per sample: cache-friendly, so
 // SDRAM latency is not the per-sample tax it was for the physical-model
 // engines (see notes.md FX resource analysis).
+// Buffers are per-instance members (Reverb::buffer_, StereoDelay::buffer_l_/
+// buffer_r_) now that each of the 4 FX groups owns its own Reverb + Stereo
+// Delay (21/07/26 follow-up) — was one shared global buffer per DSP type.
 constexpr size_t kReverbBufSize = 32768;               // uint16 words, 64 KB
 constexpr size_t kDelayBufSize  = 65536;               // floats/ch, ~1.36 s at 48 kHz
 constexpr size_t kDelayMask     = kDelayBufSize - 1;
-
-DSY_SDRAM_BSS uint16_t reverb_buffer[kReverbBufSize];
-DSY_SDRAM_BSS float    delay_buffer_l[kDelayBufSize];
-DSY_SDRAM_BSS float    delay_buffer_r[kDelayBufSize];
 
 // FX sleep threshold — same figure as VoicePool voice sleep (−80 dBFS).
 constexpr float kSilenceThresh = 1e-4f;
@@ -46,7 +45,7 @@ inline float peak_of(const float* a, const float* b, size_t size) {
 class Reverb {
 public:
     void Init(float sample_rate) {
-        engine_.Init(reverb_buffer);
+        engine_.Init(buffer_);
         engine_.Clear();
         engine_.SetLFOFrequency(plaits::LFO_1, 0.5f / sample_rate);
         engine_.SetLFOFrequency(plaits::LFO_2, 0.3f / sample_rate);
@@ -166,7 +165,8 @@ public:
 
 private:
     typedef plaits::FxEngine<kReverbBufSize, plaits::FORMAT_16_BIT> E;
-    E engine_;
+    uint16_t buffer_[kReverbBufSize];   // this instance's own reverb memory
+    E        engine_;
 
     static constexpr uint32_t kQuietBlocks = 96;   // × 192 samples ≈ 380 ms
 
@@ -189,8 +189,8 @@ private:
 class StereoDelay {
 public:
     void Init(float sample_rate) {
-        memset(delay_buffer_l, 0, sizeof(delay_buffer_l));
-        memset(delay_buffer_r, 0, sizeof(delay_buffer_r));
+        memset(buffer_l_, 0, sizeof(buffer_l_));
+        memset(buffer_r_, 0, sizeof(buffer_r_));
         sample_rate_  = sample_rate;
         write_        = 0;
         time_         = 0.120f * sample_rate;
@@ -231,14 +231,14 @@ public:
             uint32_t p0   = ipos & kDelayMask;
             uint32_t p1   = (p0 + 1) & kDelayMask;
 
-            float dl = delay_buffer_l[p0] + (delay_buffer_l[p1] - delay_buffer_l[p0]) * frac;
-            float dr = delay_buffer_r[p0] + (delay_buffer_r[p1] - delay_buffer_r[p0]) * frac;
+            float dl = buffer_l_[p0] + (buffer_l_[p1] - buffer_l_[p0]) * frac;
+            float dr = buffer_r_[p0] + (buffer_r_[p1] - buffer_r_[p0]) * frac;
 
             // Damped, crossed feedback: L tail feeds R input and vice versa.
             lp_l_ += damp_ * (dl - lp_l_);
             lp_r_ += damp_ * (dr - lp_r_);
-            delay_buffer_l[write_] = send_l[i] + lp_r_ * feedback_;
-            delay_buffer_r[write_] = send_r[i] + lp_l_ * feedback_;
+            buffer_l_[write_] = send_l[i] + lp_r_ * feedback_;
+            buffer_r_[write_] = send_r[i] + lp_l_ * feedback_;
             write_ = (write_ + 1) & kDelayMask;
 
             main_l[i] += dl;
@@ -265,6 +265,9 @@ private:
     static constexpr float kMaxTime  = static_cast<float>(kDelayBufSize - 8);
     static constexpr float kTimeSlew = 0.0003f;   // ≈70 ms time constant at 48 kHz
 
+    float buffer_l_[kDelayBufSize];   // this instance's own delay memory
+    float buffer_r_[kDelayBufSize];
+
     float    sample_rate_;
     uint32_t write_;
     float    time_;
@@ -277,57 +280,66 @@ private:
     uint32_t quiet_blocks_;
 };
 
-Reverb     reverb_impl;
-StereoDelay delay_impl;
+// One Reverb + one StereoDelay per FX group (FxGroup: kBP/kArp/kRec/kDrum),
+// each fully independent (own buffers, own character, own sleep state).
+DSY_SDRAM_BSS Reverb      reverb_impl[kFxGroupCount];
+DSY_SDRAM_BSS StereoDelay delay_impl[kFxGroupCount];
 float      fx_sample_rate = 48000.f;
 
 } // namespace
 
 // ── FxSection ─────────────────────────────────────────────────────────────────
+// Each method just dispatches to this instance's own slot in the per-group
+// arrays above — group_ is the only state FxSection itself holds, so the
+// header stays free of Plaits/stmlib types (same discipline as plaits_voice).
 
-FxSection fx;
+FxSection fx_bp(FxGroup::kBP), fx_arp(FxGroup::kArp),
+          fx_rec(FxGroup::kRec), fx_drum(FxGroup::kDrum);
 
 void FxSection::Init(float sample_rate) {
     fx_sample_rate = sample_rate;
-    reverb_impl.Init(sample_rate);
-    delay_impl.Init(sample_rate);
+    int i = static_cast<int>(group_);
+    reverb_impl[i].Init(sample_rate);
+    delay_impl[i].Init(sample_rate);
 }
 
 void FxSection::SetReverbCharacter(int side, float amount) {
+    Reverb& r = reverb_impl[static_cast<int>(group_)];
     if (side < 0) {
         // Room: short and damped; the tail opens slightly as wet grows.
-        reverb_impl.set_time(0.35f + 0.25f * amount);
-        reverb_impl.set_lp(0.45f);
+        r.set_time(0.35f + 0.25f * amount);
+        r.set_lp(0.45f);
     } else if (side > 0) {
         // Hall: long and bright. Capped below 1.0 — krt ≥ 1 never decays.
-        reverb_impl.set_time(0.75f + 0.20f * amount);
-        reverb_impl.set_lp(0.80f);
+        r.set_time(0.75f + 0.20f * amount);
+        r.set_lp(0.80f);
     }
     // side == 0: leave params; the send level is 0 so nothing feeds it.
 }
 
 void FxSection::SetDelayCharacter(int side, float amount, float synced_samples) {
+    StereoDelay& d = delay_impl[static_cast<int>(group_)];
     if (side < 0) {
         // Slapback: fixed short echo, feedback stays low.
-        delay_impl.set_target_time(0.120f * fx_sample_rate);
-        delay_impl.set_feedback(0.05f + 0.25f * amount);
-        delay_impl.set_damp(0.85f);
+        d.set_target_time(0.120f * fx_sample_rate);
+        d.set_feedback(0.05f + 0.25f * amount);
+        d.set_damp(0.85f);
     } else if (side > 0) {
         // Synced dotted 1/8: repeats grow with wet, darker dub-style tail.
-        delay_impl.set_target_time(synced_samples);
-        delay_impl.set_feedback(0.20f + 0.50f * amount);
-        delay_impl.set_damp(0.45f);
+        d.set_target_time(synced_samples);
+        d.set_feedback(0.20f + 0.50f * amount);
+        d.set_damp(0.45f);
     }
 }
 
 void FxSection::ProcessDelay(const float* send_l, const float* send_r,
                              float* main_l, float* main_r, size_t size) {
-    delay_impl.Process(send_l, send_r, main_l, main_r, size);
+    delay_impl[static_cast<int>(group_)].Process(send_l, send_r, main_l, main_r, size);
 }
 
 void FxSection::ProcessReverb(const float* send_l, const float* send_r,
                               float* main_l, float* main_r, size_t size) {
-    reverb_impl.Process(send_l, send_r, main_l, main_r, size);
+    reverb_impl[static_cast<int>(group_)].Process(send_l, send_r, main_l, main_r, size);
 }
 
 } // namespace synthux

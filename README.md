@@ -11,7 +11,7 @@ Full controls reference: [MANUAL.md](MANUAL.md).
 This version is using all 24 models (the 16 original + the 8 new ones). There are three main playmodes. Basic Pitch, Arp/Mel, and Seq.
 
 - **Basic Pitch**: 1 model with the pads or a midi input.
-- **Arp/Mel**: an arpeggiator (with hold/latch) plus a layered 2-bar note recorder, playing its own sound
+- **Arp/Mel**: an arpeggiator (with hold/latch) plus a layered 2-bar note recorder — the arp and the recorder each play their own independent sound
 - **Seq**: loads only drum and percussive sounds, can play preloaded patterns
 
 Using a fader to mix between the models AUX or OUT outputs. Adding a way to spread these over stereo.
@@ -34,26 +34,27 @@ Hover the info screen, toggle **dyn** (live callouts on top of the drawing) / **
 
 ### Knobs
 
-| Knob | Basic Pitch | Arp/Mel | Seq |
-|------|-------------|---------|-----|
-| S30 | Drive | Drive | Drive |
-| S31 | Decay | Decay | Tempo |
-| S32 | Harmonics | Division | Shuffle |
-| S33 | Timbre | Swing | Density |
-| S34 | Morph | Density (Euclid) | Kick punch |
-| S35 | *(model select — needs P0 or P2)* | Order | Pattern |
-| S36 | Volume | Volume | Seq volume |
-| S37 | Model mix OUT ↔ AUX | Model mix | Tightness |
+| Knob | Basic Pitch | Arp/Hold | Rec | Seq |
+|------|-------------|----------|-----|-----|
+| S30 | Drive | Drive | Drive (own value) | Drive |
+| S31 | Decay | Decay | Decay (shared with Arp) | Tempo |
+| S32 | Harmonics | Division | **Speed** — 1x…8x playback | Shuffle |
+| S33 | Timbre | Swing | **Shift** — moves the loop in time | Density |
+| S34 | Morph | Density (Euclid) | **Chance** — per-hit playback odds | Kick punch |
+| S35 | *(model select — needs P0 or P2)* | Order | **Order** — as recorded / shuffled | Pattern |
+| S36 | Volume (own) | Volume (own) | Volume (own) | Seq volume |
+| S37 | Model mix OUT ↔ AUX (own) | Model mix (own) | Model mix (own) | Tightness |
 
+- Basic Pitch, the arp, and Rec each have their **own** drive, blend, volume, FX send and octave — turning one never moves another's. Only decay (S31) and P0-held width are genuinely shared between Arp/Hold and Rec.
 - Morph does nothing on engines 2–4 and 19–23 — their real decay lives on morph, and the Decay knob drives it there (DX7 envelope time on Six-Op, damping/tail on 19–23). Seq *Tightness* compresses the tails of 19–23. On Six-Op the S37 blend/width fader is also inert (AUX = OUT).
-- The arp plays **its own sound** (seeded from Basic Pitch once, then independent) — edit it by holding **P0 + P1 ~1 s**: the knobs become drive / decay / harmonics / timbre / morph until you toggle back.
+- Basic Pitch, the arp, and Rec each play **their own sound**, all starting on a random model at boot and never linked to each other — edit whichever is in view by holding **P0 + P1 ~1 s**: the knobs become drive / decay / harmonics / timbre / morph until you toggle back.
 
 ### Pads
 
 | Pad | Basic Pitch | Arp/Mel | Seq |
 |-----|-------------|---------|-----|
-| P3–P9 | Play notes | Feed the arp *(Rec: play + record)* | Kick · snare · cl. hat · op. hat · clap · tom · perc |
-| P10 / P11 | Octave − / + | Octave − / + | — |
+| P3–P9 | Play notes | Feed the arp *(Rec: play, and record once armed — see P2+P10 below)* | Kick · snare · cl. hat · op. hat · clap · tom · perc |
+| P10 / P11 | Octave − / + | Octave − / + *(own value per Arp/Hold vs Rec)* | — |
 | Hold P3–P9 2 s | — | — | Recording |
 
 ### Shift layers — hold, then turn / tap
@@ -63,17 +64,17 @@ Hover the info screen, toggle **dyn** (live callouts on top of the drawing) / **
 | P0 | S35 | Model select, bank 0 (engines 0–11) |
 | P2 | S35 | Model select, bank 1 (engines 12–23) |
 | P0 | S37 | Stereo width |
-| P0 | P10 / P11 | Root semitone − / + *(Arp/Mel Rec: P0+P10 tap = undo layer, hold 1.5 s = clear all)* |
-| P0 | pad 1–4 | *(Arp/Mel Rec)* clear that recorded layer |
-| P0 + P1 | hold 1 s | *(Arp/Mel)* toggle sound edit on the arp's sound |
-| P1 | S30 | **Reverb** — room ◄ off ► hall |
-| P1 | S35 | **Delay** — slapback ◄ off ► dotted 1/8 |
+| P0 | P10 / P11 | Root semitone − / + *(Basic Pitch only; in Arp/Mel Rec, P0+P10 tap is **Undo** instead)* |
+| P2 | pad (Arp/Mel Rec) | Tap = mute/unmute that layer · hold ~1.2 s = clear that layer · hold ≥2 pads = clear all |
+| P0 + P1 | hold 1 s | *(Arp/Mel)* toggle sound edit on whichever sound is in view (arp's or Rec's) |
+| P1 | S30 | **Reverb** — room ◄ off ► hall — Basic Pitch, arp, Rec and drums each have their own instance |
+| P1 | S35 | **Delay** — slapback ◄ off ► dotted 1/8 — same four independent instances |
 | P1 | P10 / P11 | *(Arp/Mel)* arp octave range 0–3 |
-| P2 | P10 | Arp + Rec loop run / stop *(any mode)* |
+| P2 | P10 | Arp transport run / stop *(any mode)* · **in Arp/Mel Rec: arm/disarm capture instead** (disarm doesn't stop playback, only new recording) |
 | P2 | P11 | Drum seq play / pause *(any mode)* |
-| P0 + P2 | hold 1 s / 2 s | Randomize tight / wide *(Arp/Mel: vary arp sound · Seq: vary kit / new kit)* · 3 s *(Basic Pitch)*: back to clean |
+| P0 + P2 | hold 1 s / 2 s | Randomize tight / wide *(Arp/Mel: vary whichever sound is in view · Seq: vary kit / new kit)* · 3 s *(Basic Pitch)*: back to clean |
 
-- FX knobs are mirror knobs: center = off, wet grows outward. They affect the pitched voices in pitched modes, the drum group in Seq.
+- FX knobs are mirror knobs: center = off, wet grows outward. Basic Pitch, the arp, Rec, and the drum group each get their own fully independent reverb and delay — send level *and* character, not just a shared engine with separate levels.
 
 ### Recording (Seq only — hold a drum pad 2 s)
 
@@ -86,7 +87,7 @@ Knobs now edit **that slot only**: drive, decay, harmonics/timbre/morph, volume,
 - **Notes** — ch 1 in: pitched, chromatic · ch 10 in/out: GM drums · pads out on ch 1
 - **CC 20–26** harmonics · timbre · morph · decay · drive · LPG colour · volume
 - **CC 27–31** *(Seq)* tempo · shuffle · density · punch · tightness
-- **CC 85–88** reverb / delay, pitched / drums (value 64 = off, below/above = character A/B)
+- **CC 85–88** reverb / delay, Basic Pitch / drums (value 64 = off, below/above = character A/B) — the arp's and Rec's own FX are device-only, same as their sound
 - **Clock** — follows external clock + Start/Stop when present; sends its own otherwise
 
 ## Controls at a glance
@@ -117,28 +118,28 @@ Knobs now edit **that slot only**: drive, decay, harmonics/timbre/morph, volume,
 
 ### Arp/Mel (SW2 Center)
 
-SW1 picks the sub-state: **Hold** (left) · **Arp** (center) · **Rec** (right) — change-latched, so it only applies when flicked inside the mode. The arp plays its own sound, independent of Basic Pitch.
+SW1 picks the sub-state: **Hold** (left) · **Arp** (center) · **Rec** (right) — change-latched, so it only applies when flicked inside the mode. Basic Pitch, the arp, and Rec each play their **own** sound (random at boot, never linked), and each has its own volume, drive, blend, FX send (send *and* character), and octave. S32–S35 switch to Rec-only functions (Speed/Shift/Chance/Order) while SW1 is in Rec.
 
-| Control | Function | MIDI CC |
-|---------|----------|---------|
-| S30 | Drive (live per trigger) | 24 |
-| S31 | Decay (stamped per note into a Rec take) | — |
-| S32 | Division — 1/4 … 1/32 against the master tempo (center = 1/16) | — |
-| S33 | Swing | — |
-| S34 | Density — Euclidean fill; lower half adds a 75% chance roll | — |
-| S35 | Order — played / up / down / ping-pong / random | — |
-| S36 | Output level (pitched group) | 26 |
-| S37 | Blend (hold P0: stereo width) | — |
-| P3–P9 | Arp: feed the pool · Hold: latch, re-touch removes · Rec: play + record into a 2-bar loop (4 layers) | notes in ch 1 play the arp sound |
-| P10 / P11 | Base octave − / + (transposes the running arp) | — |
-| P1 + P10 / P11 | Octave range 0–3 | — |
-| P0 + P10 / P11 | Root semitone − / + · Rec: **P0+P10 tap = undo, hold 1.5 s = clear all** | — |
-| P0 + pad 1–4 | Rec: clear that layer (pad 1 = oldest) | — |
-| P0 + P1 hold 1 s | Sound edit toggle — knobs become drive / decay / harmonics / timbre / morph on the arp's sound | — |
-| P0 / P2 + S35 | Model select on the arp's sound (bank 0 / 1) | — |
-| P0 + P2 hold 1 s / 2 s | Vary the arp's sound — tight / wide | — |
-| P2 (hold) + P10 | Arp + Rec loop run / stop (any mode) | — |
-| P2 (hold) + P11 | Drum seq play / pause | Start/Continue/Stop |
+| Control | Function (Arp/Hold) | Function (Rec) | MIDI CC |
+|---------|----------------------|-----------------|---------|
+| S30 | Drive (live per trigger, own value) | Drive (own value) | 24 (Basic Pitch only) |
+| S31 | Decay (stamped per note into a Rec take) | same (shared knob) | — |
+| S32 | Division — 1/4 … 1/32 against the master tempo (center = 1/16) | **Speed** — 1x (left) to 8x (right) playback of committed layers | — |
+| S33 | Swing | **Shift** — moves committed layers in time (center = none) | — |
+| S34 | Density — Euclidean fill; lower half adds a 75% chance roll | **Chance** — per-hit playback probability | — |
+| S35 | Order — played / up / down / ping-pong / random | **Order** — left = as recorded, right = pitches shuffled | — |
+| S36 | Output level (own value) | Output level (own value) | 26 (Basic Pitch only) |
+| S37 | Blend (own value; hold P0: stereo width, shared) | Blend (own value) | — |
+| P3–P9 | Arp: feed the pool · Hold: latch, re-touch removes | Play, and record once armed (see P2+P10) into a 2-bar loop (5 layers) | notes in ch 1 play the arp/Rec sound |
+| P10 / P11 | Base octave − / + (own value per Arp/Hold vs Rec) | own value | — |
+| P1 + P10 / P11 | Octave range 0–3 | — | — |
+| P0 + P10 tap | Root semitone − / + (Basic Pitch only) | **Undo** — pop the last layer/take | — |
+| P2 + pad | — | Tap = mute/unmute that layer · hold ~1.2 s = clear it · hold ≥2 pads = clear all | — |
+| P0 + P1 hold 1 s | Sound edit toggle — knobs become drive / decay / harmonics / timbre / morph on whichever sound is in view | same, on Rec's own sound | — |
+| P0 / P2 + S35 | Model select on the in-view sound (bank 0 / 1) | same | — |
+| P0 + P2 hold 1 s / 2 s | Vary the in-view sound — tight / wide | same | — |
+| P2 (hold) + P10 | Arp transport run / stop (any mode) | **Arm / disarm capture** — disarm doesn't stop playback, only new recording | — |
+| P2 (hold) + P11 | Drum seq play / pause | same | Start/Continue/Stop |
 
 ### Seq (SW2 Up)
 
@@ -208,7 +209,7 @@ Two toggles, eight knobs, twelve touch pads. **SW2** (right toggle) picks the pl
 2. **Play drums live.** Tap the musical pads **P3–P9** — kick, snare, closed hat, open hat, clap, tom, perc.
 3. **Add a synth on top.** Flick **SW2 Down** (Basic Pitch) — the drums keep playing. P3–P9 now play notes; **P10 / P11** shift the octave down / up, and SW1 picks the scale (minor / chromatic / major).
 4. **Shape the sound.** **S32** harmonics, **S33** timbre, **S34** morph, **S31** decay, **S30** drive, **S37** OUT↔AUX blend. Choose an engine by holding **P0** (bank 0) or **P2** (bank 1) while turning **S35**.
-5. **Let it play itself.** Flick **SW2 Center** (Arp/Mel) and hold a few pads — the arpeggiator plays them. **S31** sets the rate, **S35** the note order, **S33** thins the pattern out. Flick **SW1 left** (Hold) to latch the notes, **SW1 right** (Rec) to record pads into a 2-bar loop.
+5. **Let it play itself.** Flick **SW2 Center** (Arp/Mel) and hold a few pads — the arpeggiator plays them. **S32** sets the rate, **S35** the note order, **S34** thins the pattern out. Flick **SW1 left** (Hold) to latch the notes, **SW1 right** (Rec) to hear pads on their own sound without recording yet — hold **P2 then tap P10** to arm, then play to record into a 2-bar loop.
 6. **Fine-tune one drum.** In Seq mode, hold any musical pad for 2 s to enter **Recording** — the knobs now edit just that slot. Hold the same pad 1.2 s again to save.
 7. **Pause / resume the drums** from any mode: hold **P2**, then tap **P11**. Same for the arp and its loop: **P2**, then **P10**.
 

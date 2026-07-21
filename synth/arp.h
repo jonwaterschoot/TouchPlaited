@@ -6,7 +6,7 @@
 // Pure logic, no audio calls: TouchPlaited feeds it the master timebase
 // (the drum sequencer's 16th-step block count + external MIDI clock ticks)
 // and fires voices from the returned events. Design notes: notes.md →
-// "Playmode overhaul"; plan: ARP-MEL-PLAN.md.
+// "Playmode overhaul"; plan: notesarchive/arp-mel-plan-archive.md.
 //
 // Pool: up to kMaxNotes entries keyed by pad slot. Plain mode adds on touch /
 // removes on release; hold mode latches and a re-touch removes (toggle).

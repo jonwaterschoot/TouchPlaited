@@ -28,6 +28,8 @@ struct TelemetryState {
     uint8_t  rec_slot;     // slot being edited in Recording, 0x7F = not recording
     uint8_t  kit[7][6];    // per drum slot: engine, harmonics, timbre, morph,
                            // decay, MIDI note — the app's info screen / rec labels
+    uint8_t  rec_layers;   // NoteRec committed layer count, 0..5 (Arp/Mel Rec)
+    uint8_t  rec_mute;     // bit i = NoteRec layer i muted
 };
 
 // Emits full-state SysEx frames over USB MIDI, rate-limited:

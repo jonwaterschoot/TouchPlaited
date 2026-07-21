@@ -69,22 +69,33 @@ static float seq_width_lk = 0.0f;   // P0+S37 in Seq = drum-group stereo width (
 // S37 doubles as the width control while P0 is held, and recording borrows
 // both faders — a raw live read would jump the setting on every hand-off.
 // Width defaults to 0: the mix is mono until the width control opens it.
+// Volume and blend are per-mode (20/07/26 notes + 21/07/26 follow-up: "each
+// playmode has its own volume... REC is considered separate", extended to
+// drive and blend too) — pitched_vol_lk/pitched_blend_lk are Basic Pitch's;
+// the arp and Rec get their own (arp_vol_lk/rec_vol_lk, arp_blend_lk/
+// rec_blend_lk, declared with the rest of the Arp/Mel state below). Width
+// stays shared across all three — never asked to split, and it's a fader
+// position (0=mono), not a per-voice trigger param like drive/blend.
 static float pitched_vol_lk   = 1.0f;
 static float pitched_blend_lk = 0.5f;
 static float pitched_width_lk = 0.0f;
 
 // FX mirror knobs (P1+S30 = reverb, P1+S35 = delay), stored per group like
-// the volume/width pairs so drums and synth keep independent wet levels.
+// the volume/width pairs so each group keeps an independent wet level AND
+// character (21/07/26 follow-up: 4 fully independent reverb/delay instances
+// now — see fx.h — so there's no more shared "last edit wins" character
+// lock; each group's own knob position drives its own instance's character
+// directly, decoded fresh every block where it's used).
 // Encoding: 0.5 = off (center dead zone); left of center = character A, wet
 // grows toward 0.0; right of center = character B, wet grows toward 1.0.
 // Reverb: room | hall. Delay: slapback | synced dotted 1/8.
-// The *_char values remember the last edit from either group — the shared
-// FX instance takes its character (side + coupled params) from there.
 // Drum recording adds a per-slot trim on top of the drum-group send (PadSlot
 // rev_send/dly_send, edited with the same P1 combo): group send × slot trim,
 // so the mirror knob stays the master wet and the trims fine-balance the kit.
-static float fx_rev_seq_lk = 0.5f, fx_rev_pitched_lk = 0.5f, fx_rev_char_lk = 0.5f;
-static float fx_dly_seq_lk = 0.5f, fx_dly_pitched_lk = 0.5f, fx_dly_char_lk = 0.5f;
+// fx_*_pitched_lk is Basic Pitch's; the arp and Rec get their own
+// (fx_*_arp_lk/fx_*_rec_lk, declared with the rest of the Arp/Mel state).
+static float fx_rev_seq_lk = 0.5f, fx_rev_pitched_lk = 0.5f;
+static float fx_dly_seq_lk = 0.5f, fx_dly_pitched_lk = 0.5f;
 
 // Mirror-knob decode: side -1/0/+1 and wet 0..1 (distance from the dead zone).
 static constexpr float kFxDeadZone = 0.06f;
@@ -114,6 +125,14 @@ static float rand_f() {
 }
 static float rand_range(float lo, float hi) { return lo + rand_f() * (hi - lo); }
 static float clampf(float v) { return v < 0.f ? 0.f : v > 1.f ? 1.f : v; }
+
+// A random engine 0–23, skipping Chiptune (7) — self-running arpeggiator,
+// excluded from every random pool. Used for boot randomization (Basic Pitch,
+// the arp's and Rec's independent sounds all start on an unrelated model).
+static int random_engine() {
+    int idx = static_cast<int>(rand_f() * 23.f);   // 0..22
+    return (idx >= 7) ? idx + 1 : idx;
+}
 
 // Width fader bottom = mono: snap the last few percent to exactly 0 so "fader
 // completely down" reliably means mono, not width 0.02.
@@ -196,7 +215,13 @@ static float lpg_colour = 0.5f;
 
 static int current_engine = 0;
 
-static int octave_offset        = 0;
+// Per-mode octave: Basic Pitch, the arp (background-latched, independent of
+// whatever mode is currently in view), and Rec each keep their own — bare
+// P10/P11 taps write whichever store matches current_mode/arp_state at the
+// time (see active_octave()); nothing else changes hands.
+static int bp_octave            = 0;
+static int arp_octave           = 0;
+static int rec_octave           = 0;
 static int root_semitone        = 0;
 static constexpr int kPitchBase = 60;
 
@@ -319,7 +344,7 @@ static VoiceParams drum_params(int i) {
 static void trigger_drum(int i, float vel = 1.0f) {
     VoiceParams p = drum_params(i);
     p.volume *= vel;   // MIDI velocity; pads and seq steps pass 1.0
-    pool.NoteOnWithParams(16 + i, drum_slots[i].note, p, true);
+    pool.NoteOnWithParams(16 + i, drum_slots[i].note, p, VoiceGroup::kDrum);
 }
 
 // Seq P0+P2 stage 1: nudge params of the current kit — same engines, same notes.
@@ -355,6 +380,19 @@ static PlayMode sw2_to_mode(int sw) {
 enum class ArpState { ARP, HOLD, REC };
 static ArpState arp_state = ArpState::ARP;
 
+// Which octave store a bare P10/P11 tap or compute_note() should use right
+// now. Seq mode has no pitched octave of its own — falls back to bp_octave,
+// same "current_mode still holds the last pitched mode" doctrine used by the
+// bp_slots_active escape check elsewhere. The running arp reads arp_octave
+// directly instead (see fire_arp_note) — it keeps its own octave even when
+// this resolves to bp_octave/rec_octave because Basic Pitch or Rec is what's
+// currently in view.
+static int& active_octave() {
+    if (!seq_mode_on && current_mode == PlayMode::ARP_MEL)
+        return (arp_state == ArpState::REC) ? rec_octave : arp_octave;
+    return bp_octave;
+}
+
 // The arp's own sound model. Seeded from the live Basic Pitch sound on the
 // FIRST Arp/Mel entry ever, then fully independent — BP knob moves and mode
 // round-trips never touch it again (hardware feedback 16/07/26: the earlier
@@ -366,11 +404,25 @@ static ArpState arp_state = ArpState::ARP;
 static PadSlot arp_snd;
 static bool    arp_snd_ready = false;
 
-// Sound-edit sub-mode (P0+P1 held ~1s, toggle): the knobs leave their arp
-// roles and edit arp_snd with the Basic Pitch layout — S30 drive, S31 decay,
-// S32 harmonics, S33 timbre, S34 morph. Exits on re-toggle, any SW1 state
-// change, or leaving/re-entering the mode.
+// Rec's own sound model — fully independent of arp_snd and Basic Pitch
+// (20/07/26 notes: "fully detach sound model from playmodes... each starts
+// with a random model at boot"). Unlike arp_snd's lazy first-entry seed,
+// rec_snd is randomized once at boot (main()) and ready is never false again.
+// Editing it: P0+P1 hold toggles rec_snd_edit while SW1=Rec, P0/P2+S35 swaps
+// the engine, P0+P2 staged hold varies h/t/m — same gestures as arp_snd, just
+// scoped to the Rec sub-state. Decay/drive stay the shared arp_decay_lk /
+// arp_drive_lk knobs (same physical knobs, same meaning, in Arp and Rec
+// alike) and are written into this slot at every trigger.
+static PadSlot rec_snd;
+static bool    rec_snd_ready = false;
+
+// Sound-edit sub-mode (P0+P1 held ~1s, toggle): the knobs leave their arp/Rec
+// roles and edit arp_snd or rec_snd (whichever SW1 sub-state is active) with
+// the Basic Pitch layout — S30 drive, S31 decay, S32 harmonics, S33 timbre,
+// S34 morph. Exits on re-toggle, any SW1 state change, or leaving/re-entering
+// the mode. Only one of the two can be active at a time (SW1 selects which).
 static bool arp_snd_edit = false;
+static bool rec_snd_edit = false;
 
 // Arp knob settings — same locked-value + pickup scheme as the seq knobs.
 // Defaults: division center (1/16), steady full density, order random.
@@ -378,10 +430,71 @@ static float arp_drive_lk = 0.0f, arp_div_lk  = 0.5f, arp_swing_lk = 0.0f,
              arp_dens_lk  = 1.0f, arp_decay_lk = 0.5f, arp_order_lk = 1.0f;
 static int   arp_oct_range = 0;   // P1+P10/P11, 0–3 extra octaves
 
+// Rec-only knob layer (S32-S35 while SW1=Rec — 20/07/26 notes,
+// notesarchive/arp-mel-plan-archive.md §7/C10). S31 decay stays the shared
+// arp_decay_lk above (a hold gesture on a note's tail feels the same either
+// way); only S32-S35 take on Rec-specific meanings. Defaults: speed 1x
+// (center), no shift (center), always fires, original order (left).
+static float rec_speed_lk = 0.0f, rec_shift_lk = 0.5f,
+             rec_chance_lk = 1.0f, rec_order_lk = 0.0f;
+
+// Rec's own drive (21/07/26 follow-up: was sharing arp_drive_lk — the notes
+// asked for every fader to be independent between Rec and Arp, not just
+// volume/FX-send).
+static float rec_drive_lk = 0.0f;
+
+// Per-mode volume (S36) and FX send (P1+S30/S35) locks for the arp and Rec —
+// see pitched_vol_lk/fx_*_pitched_lk above (Basic Pitch's). 20/07/26 notes:
+// each playmode's volume and FX send stay independent, Rec separate from Arp.
+static float arp_vol_lk = 1.0f, rec_vol_lk = 1.0f;
+static float arp_blend_lk = 0.5f, rec_blend_lk = 0.5f;
+static float fx_rev_arp_lk = 0.5f, fx_rev_rec_lk = 0.5f;
+static float fx_dly_arp_lk = 0.5f, fx_dly_rec_lk = 0.5f;
+
+// Which volume/blend lock a bare S36/S37 edit should target right now — same
+// "current_mode + arp_state" dispatch as active_octave() above. Only ever
+// called from !seq_mode_on contexts (Seq has its own seq_vol_lk, untouched
+// by this), so no seq_mode_on branch is needed.
+static float& active_pitched_vol_lk() {
+    if (current_mode == PlayMode::ARP_MEL)
+        return (arp_state == ArpState::REC) ? rec_vol_lk : arp_vol_lk;
+    return pitched_vol_lk;
+}
+static float& active_blend_lk() {
+    if (current_mode == PlayMode::ARP_MEL)
+        return (arp_state == ArpState::REC) ? rec_blend_lk : arp_blend_lk;
+    return pitched_blend_lk;
+}
+// Which FX-send lock a P1+S30/P1+S35 edit should target — unlike the volume
+// pickup above, the FX combo is live in every mode including Seq (drum
+// sends), so this needs the same seq_mode_on branch active_octave() has.
+static float& active_fx_rev_lk() {
+    if (seq_mode_on) return fx_rev_seq_lk;
+    if (current_mode == PlayMode::ARP_MEL)
+        return (arp_state == ArpState::REC) ? fx_rev_rec_lk : fx_rev_arp_lk;
+    return fx_rev_pitched_lk;
+}
+static float& active_fx_dly_lk() {
+    if (seq_mode_on) return fx_dly_seq_lk;
+    if (current_mode == PlayMode::ARP_MEL)
+        return (arp_state == ArpState::REC) ? fx_dly_rec_lk : fx_dly_arp_lk;
+    return fx_dly_pitched_lk;
+}
+
 // Melodic transport (P2+P10) — gates the arp AND the Rec loop together; the
 // drum seq keeps its own transport on P2+P11. Defaults to running so the
 // plain arp sounds as soon as notes are held.
 static bool arp_run_on = true;
+
+// Rec capture arm (2026-07-21 follow-up): SW1=Rec used to start recording
+// the instant you touched a pad, which made auditioning Rec's own (now
+// independent, possibly unfamiliar) sound impossible without also
+// committing a note. Pads always sound regardless of this flag; only
+// RecordNote() is gated on it. Always lands false on a fresh Rec entry;
+// P2+P10, only while SW1=Rec, toggles it instead of its usual transport
+// meaning (disarming does NOT stop playback — committed layers keep
+// looping while you're punched out, only new capture stops).
+static bool rec_armed = false;
 
 // Arp/loop voice gates: the arp fires real gates (not one-shots), so each
 // trigger takes a round-robin pool slot and a block countdown to its NoteOff.
@@ -396,6 +509,15 @@ static int      arp_gate_rr = 0;
 static uint32_t rec_gate_blocks[kArpGates] = { 0, 0, 0, 0 };
 static uint8_t  rec_gate_note[kArpGates]   = { 0, 0, 0, 0 };
 static int      rec_gate_rr = 0;
+
+// P2 + pad P3-P7 layer gestures in Rec (5 pads, one per NoteRec layer):
+// per-pad hold counter tracked in AudioCallback; a pad that reaches
+// kLongHoldBlocks fires ClearLayer (or ClearAll if >=2 pads are down at that
+// moment) and is marked "fired" so releasing it doesn't also toggle mute.
+// SetOnRelease reads both arrays to fire the tap (ToggleMute) action; the
+// main loop also reads them (volatile) for the hold-countdown LED animation.
+static volatile uint32_t p2layer_hold[5]  = { 0, 0, 0, 0, 0 };
+static volatile bool     p2layer_fired[5] = { false, false, false, false, false };
 
 // External MIDI clock ticks for the arp + loop clocks, counted here because
 // Sequencer consumes its own. Written from the MIDI handler (main loop, IRQs
@@ -528,12 +650,48 @@ static KnobPickup seq_pu30, seq_pu31, seq_pu32, seq_pu33, seq_pu34, seq_pu35, se
 // S33 swing, S34 density, S35 order — decay sits on S31 like every other
 // mode, the arp functions shift one knob right) — armed on every entry.
 static KnobPickup arp_pu30, arp_pu31, arp_pu32, arp_pu33, arp_pu34, arp_pu35;
+// Pickups for the Rec-only S32-S35 layer (speed/shift/chance/order) — armed
+// on every SW1 transition into Rec. S31 keeps using arp_pu31 (shared decay);
+// S30 gets its own (rec_pu30, drive is independent per 21/07/26 follow-up).
+static KnobPickup rec_pu30, rec_pu32, rec_pu33, rec_pu34, rec_pu35;
 // Pickups for the Arp/Mel sound-edit layer (BP layout on arp_snd) — armed on
 // every P0+P1 toggle into sound edit.
 static KnobPickup arp_se30, arp_se31, arp_se32, arp_se33, arp_se34;
+// Same, for Rec's independent sound (BP layout on rec_snd) — armed on every
+// P0+P1 toggle into sound edit while SW1=Rec.
+static KnobPickup rec_se30, rec_se31, rec_se32, rec_se33, rec_se34;
 // Pitched-mode faders — armed at boot and on every return to a pitched mode.
-static KnobPickup pitch_pu_vol;     // S36 volume
-static KnobPickup pitch_pu_blend;   // S37 OUT↔AUX blend
+// Volume and blend are both per-mode (21/07/26 follow-up).
+static KnobPickup pitch_pu_vol;     // S36 volume (Basic Pitch)
+static KnobPickup pitch_pu_blend;   // S37 blend (Basic Pitch)
+static KnobPickup arp_pu_vol;       // S36 volume (arp)
+static KnobPickup arp_pu_blend;     // S37 blend (arp)
+static KnobPickup rec_pu_vol;       // S36 volume (Rec)
+static KnobPickup rec_pu_blend;     // S37 blend (Rec)
+
+// Arm whichever of pitch_pu_vol/arp_pu_vol/rec_pu_vol and pitch_pu_blend/
+// arp_pu_blend/rec_pu_blend match the current mode/arp_state (see
+// active_pitched_vol_lk()/active_blend_lk()) — called on every hand-off into
+// a pitched context: SW2 flick back from Seq, rec-mode exit (S36/S37 are
+// borrowed there), and SW1 sub-state changes within Arp/Mel (arp_state
+// flipping between Arp/Hold and Rec changes which lock S36/S37 target).
+static void rearm_pitched_faders() {
+    auto& kn = touch.knobs();
+    float v36 = kn.s36().Value();
+    float v37 = kn.s37().Value();
+    if (current_mode == PlayMode::ARP_MEL) {
+        if (arp_state == ArpState::REC) {
+            rec_pu_vol.arm_to(active_pitched_vol_lk(), v36);
+            rec_pu_blend.arm_to(active_blend_lk(), v37);
+        } else {
+            arp_pu_vol.arm_to(active_pitched_vol_lk(), v36);
+            arp_pu_blend.arm_to(active_blend_lk(), v37);
+        }
+    } else {
+        pitch_pu_vol.arm_to(active_pitched_vol_lk(), v36);
+        pitch_pu_blend.arm_to(active_blend_lk(), v37);
+    }
+}
 
 static void rearm_seq_pickups() {
     auto& kn = touch.knobs();
@@ -547,8 +705,7 @@ static void rearm_seq_pickups() {
     seq_pu37.arm_to(seq_tight_lk, kn.s37().Value());
     seq_puw.arm(kn.s37().Value());
     // Recording borrows S36/S37 — re-arm the pitched set too.
-    pitch_pu_vol.arm_to(pitched_vol_lk,     kn.s36().Value());
-    pitch_pu_blend.arm_to(pitched_blend_lk, kn.s37().Value());
+    rearm_pitched_faders();
     pitch_pu_w.arm(kn.s37().Value());
 }
 
@@ -560,6 +717,20 @@ static void rearm_arp_pickups() {
     arp_pu33.arm_to(arp_swing_lk, kn.s33().Value());
     arp_pu34.arm_to(arp_dens_lk,  kn.s34().Value());
     arp_pu35.arm_to(arp_order_lk, kn.s35().Value());
+}
+
+static void rearm_rec_pickups() {
+    auto& kn = touch.knobs();
+    rec_pu30.arm_to(rec_drive_lk,  kn.s30().Value());
+    // S31 decay is the one knob genuinely shared with Arp/Hold (arp_pu31/
+    // arp_decay_lk) — arm it here too so entering/re-entering Rec never
+    // skips it: the only other pickup that ever arms it is
+    // rearm_arp_pickups(), which isn't called on a Rec entry.
+    arp_pu31.arm_to(arp_decay_lk,  kn.s31().Value());
+    rec_pu32.arm_to(rec_speed_lk,  kn.s32().Value());
+    rec_pu33.arm_to(rec_shift_lk,  kn.s33().Value());
+    rec_pu34.arm_to(rec_chance_lk, kn.s34().Value());
+    rec_pu35.arm_to(rec_order_lk,  kn.s35().Value());
 }
 
 static void arm_arp_se_pickups() {
@@ -578,6 +749,32 @@ static void exit_arp_snd_edit() {
     arp_snd_edit = false;
     rearm_arp_pickups();
 }
+
+static void arm_rec_se_pickups() {
+    auto& kn = touch.knobs();
+    rec_se30.arm_to(rec_drive_lk,      kn.s30().Value());
+    rec_se31.arm_to(arp_decay_lk,      kn.s31().Value());
+    rec_se32.arm_to(rec_snd.harmonics, kn.s32().Value());
+    rec_se33.arm_to(rec_snd.timbre,    kn.s33().Value());
+    rec_se34.arm_to(rec_snd.morph,     kn.s34().Value());
+}
+
+// Leave Rec's sound edit (toggle, SW1 move, mode change): the pots go back to
+// whatever Rec's S30-S34 currently mean (still the shared Arp knob layer
+// until Phase 9 gives Rec its own S32-S35 — arp pickups cover both today).
+static void exit_rec_snd_edit() {
+    if (!rec_snd_edit) return;
+    rec_snd_edit = false;
+    // rearm_rec_pickups() covers S30/S31/S32-S35 — the whole Rec knob layer
+    // (was a pre-existing gap: this used to call rearm_arp_pickups(), which
+    // armed the wrong S30/S32-S35 set for Rec's own knob layer).
+    rearm_rec_pickups();
+}
+
+// Forward-declared: defined with the rest of the Arp/Mel helpers below, but
+// on_midi_note_on (right after the MIDI section comment) needs them earlier.
+static VoiceParams arp_params(float decay);
+static VoiceParams rec_params(float decay);
 
 // ─── MIDI (mapping design in notes.md → "MIDI mapping sketch") ────────────────
 // Channel split: ch1 = pitched — the note number IS the pitch, bypassing the
@@ -623,16 +820,19 @@ static void on_midi_note_on(uint8_t ch, uint8_t note, uint8_t vel) {
     }
     if (ch != kMidiPitchCh) return;
 
-    // Pitched: play the current mode's sound — the latched arp sound in
-    // Arp/Mel, snapshot slots in BP-snapshot mode, else the live knobs (the
-    // per-block global setters keep updating those voices, so knobs stay
-    // live on held MIDI notes too).
+    // Pitched: play the current mode's sound — Rec's own sound while SW1=Rec,
+    // else the latched arp sound in Arp/Hold, snapshot slots in BP-snapshot
+    // mode, else the live knobs (the per-block global setters keep updating
+    // those voices, so knobs stay live on held MIDI notes too).
+    bool in_rec_snd = current_mode == PlayMode::ARP_MEL
+                      && arp_state == ArpState::REC && rec_snd_ready;
+    bool in_arp_snd = current_mode == PlayMode::ARP_MEL
+                      && arp_state != ArpState::REC && arp_snd_ready;
     VoiceParams p;
-    if (current_mode == PlayMode::ARP_MEL && arp_snd_ready) {
-        arp_snd.decay = arp_decay_lk;
-        arp_snd.drive = arp_drive_lk;
-        arp_snd.blend = pitched_blend_lk;
-        p = slot_params(arp_snd);
+    if (in_rec_snd) {
+        p = rec_params(arp_decay_lk);
+    } else if (in_arp_snd) {
+        p = arp_params(arp_decay_lk);
     } else if (current_mode == PlayMode::BASIC_PITCH && bp_slots_active) {
         p = slot_params(bp_slots[note % kPadSlots]);
     } else {
@@ -645,10 +845,12 @@ static void on_midi_note_on(uint8_t ch, uint8_t note, uint8_t vel) {
         p.blend     = pitched_blend_lk;
     }
     p.volume *= gain;   // scale, don't replace — Random slots carry recorded volumes
-    // Notes carrying the arp's sound are arp-owned: the BP knobs must not
-    // morph them if SW2 flicks to Basic Pitch while they're held/decaying.
+    // Notes carrying the arp's or Rec's sound are arp-owned: the BP knobs
+    // must not morph them if SW2 flicks to Basic Pitch while they're
+    // held/decaying.
     pool.NoteOnWithParams(kMidiSlotBase + note, static_cast<float>(note), p,
-                          false, current_mode == PlayMode::ARP_MEL && arp_snd_ready);
+                          in_rec_snd ? VoiceGroup::kRec
+                          : in_arp_snd ? VoiceGroup::kArp : VoiceGroup::kBP);
 }
 
 static void on_midi_note_off(uint8_t ch, uint8_t note) {
@@ -684,19 +886,16 @@ static void on_midi_cc(uint8_t /*ch*/, uint8_t cc, uint8_t val) {
         case 31: seq_tight_lk = v; seq_pu37.arm_to(v, kn.s37().Value());     break;
         // FX mirror values, same center-off encoding as the P1 knob layer
         // (64 ≈ off; below = character A, above = character B, wet grows
-        // outward). The pot writes to whichever group is active; over MIDI
-        // each group gets its own CC so a DAW can automate the drum sends
-        // while playing a pitched mode. Character is shared — last edit from
-        // either group wins, exactly like the knob. Re-arming the movement-
-        // catch means a caught pot must be nudged again to take back over.
-        case 85: fx_rev_pitched_lk = v; fx_rev_char_lk = v;
-                 fx_mc_rev.arm(kn.s30().Value());                            break;
-        case 86: fx_rev_seq_lk = v;     fx_rev_char_lk = v;
-                 fx_mc_rev.arm(kn.s30().Value());                            break;
-        case 87: fx_dly_pitched_lk = v; fx_dly_char_lk = v;
-                 fx_mc_dly.arm(kn.s35().Value());                            break;
-        case 88: fx_dly_seq_lk = v;     fx_dly_char_lk = v;
-                 fx_mc_dly.arm(kn.s35().Value());                            break;
+        // outward). Basic Pitch and drums only — the arp's and Rec's own FX
+        // aren't reachable over MIDI (same as their sound). Each group's
+        // send+character are both this one value now (21/07/26 follow-up:
+        // 4 independent instances, no more shared character lock). Re-arming
+        // the movement-catch means a caught pot must be nudged again to take
+        // back over.
+        case 85: fx_rev_pitched_lk = v; fx_mc_rev.arm(kn.s30().Value()); break;
+        case 86: fx_rev_seq_lk = v;     fx_mc_rev.arm(kn.s30().Value()); break;
+        case 87: fx_dly_pitched_lk = v; fx_mc_dly.arm(kn.s35().Value()); break;
+        case 88: fx_dly_seq_lk = v;     fx_mc_dly.arm(kn.s35().Value()); break;
         default: break;
     }
 }
@@ -706,26 +905,66 @@ static void on_midi_all_notes_off() {
     for (int n = 0; n < 128; n++) pool.NoteOff(kMidiSlotBase + n);
 }
 
-// ── MIDI clock ────────────────────────────────────────────────────────────────
-// External clock (F8 on either port) hard-syncs the seq — 6 ticks per 16th —
-// and mutes the tempo knob/CC27 (the block counter isn't consulted). While
-// external clock is present, incoming clock + transport pass through to the
-// output; without it, the seq generates 24 ppqn itself (see AudioCallback)
-// and local start/stop send FA/FB/FC. 500ms without a tick = clock lost,
-// tempo falls back to the knob.
-static volatile uint32_t  midi_clock_last_ms = 0;
-static volatile bool      midi_ext_clock     = false;
-static constexpr uint32_t kExtClockTimeoutMs = 500;
+// ── External clock (MIDI + CV) ────────────────────────────────────────────────
+// Two external clock sources, one master at a time:
+//   MIDI — F8 on either port, 24 ppqn. Hard-syncs the seq (6 ticks per 16th)
+//          and mutes the tempo knob/CC27 (the block counter isn't consulted).
+//   CV   — pulses on the S43 jack (A11), 1 pulse per 16th step. Edge-detected
+//          once per block (~4ms) from the raw ADC with a software Schmitt
+//          trigger; each pulse is multiplied into 6 synthetic 24 ppqn ticks
+//          spread over the measured pulse period and fed down the exact same
+//          path as MIDI F8s (see the CV block in AudioCallback).
+// Hierarchy: MIDI outranks CV — higher resolution, and it carries transport.
+// CV edges keep being measured while MIDI drives, so a MIDI dropout (500ms
+// silent) hands over to CV within one pulse; a CV dropout (~2.5 missed
+// pulses) falls back to the knob tempo. Whichever clock is master (internal
+// included) is forwarded to BOTH outputs: F8s on MIDI out and a ~12ms pulse
+// per 16th on the S40 jack (D25) — the unit always acts as a clock hub.
+// Local start/stop send FA/FB/FC unless MIDI is master (then the DAW owns
+// transport and its FA/FB/FC pass through instead).
+enum class ClockSrc : uint8_t { NONE, MIDI, CV };
+static volatile ClockSrc  ext_clock_src       = ClockSrc::NONE;
+static volatile uint32_t  midi_clock_last_ms  = 0;
+static constexpr uint32_t kMidiClockTimeoutMs = 500;
+static bool ext_clocked()       { return ext_clock_src != ClockSrc::NONE; }
+static bool midi_clock_master() { return ext_clock_src == ClockSrc::MIDI; }
+
+// CV-in edge detector state. Schmitt thresholds in raw 16-bit ADC counts:
+// rise above ~1.0V, re-arm below ~0.6V at the 3.3V pin — catches any
+// conditioned pulse >= ~1.5V while sitting far above the floor noise.
+// Everything except the last-edge stamp is touched only from the audio ISR.
+static constexpr uint16_t kCvInHiRaw          = 19661;
+static constexpr uint16_t kCvInLoRaw          = 11796;
+static constexpr uint32_t kCvPeriodMinBlocks  = 3;     // ~12ms, ~1250 BPM guard
+static constexpr uint32_t kCvPeriodMaxBlocks  = 750;   // 3s — slower is "no clock"
+static bool               cv_in_high          = false;
+static uint32_t           cv_blocks_since_edge = 0;
+static float              cv_period_blocks    = 125.f; // last measured period
+static int                cv_ticks_in_window  = 6;     // 6 = closed, wait for edge
+static float              cv_tick_acc         = 0.f;
+static volatile uint32_t  cv_edge_last_ms     = 0;
+
+// Clock out (S40/D25): every 6th tick of the master clock — whatever its
+// source — starts a 3-block (~12ms) high pulse. Producers bump the pending
+// counter (MIDI handler with IRQs off, or the ISR itself); the ISR consumes.
+// Phase resets on transport Start so the first pulse lands on the downbeat.
+static daisy::GPIO        cv_clock_out;
+static volatile uint32_t  clkout_pending = 0;
+static volatile bool      clkout_resync  = true;
+static uint32_t           clkout_phase   = 0;
+static uint32_t           clkout_pulse   = 0;
+static constexpr uint32_t kClkOutPulseBlocks = 3;
 
 static void on_midi_clock() {
     midi_clock_last_ms = System::GetNow();
-    if (!midi_ext_clock) {
-        midi_ext_clock = true;
-        seq.SetExternalClock(true);
+    if (ext_clock_src != ClockSrc::MIDI) {
+        ext_clock_src = ClockSrc::MIDI;   // instant promotion — MIDI outranks CV
+        seq.SetExternalClock(true);       // no-op (no re-phase) if CV had it
     }
     seq.OnMidiClock();
     arp_ext_ticks = arp_ext_ticks + 1;   // arp + Rec-loop clocks (see AudioCallback)
     midi.SendClock();   // pass-through
+    clkout_pending = clkout_pending + 1;   // MIDI in → CV out
 }
 
 static void on_midi_start() {
@@ -733,6 +972,7 @@ static void on_midi_start() {
     seq_entered_once = true;   // like P2+P11: a started seq counts as entered
     seq.Start();
     midi.SendStart();
+    clkout_resync = true;   // next tick = downbeat pulse on the S40 jack
 }
 
 static void on_midi_continue() {
@@ -807,23 +1047,28 @@ static void service_telemetry() {
                : (current_mode == PlayMode::ARP_MEL ? 1 : 2);
     t.playing  = seq.IsActive();
     // Arp/Mel sound-edit layer (P0+P1 toggle) — the app swaps its knob labels
-    // to the Basic Pitch layout on the arp's model while this is on.
+    // to the Basic Pitch layout on whichever sound is in view while this is
+    // on (the arp's own model in Arp/Hold, Rec's independent model in Rec).
     t.snd_edit = !seq_mode_on && current_mode == PlayMode::ARP_MEL
-                 && rec_mode == RecMode::IDLE && arp_snd_edit;
+                 && rec_mode == RecMode::IDLE && (arp_snd_edit || rec_snd_edit);
     t.seq_step = t.playing ? static_cast<uint8_t>(seq.Step() & 0x7F) : 0x7F;
-    t.octave   = static_cast<uint8_t>(octave_offset + 3);
+    t.octave   = static_cast<uint8_t>(active_octave() + 3);
     t.root     = static_cast<uint8_t>(root_semitone);
 
     // Active mode's drive and FX sends (shown contextually by the app).
     t.fx_drive  = to7(seq_mode_on ? seq_drive_lk : eff_drive);
-    t.fx_reverb = to7(seq_mode_on ? fx_rev_seq_lk : fx_rev_pitched_lk);
-    t.fx_delay  = to7(seq_mode_on ? fx_dly_seq_lk : fx_dly_pitched_lk);
+    t.fx_reverb = to7(active_fx_rev_lk());
+    t.fx_delay  = to7(active_fx_dly_lk());
 
     // Recording state + drum kit snapshot (KIT frame) — the app labels the
     // rec knob layer with the edited slot's engine and shows the kit in its
     // info screen.
     t.rec_slot = (rec_mode == RecMode::RECORDING && rec_slot >= 0)
                      ? static_cast<uint8_t>(rec_slot) : 0x7F;
+    // NoteRec layer state (Arp/Mel Rec) — info screen + gesture log source
+    // for mute/clear (21/07/26 LED/telemetry follow-up).
+    t.rec_layers = static_cast<uint8_t>(note_rec.Layers());
+    t.rec_mute   = note_rec.MuteMask();
     for (int i = 0; i < kPadSlots; i++) {
         const PadSlot& s = drum_slots[i];
         t.kit[i][0] = static_cast<uint8_t>(s.engine) & 0x7F;
@@ -881,38 +1126,50 @@ static int scale_lk = 0;
 
 static float compute_note(int pad) {
     int degree = pad - 3;
-    int note   = kPitchBase + root_semitone + kScales[scale_lk][degree] + octave_offset * 12;
+    int note   = kPitchBase + root_semitone + kScales[scale_lk][degree] + active_octave() * 12;
     return static_cast<float>(std::max(0, std::min(127, note)));
 }
 
 static float root_note_f() {
-    return static_cast<float>(kPitchBase + root_semitone + octave_offset * 12);
+    return static_cast<float>(kPitchBase + root_semitone + active_octave() * 12);
 }
 
 // ─── Arp/Mel helpers (ISR context — no blocking calls) ────────────────────────
 
-// Render params for an arp/loop trigger: the latched BP sound with the live
-// arp drive and the current pitched blend written in. decay is a parameter so
-// the Rec loop can replay each note with the decay it was recorded with.
+// Render params for an arp/loop trigger: the latched sound with the arp's
+// own live drive/blend written in. decay is a parameter so the Rec loop can
+// replay each note with the decay it was recorded with.
 static VoiceParams arp_params(float decay) {
     arp_snd.decay = decay;
     arp_snd.drive = arp_drive_lk;
-    arp_snd.blend = pitched_blend_lk;
+    arp_snd.blend = arp_blend_lk;
     return slot_params(arp_snd);
+}
+
+// Same, for Rec's independent sound — decay stays the shared arp_decay_lk,
+// but drive/blend are Rec's own (21/07/26 follow-up).
+static VoiceParams rec_params(float decay) {
+    rec_snd.decay = decay;
+    rec_snd.drive = rec_drive_lk;
+    rec_snd.blend = rec_blend_lk;
+    return slot_params(rec_snd);
 }
 
 // Fire one arp note: base note + current octave, round-robin gate slot, MIDI
 // mirror on ch1. A still-open gate on the reused slot is closed first so its
 // external NoteOff always matches.
 static void fire_arp_note(int base_note, uint32_t gate_blocks) {
-    int n = base_note + octave_offset * 12;
+    // arp_octave, not active_octave(): the arp keeps its own octave even
+    // while it plays in the background of another mode (mode memory, same
+    // doctrine as arp_snd).
+    int n = base_note + arp_octave * 12;
     n = n < 0 ? 0 : (n > 127 ? 127 : n);
     if (arp_gate_blocks[arp_gate_rr]) {
         pool.NoteOff(kArpSlotBase + arp_gate_rr);
         midi.SendNoteOff(kMidiPitchCh, arp_gate_note[arp_gate_rr]);
     }
     pool.NoteOnWithParams(kArpSlotBase + arp_gate_rr, static_cast<float>(n),
-                          arp_params(arp_decay_lk), false, true);
+                          arp_params(arp_decay_lk), VoiceGroup::kArp);
     midi.SendNoteOn(kMidiPitchCh, static_cast<uint8_t>(n), 100);
     arp_gate_note[arp_gate_rr]   = static_cast<uint8_t>(n);
     arp_gate_blocks[arp_gate_rr] = gate_blocks;
@@ -927,8 +1184,8 @@ static void fire_rec_note(uint8_t note, uint8_t decay255, uint32_t step_blocks) 
         midi.SendNoteOff(kMidiPitchCh, rec_gate_note[rec_gate_rr]);
     }
     pool.NoteOnWithParams(kRecSlotBase + rec_gate_rr, static_cast<float>(note),
-                          arp_params(static_cast<float>(decay255) * (1.0f / 255.0f)),
-                          false, true);
+                          rec_params(static_cast<float>(decay255) * (1.0f / 255.0f)),
+                          VoiceGroup::kRec);
     midi.SendNoteOn(kMidiPitchCh, note, 100);
     rec_gate_note[rec_gate_rr]   = note;
     uint32_t gate = step_blocks / 2;
@@ -960,6 +1217,8 @@ static void apply_arp_sw1(int sw1) {
                              : ArpState::REC;
     if (ns == arp_state) return;
     exit_arp_snd_edit();   // sub-state change ends a sound edit in progress
+    exit_rec_snd_edit();
+    bool was_rec = arp_state == ArpState::REC;
     if (arp_state == ArpState::HOLD) {
         // Leaving Hold clears the latch; pads still physically down survive.
         uint16_t mask = 0;
@@ -967,16 +1226,28 @@ static void apply_arp_sw1(int sw1) {
             if (touch.pads().IsTouched(i)) mask |= static_cast<uint16_t>(1u << (i - 3));
         arp.KeepOnly(mask);
     }
-    note_rec.SetRecording(ns == ArpState::REC);   // commits an open take on exit
+    // Always lands disarmed — entering Rec no longer auto-starts capture
+    // (see rec_armed); leaving Rec while armed still commits the open take.
+    rec_armed = false;
+    note_rec.SetRecording(false);
     arp_state = ns;
+    // arp_state selects which volume/blend S36/S37 now target (arp_* vs
+    // rec_*) — re-arm so neither jumps to wherever the other one sat.
+    rearm_pitched_faders();
+    // S32-S35 mean Division/Swing/Density/Order in Arp/Hold, Speed/Shift/
+    // Chance/Order in Rec — re-arm whichever layer is now live so neither
+    // jumps to wherever the pot sat while serving the other one.
+    if (ns == ArpState::REC) rearm_rec_pickups();
+    else if (was_rec)        rearm_arp_pickups();
 }
 
 // P0+P2 staged hold in Arp/Mel: vary the latched sound around where it is —
 // stage 1 tight, stage 2 wide. The engine stays; P0/P2+S35 changes it.
-static void mutate_arp_snd(float spread) {
-    arp_snd.harmonics = clampf(arp_snd.harmonics + rand_range(-spread, spread));
-    arp_snd.timbre    = clampf(arp_snd.timbre    + rand_range(-spread, spread));
-    arp_snd.morph     = clampf(arp_snd.morph     + rand_range(-spread, spread));
+// Shared by arp_snd and rec_snd — which one mutates depends on arp_state.
+static void mutate_snd(PadSlot& snd, float spread) {
+    snd.harmonics = clampf(snd.harmonics + rand_range(-spread, spread));
+    snd.timbre    = clampf(snd.timbre    + rand_range(-spread, spread));
+    snd.morph     = clampf(snd.morph     + rand_range(-spread, spread));
 }
 
 // ─── Guard: is any musical pad currently held? ────────────────────────────────
@@ -1035,24 +1306,41 @@ static void process_model_select(float s35_val) {
     } else {
         new_engine = 12 + std::min(11, static_cast<int>(s35_val * 11.5f));
     }
-    if (new_engine != current_engine) {
-        current_engine    = new_engine;
+
+    // Which engine field this selection edits: Basic Pitch's current_engine,
+    // or — in Arp/Mel — whichever independent sound is currently in view
+    // (arp_snd or rec_snd, by SW1 sub-state). Comparing against and writing
+    // only the right one is what keeps the three sounds actually detached —
+    // writing current_engine unconditionally here used to re-link Basic
+    // Pitch's engine to whatever was last picked for the arp.
+    bool in_bp  = current_mode == PlayMode::BASIC_PITCH;
+    bool in_rec = current_mode == PlayMode::ARP_MEL && arp_state == ArpState::REC;
+    int& target_engine = in_bp ? current_engine
+                                : (in_rec ? rec_snd.engine : arp_snd.engine);
+
+    if (new_engine != target_engine) {
+        target_engine     = new_engine;
         bank_engine[bank] = new_engine;
         bank_thresh[bank] = s35_val;
-        if (current_mode == PlayMode::BASIC_PITCH) {
+        if (in_bp) {
             pool.SetEngine(new_engine);
             bp_slots_active = false;   // explicit model choice returns to live knobs
+        } else if (in_rec) {
+            // Six-Op lands on its known-audible preset — the latched values
+            // were tuned for another engine and usually sit silent there.
+            if (new_engine >= 2 && new_engine <= 4) {
+                const auto& a = kSixOpAud[new_engine - 2];
+                rec_snd.harmonics = a.h;
+                rec_snd.timbre    = a.t;
+                // No morph write: decay_via_morph routes the shared Decay
+                // knob (arp_decay_lk) to the DX7 envelope at every trigger.
+            }
+            rec_snd_ready = true;
         } else {
-            // Arp/Mel: swap the latched sound's engine in place. Six-Op lands
-            // on its known-audible preset — the latched BP values were tuned
-            // for another engine and usually sit silent there.
-            arp_snd.engine = new_engine;
             if (new_engine >= 2 && new_engine <= 4) {
                 const auto& a = kSixOpAud[new_engine - 2];
                 arp_snd.harmonics = a.h;
                 arp_snd.timbre    = a.t;
-                // No morph write: decay_via_morph routes the arp Decay knob
-                // (arp_decay_lk) to the DX7 envelope at every trigger.
             }
             arp_snd_ready = true;
         }
@@ -1065,9 +1353,11 @@ static void process_model_select(float s35_val) {
             vp.morph     = a.m;
             vp.decay     = 0.6f;
             vp.blend     = pitched_blend_lk;   // preview with the current mix
-            pool.AuditionWithParams(root_note_f(), vp);
+            pool.AuditionWithParams(root_note_f(), vp,
+                in_bp ? VoiceGroup::kBP : (in_rec ? VoiceGroup::kRec : VoiceGroup::kArp));
         } else {
-            pool.Audition(root_note_f(), new_engine);
+            pool.Audition(root_note_f(), new_engine,
+                in_bp ? VoiceGroup::kBP : (in_rec ? VoiceGroup::kRec : VoiceGroup::kArp));
         }
         led_event = LedEvent::MODEL;
     }
@@ -1170,10 +1460,10 @@ static void enter_rec_mode(int slot) {
     // While the seq is running it force-fires this slot every step, so a
     // sustained audition voice would just double the sound — skip it. Drum
     // auditions use the seq-trigger param shaping and ride the drum group's
-    // volume/sends (seq_group=true) — the pitched fader may be at zero.
+    // volume/sends (kDrum) — the pitched fader may be at zero.
     if (!(seq_mode_on && seq.IsActive())) {
         if (is_drum_mode) {
-            pool.AuditionWithParams(drum_slots[slot].note, drum_params(slot), true);
+            pool.AuditionWithParams(drum_slots[slot].note, drum_params(slot), VoiceGroup::kDrum);
         } else {
             pool.AuditionWithParams(root_note_f(), slot_params(live_slots()[slot]));
         }
@@ -1222,7 +1512,10 @@ static void fire_hold_stage(int stage) {
     // In Seq the running sequencer plays the new sounds; no extra audition.
     if (!seq_mode_on) {
         if (current_mode == PlayMode::ARP_MEL) {
-            pool.AuditionWithParams(root_note_f(), arp_params(arp_decay_lk));
+            pool.AuditionWithParams(root_note_f(),
+                arp_state == ArpState::REC ? rec_params(arp_decay_lk)
+                                            : arp_params(arp_decay_lk),
+                arp_state == ArpState::REC ? VoiceGroup::kRec : VoiceGroup::kArp);
         } else {
             pool.AuditionWithParams(root_note_f(), slot_params(bp_slots[0]));
         }
@@ -1352,7 +1645,8 @@ void AudioCallback(AudioHandle::InputBuffer in, AudioHandle::OutputBuffer out, s
                 seq_vol_lk   = k.s36().Value();  seq_pu36.force_catch(seq_vol_lk);
                 seq_tight_lk = k.s37().Value();  seq_pu37.force_catch(seq_tight_lk);
                 seq.Start();
-                if (!midi_ext_clock) midi.SendStart();
+                if (!midi_clock_master()) midi.SendStart();
+                clkout_resync = true;
             } else {
                 rearm_seq_pickups();
             }
@@ -1372,8 +1666,7 @@ void AudioCallback(AudioHandle::InputBuffer in, AudioHandle::OutputBuffer out, s
             current_mode = sw2_to_mode(sw2);
             // The faders served the seq while SW2 was Up — pickup so pitched
             // volume/blend/width don't jump on the flick back.
-            pitch_pu_vol.arm_to(pitched_vol_lk, k.s36().Value());
-            pitch_pu_blend.arm_to(pitched_blend_lk, k.s37().Value());
+            rearm_pitched_faders();
             pitch_pu_w.arm(k.s37().Value());
             if (current_mode == PlayMode::ARP_MEL) {
                 // Seed the arp's sound from the live BP sound on the FIRST
@@ -1387,7 +1680,19 @@ void AudioCallback(AudioHandle::InputBuffer in, AudioHandle::OutputBuffer out, s
                     arp_snd_ready     = true;
                 }
                 arp_snd_edit = false;   // always enter in play, not sound edit
-                rearm_arp_pickups();
+                rec_snd_edit = false;
+                // Re-arm whichever knob layer matches the CURRENT sub-state
+                // — mode memory keeps arp_state across SW2 round-trips, so
+                // blindly arming the Arp layer here left Rec's own pickups
+                // (rec_pu30/32-35) stale whenever you re-entered Arp/Mel
+                // with SW1 already resting on Rec. If those were already
+                // caught from an earlier Rec session, S32-35 would just
+                // track the live knob from then on and could snap Speed/
+                // Shift/Chance/Order (or drive) to wherever the pot was
+                // sitting the instant this block ran (21/07/26 follow-up:
+                // Rec's knobs must never move until the knob itself does).
+                if (arp_state == ArpState::REC) rearm_rec_pickups();
+                else                            rearm_arp_pickups();
             } else if (prev_pitched == PlayMode::ARP_MEL && !was_seq
                        && arp_state == ArpState::ARP) {
                 // Leaving plain Arp for BP: the pool was only held pads —
@@ -1426,9 +1731,13 @@ void AudioCallback(AudioHandle::InputBuffer in, AudioHandle::OutputBuffer out, s
             } else if (seq_mode_on) {
                 if (p0_held) seq_puw.arm(v37);
                 else         seq_pu37.arm_to(seq_tight_lk, v37);
+            } else if (p0_held) {
+                pitch_pu_w.arm(v37);
             } else {
-                if (p0_held) pitch_pu_w.arm(v37);
-                else         pitch_pu_blend.arm_to(pitched_blend_lk, v37);
+                KnobPickup& bpu = current_mode == PlayMode::ARP_MEL
+                    ? (arp_state == ArpState::REC ? rec_pu_blend : arp_pu_blend)
+                    : pitch_pu_blend;
+                bpu.arm_to(active_blend_lk(), v37);
             }
         }
     }
@@ -1456,15 +1765,9 @@ void AudioCallback(AudioHandle::InputBuffer in, AudioHandle::OutputBuffer out, s
         }
         if (p1_fx) {
             float v30 = k.s30().Value();
-            if (fx_mc_rev.update(v30)) {
-                if (seq_mode_on) fx_rev_seq_lk = v30; else fx_rev_pitched_lk = v30;
-                fx_rev_char_lk = v30;
-            }
+            if (fx_mc_rev.update(v30)) active_fx_rev_lk() = v30;
             float v35 = k.s35().Value();
-            if (fx_mc_dly.update(v35)) {
-                if (seq_mode_on) fx_dly_seq_lk = v35; else fx_dly_pitched_lk = v35;
-                fx_dly_char_lk = v35;
-            }
+            if (fx_mc_dly.update(v35)) active_fx_dly_lk() = v35;
         }
     }
 
@@ -1510,6 +1813,25 @@ void AudioCallback(AudioHandle::InputBuffer in, AudioHandle::OutputBuffer out, s
             if (arp_se32.update(k.s32().Value()))       arp_snd.harmonics = k.s32().Value();
             if (arp_se33.update(k.s33().Value()))       arp_snd.timbre    = k.s33().Value();
             if (arp_se34.update(k.s34().Value()))       arp_snd.morph     = k.s34().Value();
+        } else if (rec_snd_edit) {
+            if (!p1_fx && rec_se30.update(drive))       rec_drive_lk = drive;
+            if (rec_se31.update(k.s31().Value()))       arp_decay_lk = k.s31().Value();
+            if (rec_se32.update(k.s32().Value()))       rec_snd.harmonics = k.s32().Value();
+            if (rec_se33.update(k.s33().Value()))       rec_snd.timbre    = k.s33().Value();
+            if (rec_se34.update(k.s34().Value()))       rec_snd.morph     = k.s34().Value();
+        } else if (arp_state == ArpState::REC) {
+            // Rec-only layer (20/07/26 notes): S31 stays the shared arp
+            // decay; S30 is Rec's own drive (21/07/26 follow-up); S32-S35
+            // become Speed/Shift/Chance/Order instead of Division/Swing/
+            // Density/Order.
+            bool p0p2 = touch.pads().IsTouched(0) || touch.pads().IsTouched(2);
+            if (!p1_fx && rec_pu30.update(drive))       rec_drive_lk = drive;
+            if (arp_pu31.update(k.s31().Value()))       arp_decay_lk = k.s31().Value();
+            if (rec_pu32.update(k.s32().Value()))       rec_speed_lk  = k.s32().Value();
+            if (rec_pu33.update(k.s33().Value()))       rec_shift_lk  = k.s33().Value();
+            if (rec_pu34.update(k.s34().Value()))       rec_chance_lk = k.s34().Value();
+            if (!p1_fx && !p0p2 && rec_pu35.update(k.s35().Value()))
+                                                        rec_order_lk = k.s35().Value();
         } else {
             bool p0p2 = touch.pads().IsTouched(0) || touch.pads().IsTouched(2);
             if (!p1_fx && arp_pu30.update(drive))       arp_drive_lk = drive;
@@ -1521,46 +1843,74 @@ void AudioCallback(AudioHandle::InputBuffer in, AudioHandle::OutputBuffer out, s
                                                         arp_order_lk = k.s35().Value();
         }
     }
-    // Applied unconditionally — the arp may be running in the background of
-    // any playmode, like the drum seq's setters above.
+    // Applied unconditionally — the arp/loop may be running in the
+    // background of any playmode, like the drum seq's setters above.
     arp.SetDivision(arp_div_lk);
     arp.SetSwing(arp_swing_lk);
     arp.SetDensity(arp_dens_lk);
     arp.SetOrder(arp_order_lk);
     arp.SetOctaveRange(arp_oct_range);
+    note_rec.SetSpeed(rec_speed_lk);
+    note_rec.SetShift(rec_shift_lk);
+    note_rec.SetChance(rec_chance_lk);
+    note_rec.SetOrderRandom(rec_order_lk > 0.5f);
     // Fader updates outside Seq/recording: S36 = volume, S37 = OUT↔AUX blend,
     // P0+S37 = stereo width (0 = mono blend, 1 = raw OUT/AUX split).
     if (!seq_mode_on && rec_mode == RecMode::IDLE) {
-        if (pitch_pu_vol.update(k.s36().Value())) pitched_vol_lk = k.s36().Value();
+        float v36 = k.s36().Value();
+        KnobPickup& vol_pu = current_mode == PlayMode::ARP_MEL
+            ? (arp_state == ArpState::REC ? rec_pu_vol : arp_pu_vol)
+            : pitch_pu_vol;
+        if (vol_pu.update(v36)) active_pitched_vol_lk() = v36;
         float v37 = k.s37().Value();
         if (touch.pads().IsTouched(0)) {
             if (pitch_pu_w.update(v37)) pitched_width_lk = snap_width(v37);
         } else {
-            if (pitch_pu_blend.update(v37)) pitched_blend_lk = v37;
+            KnobPickup& blend_pu = current_mode == PlayMode::ARP_MEL
+                ? (arp_state == ArpState::REC ? rec_pu_blend : arp_pu_blend)
+                : pitch_pu_blend;
+            if (blend_pu.update(v37)) active_blend_lk() = v37;
         }
     }
     pool.SetSeqVolume(seq_vol_lk);
     pool.SetPitchedVolume(pitched_vol_lk);
+    pool.SetArpVolume(arp_vol_lk);
+    pool.SetRecVolume(rec_vol_lk);
     pool.SetSeqWidth(seq_width_lk);
     pool.SetPitchedWidth(pitched_width_lk);
 
-    // Decode the FX mirror knobs into per-group sends + shared character.
-    // Squared send = audio taper: finer control in the useful low-wet range.
+    // Decode each group's FX mirror knob into its own send amount AND its
+    // own character (21/07/26 follow-up: 4 fully independent reverbs/delays
+    // now, so each group's knob position drives its own instance directly —
+    // no more shared "last edit wins" character lock). Squared send = audio
+    // taper: finer control in the useful low-wet range.
     {
         float w;
-        fx_decode(fx_rev_seq_lk, &w);      pool.SetSeqReverbSend(w * w);
-        fx_decode(fx_rev_pitched_lk, &w);  pool.SetPitchedReverbSend(w * w);
-        int side = fx_decode(fx_rev_char_lk, &w);
-        fx.SetReverbCharacter(side, w);
-
-        fx_decode(fx_dly_seq_lk, &w);      pool.SetSeqDelaySend(w * w);
-        fx_decode(fx_dly_pitched_lk, &w);  pool.SetPitchedDelaySend(w * w);
-        side = fx_decode(fx_dly_char_lk, &w);
+        int side;
         // Dotted 1/8 = 3 sixteenth steps of the seq clock (internal tempo;
-        // under external MIDI clock this is the knob fallback tempo).
-        fx.SetDelayCharacter(side, w,
-                             3.f * static_cast<float>(seq.StepBlocks())
-                                 * static_cast<float>(kBlockSize));
+        // under external MIDI clock this is the knob fallback tempo) —
+        // shared by every group's synced-delay character; the master tempo
+        // is one thing regardless of which group's delay is synced to it.
+        float synced = 3.f * static_cast<float>(seq.StepBlocks())
+                           * static_cast<float>(kBlockSize);
+
+        side = fx_decode(fx_rev_pitched_lk, &w); pool.SetPitchedReverbSend(w * w);
+        fx_bp.SetReverbCharacter(side, w);
+        side = fx_decode(fx_rev_arp_lk, &w);     pool.SetArpReverbSend(w * w);
+        fx_arp.SetReverbCharacter(side, w);
+        side = fx_decode(fx_rev_rec_lk, &w);     pool.SetRecReverbSend(w * w);
+        fx_rec.SetReverbCharacter(side, w);
+        side = fx_decode(fx_rev_seq_lk, &w);     pool.SetSeqReverbSend(w * w);
+        fx_drum.SetReverbCharacter(side, w);
+
+        side = fx_decode(fx_dly_pitched_lk, &w); pool.SetPitchedDelaySend(w * w);
+        fx_bp.SetDelayCharacter(side, w, synced);
+        side = fx_decode(fx_dly_arp_lk, &w);     pool.SetArpDelaySend(w * w);
+        fx_arp.SetDelayCharacter(side, w, synced);
+        side = fx_decode(fx_dly_rec_lk, &w);     pool.SetRecDelaySend(w * w);
+        fx_rec.SetDelayCharacter(side, w, synced);
+        side = fx_decode(fx_dly_seq_lk, &w);     pool.SetSeqDelaySend(w * w);
+        fx_drum.SetDelayCharacter(side, w, synced);
     }
 
     // P0+P2 hold counter — active in every playmode:
@@ -1585,7 +1935,7 @@ void AudioCallback(AudioHandle::InputBuffer in, AudioHandle::OutputBuffer out, s
                 if (seq_mode_on) {
                     mutate_drum_soft();
                 } else if (current_mode == PlayMode::ARP_MEL) {
-                    mutate_arp_snd(0.10f);
+                    mutate_snd(arp_state == ArpState::REC ? rec_snd : arp_snd, 0.10f);
                 } else {
                     generate_soft_random(bp_slots, current_engine,
                                          eff_h, eff_t, eff_m, eff_d, 0.25f);
@@ -1601,9 +1951,10 @@ void AudioCallback(AudioHandle::InputBuffer in, AudioHandle::OutputBuffer out, s
                     generate_drum_random();
                     pool.AllNotesOff();
                     seq.Start();
-                    if (!midi_ext_clock) midi.SendStart();
+                    if (!midi_clock_master()) midi.SendStart();
+                    clkout_resync = true;
                 } else if (current_mode == PlayMode::ARP_MEL) {
-                    mutate_arp_snd(0.25f);
+                    mutate_snd(arp_state == ArpState::REC ? rec_snd : arp_snd, 0.25f);
                 } else {
                     generate_soft_random(bp_slots, current_engine,
                                          eff_h, eff_t, eff_m, eff_d, 0.45f);
@@ -1632,8 +1983,10 @@ void AudioCallback(AudioHandle::InputBuffer in, AudioHandle::OutputBuffer out, s
     }
 
     // P0+P1 held ~1s in Arp/Mel (without P2 — that's the mutate combo) toggles
-    // the sound-edit knob layer on the arp's own model. Entry auditions the
-    // current sound; with the arp running, every trigger is live feedback.
+    // the sound-edit knob layer on whichever sound is in view — the arp's own
+    // model in Arp/Hold, Rec's independent model while SW1=Rec. Entry
+    // auditions the current sound; with the arp/loop running, every trigger
+    // is live feedback.
     {
         static uint32_t se_hold_count = 0;
         static bool     se_fired      = false;
@@ -1646,35 +1999,66 @@ void AudioCallback(AudioHandle::InputBuffer in, AudioHandle::OutputBuffer out, s
             se_fired      = false;
         } else if (!se_fired && ++se_hold_count >= 250) {   // 1s of blocks
             se_fired = true;
-            if (!arp_snd_edit) {
-                arp_snd_edit = true;
-                arm_arp_se_pickups();
-                pool.AuditionWithParams(root_note_f(), arp_params(arp_decay_lk));
-                led_event = LedEvent::CONFIRM;
+            if (arp_state == ArpState::REC) {
+                if (!rec_snd_edit) {
+                    rec_snd_edit = true;
+                    arm_rec_se_pickups();
+                    pool.AuditionWithParams(root_note_f(), rec_params(arp_decay_lk), VoiceGroup::kRec);
+                    led_event = LedEvent::CONFIRM;
+                } else {
+                    exit_rec_snd_edit();
+                    led_event      = LedEvent::NUMBERED;
+                    led_event_data = 2;
+                }
             } else {
-                exit_arp_snd_edit();
-                led_event      = LedEvent::NUMBERED;
-                led_event_data = 2;
+                if (!arp_snd_edit) {
+                    arp_snd_edit = true;
+                    arm_arp_se_pickups();
+                    pool.AuditionWithParams(root_note_f(), arp_params(arp_decay_lk), VoiceGroup::kArp);
+                    led_event = LedEvent::CONFIRM;
+                } else {
+                    exit_arp_snd_edit();
+                    led_event      = LedEvent::NUMBERED;
+                    led_event_data = 2;
+                }
             }
         }
     }
 
-    // P0+P10 held ~1.5s in Rec = clear the whole recording (the tap already
-    // fired one undo on touch — the hold wipes whatever is left, so the net
-    // effect is a full clear). The loop's open gates ring out on their own.
+    // P2 + pad P3-P7 hold in Rec: reaching kLongHoldBlocks fires ClearLayer
+    // for that pad, or ClearAll if >=2 of P3-P7 are down at that moment
+    // (checked fresh each time a pad's own counter reaches threshold, so
+    // pads that joined the hold at different times still resolve correctly).
+    // The tap case (released before threshold) is handled in SetOnRelease.
     {
-        static uint32_t clr_hold_count = 0;
-        static bool     clr_fired      = false;
-        bool combo = !seq_mode_on && current_mode == PlayMode::ARP_MEL
-                     && arp_state == ArpState::REC && rec_mode == RecMode::IDLE
-                     && touch.pads().IsTouched(0) && touch.pads().IsTouched(10);
-        if (!combo) {
-            clr_hold_count = 0;
-            clr_fired      = false;
-        } else if (!clr_fired && ++clr_hold_count >= 375) {   // 1.5s of blocks
-            clr_fired = true;
-            note_rec.ClearAll();
-            led_event = LedEvent::CONFIRM;
+        bool in_rec = !seq_mode_on && current_mode == PlayMode::ARP_MEL
+                      && arp_state == ArpState::REC && rec_mode == RecMode::IDLE;
+        bool p2 = in_rec && touch.pads().IsTouched(2);
+        for (int i = 0; i < 5; i++) {
+            bool held = p2 && touch.pads().IsTouched(3 + i);
+            if (!held) {
+                p2layer_hold[i]  = 0;
+                p2layer_fired[i] = false;
+                continue;
+            }
+            if (p2layer_fired[i] || ++p2layer_hold[i] < kLongHoldBlocks) continue;
+            int n_held = 0;
+            for (int j = 0; j < 5; j++)
+                if (p2 && touch.pads().IsTouched(3 + j)) n_held++;
+            if (n_held >= 2) {
+                note_rec.ClearAll();
+                for (int j = 0; j < 5; j++)
+                    if (p2 && touch.pads().IsTouched(3 + j)) p2layer_fired[j] = true;
+                led_event = LedEvent::CONFIRM;
+            } else {
+                p2layer_fired[i] = true;
+                if (note_rec.ClearLayer(i)) {
+                    led_event      = LedEvent::NUMBERED;
+                    led_event_data = i + 1;
+                } else {
+                    led_event = LedEvent::LIMIT;
+                }
+            }
         }
     }
 
@@ -1854,7 +2238,7 @@ void AudioCallback(AudioHandle::InputBuffer in, AudioHandle::OutputBuffer out, s
             // *pitched* group, which is silent whenever that fader is down,
             // so editing against a paused seq gave no sound at all.
             if (is_drum_mode) {
-                pool.AuditionWithParams(slot.note, drum_params(rec_slot), true);
+                pool.AuditionWithParams(slot.note, drum_params(rec_slot), VoiceGroup::kDrum);
             } else {
                 pool.AuditionWithParams(root_note_f(), slot_params(slot));
             }
@@ -1875,7 +2259,8 @@ void AudioCallback(AudioHandle::InputBuffer in, AudioHandle::OutputBuffer out, s
         pool.SetLPGColour(lpg_colour);
     } else {
         // Global drive only in Basic Pitch: arp/loop voices carry their own
-        // per-trigger drive (arp_drive_lk) that a global write would stomp.
+        // per-trigger drive (arp_drive_lk/rec_drive_lk) that a global write
+        // would stomp.
         if (rec_mode == RecMode::IDLE && current_mode == PlayMode::BASIC_PITCH)
             pool.SetDrive(eff_drive);
         pool.SetFMAmount(0.0f);
@@ -1920,6 +2305,71 @@ void AudioCallback(AudioHandle::InputBuffer in, AudioHandle::OutputBuffer out, s
     // Beat-pulse hold-off countdown — shared by the seq and Rec-loop pulses.
     if (beat_led_hold) beat_led_hold = beat_led_hold - 1;
 
+    // ── CV clock in (S43) ─────────────────────────────────────────────────────
+    // Always-on listener: the jack rides the knob ADC DMA scan, so this is one
+    // raw compare per block. Rising edges through the Schmitt window measure
+    // the pulse period; while CV is master, each edge opens a 6-tick window
+    // (24 ppqn over a 1/16th pulse) that the fractional accumulator spreads
+    // across the measured period. The window is capped at 6 and any shortfall
+    // is emitted at the next edge, so step boundaries land exactly on incoming
+    // pulses regardless of tempo drift. Runs before seq.Tick so ticks count
+    // this same block.
+    int cv_ticks_this_block = 0;
+    {
+        const uint16_t cv_raw = k.ClockInRaw();
+        bool edge = false;
+        if (!cv_in_high && cv_raw > kCvInHiRaw)     { cv_in_high = true; edge = true; }
+        else if (cv_in_high && cv_raw < kCvInLoRaw) { cv_in_high = false; }
+        if (cv_blocks_since_edge < kCvPeriodMaxBlocks)
+            cv_blocks_since_edge = cv_blocks_since_edge + 1;
+
+        // One synthetic F8: seq + arp/Rec tick, MIDI-out forward, CV-out tick.
+        auto emit_ticks = [&](int n) {
+            for (int i = 0; i < n; i++) { seq.OnMidiClock(); midi.SendClock(); }
+            cv_ticks_this_block += n;
+            clkout_pending = clkout_pending + static_cast<uint32_t>(n);
+        };
+
+        if (edge) {
+            cv_edge_last_ms = System::GetNow();
+            bool sane_period = cv_blocks_since_edge >= kCvPeriodMinBlocks
+                               && cv_blocks_since_edge < kCvPeriodMaxBlocks;
+            if (ext_clock_src == ClockSrc::NONE) {
+                // Acquire: become master. First period is unknown — seed it
+                // from the knob tempo, corrected at the next edge.
+                ext_clock_src = ClockSrc::CV;
+                seq.SetExternalClock(true);
+                cv_period_blocks   = static_cast<float>(seq.StepBlocks());
+                cv_tick_acc        = 0.f;
+                emit_ticks(1);   // tick 0: the step fires on the edge itself
+                cv_ticks_in_window = 1;
+            } else if (ext_clock_src == ClockSrc::CV) {
+                if (sane_period)
+                    cv_period_blocks = static_cast<float>(cv_blocks_since_edge);
+                // Close the old window (catch-up burst if the estimate ran
+                // slow) + tick 0 of the new one.
+                emit_ticks((6 - cv_ticks_in_window) + 1);
+                cv_ticks_in_window = 1;
+                cv_tick_acc        = 0.f;
+            } else {
+                // MIDI is master: just keep the period fresh so a MIDI
+                // dropout hands over to CV without a tempo glitch.
+                if (sane_period)
+                    cv_period_blocks = static_cast<float>(cv_blocks_since_edge);
+                cv_ticks_in_window = 6;
+            }
+            cv_blocks_since_edge = 0;
+        } else if (ext_clock_src == ClockSrc::CV && cv_ticks_in_window < 6) {
+            cv_tick_acc += 6.f / cv_period_blocks;
+            int n = 0;
+            while (cv_tick_acc >= 1.f && cv_ticks_in_window + n < 6) {
+                cv_tick_acc -= 1.f;
+                n++;
+            }
+            if (n) { emit_ticks(n); cv_ticks_in_window += n; }
+        }
+    }
+
     // Sequencer tick — runs in every playmode while the seq is playing.
     if (seq.IsActive()) {
         uint8_t triggers = seq.Tick();
@@ -1951,26 +2401,29 @@ void AudioCallback(AudioHandle::InputBuffer in, AudioHandle::OutputBuffer out, s
 
     // Arp + Rec-loop clocks — run in every playmode (background play, like
     // the drum seq). Both follow the master tempo (the seq's step clock) or
-    // external MIDI clock ticks; P2+P10 gates them together.
+    // external clock ticks (MIDI F8s, or the CV multiplier's synthetic ones);
+    // P2+P10 gates them together.
     {
-        int ext = 0;
-        if (midi_ext_clock) {
+        int  ext        = 0;
+        bool ext_active = ext_clocked();
+        if (ext_clock_src == ClockSrc::MIDI) {
             ext = static_cast<int>(arp_ext_ticks);
             arp_ext_ticks = 0;
         } else {
-            arp_ext_ticks = 0;   // never let ticks pile up while internal
+            arp_ext_ticks = 0;   // never let F8s pile up while not MIDI-clocked
+            ext = cv_ticks_this_block;   // 0 when internal
         }
 
-        Arp::Out ao = arp.Tick(seq.StepBlocks(), midi_ext_clock, ext, arp_run_on);
+        Arp::Out ao = arp.Tick(seq.StepBlocks(), ext_active, ext, arp_run_on);
         if (ao.fire) fire_arp_note(ao.note, ao.gate_blocks);
 
         // Rec loop: ticks are 24 ppqn (6 per 16th) — fractional internally,
-        // 1:1 with F8s under external clock.
+        // 1:1 with external ticks under external clock.
         NoteRec::Event evs[8];
         float adv = 0.f;
         if (arp_run_on)
-            adv = midi_ext_clock ? static_cast<float>(ext)
-                                 : 6.f / static_cast<float>(seq.StepBlocks());
+            adv = ext_active ? static_cast<float>(ext)
+                             : 6.f / static_cast<float>(seq.StepBlocks());
         int n_ev = note_rec.Tick(adv, evs, 8);
         for (int i = 0; i < n_ev; i++)
             fire_rec_note(evs[i].note, evs[i].decay, seq.StepBlocks());
@@ -1994,39 +2447,98 @@ void AudioCallback(AudioHandle::InputBuffer in, AudioHandle::OutputBuffer out, s
         }
     }
 
-    // MIDI clock: drop back to the internal clock (knob tempo) when the
-    // external one goes silent; as master, emit 24 ppqn from the seq's own
-    // timebase so external gear can't drift against the drums.
-    if (midi_ext_clock
-            && System::GetNow() - midi_clock_last_ms > kExtClockTimeoutMs) {
-        midi_ext_clock = false;
-        seq.SetExternalClock(false);
+    // Clock-master upkeep: MIDI silent 500ms → hand over to CV if its pulses
+    // are fresh (seq stays external, no re-phase), else back to the internal
+    // clock; CV silent ~2.5 pulse periods → internal. As internal master,
+    // emit 24 ppqn from the seq's own timebase so external gear can't drift
+    // against the drums.
+    {
+        uint32_t now = System::GetNow();
+        // Block → ms: kBlockSize samples at 48kHz.
+        constexpr float kMsPerBlock = static_cast<float>(kBlockSize) * 1000.f / 48000.f;
+        uint32_t cv_timeout = static_cast<uint32_t>(cv_period_blocks * kMsPerBlock * 2.5f);
+        if (cv_timeout < 500) cv_timeout = 500;
+        bool cv_fresh = cv_edge_last_ms != 0
+                        && now - cv_edge_last_ms <= cv_timeout;
+        if (ext_clock_src == ClockSrc::MIDI
+                && now - midi_clock_last_ms > kMidiClockTimeoutMs) {
+            if (cv_fresh) {
+                ext_clock_src      = ClockSrc::CV;
+                cv_ticks_in_window = 6;   // window closed — next edge takes over
+            } else {
+                ext_clock_src = ClockSrc::NONE;
+                seq.SetExternalClock(false);
+            }
+        } else if (ext_clock_src == ClockSrc::CV && !cv_fresh) {
+            ext_clock_src = ClockSrc::NONE;
+            seq.SetExternalClock(false);
+        }
     }
-    if (!midi_ext_clock) {
-        for (int n = seq.MidiClockTick(); n > 0; n--) midi.SendClock();
+    if (!ext_clocked()) {
+        for (int n = seq.MidiClockTick(); n > 0; n--) {
+            midi.SendClock();
+            clkout_pending = clkout_pending + 1;   // internal → CV out too
+        }
     }
 
-    // Render. Static to keep the buffers (main + FX send buses) off the ISR
-    // stack.
+    // ── Clock out (S40) ───────────────────────────────────────────────────────
+    // Consume the pending master-clock ticks (F8s, CV-synthetic, or internal —
+    // exactly one of the three produces at a time) and raise a ~12ms pulse on
+    // every 6th, i.e. one pulse per 16th step, phase-anchored to Start.
+    {
+        uint32_t n = clkout_pending;
+        if (n) clkout_pending = clkout_pending - n;
+        if (clkout_resync) { clkout_phase = 0; clkout_resync = false; }
+        bool fire = false;
+        for (uint32_t i = 0; i < n; i++) {
+            if (clkout_phase == 0) fire = true;
+            clkout_phase = (clkout_phase + 1) % 6;
+        }
+        if (fire) {
+            cv_clock_out.Write(true);
+            clkout_pulse = kClkOutPulseBlocks;
+        } else if (clkout_pulse && --clkout_pulse == 0) {
+            cv_clock_out.Write(false);
+        }
+    }
+
+    // Render. Static to keep the buffers (main + the 4 independent per-group
+    // FX send buses — Basic Pitch/arp/Rec/drum, 21/07/26 follow-up) off the
+    // ISR stack. Array index matches VoiceGroup's/FxGroup's underlying int
+    // (kBP=0, kArp=1, kRec=2, kDrum=3).
     static float left[kBlockSize];
     static float right[kBlockSize];
-    static float rev_bus_l[kBlockSize], rev_bus_r[kBlockSize];
-    static float dly_bus_l[kBlockSize], dly_bus_r[kBlockSize];
+    static float rev_l[4][kBlockSize], rev_r[4][kBlockSize];
+    static float dly_l[4][kBlockSize], dly_r[4][kBlockSize];
     __builtin_memset(left,  0, size * sizeof(float));
     __builtin_memset(right, 0, size * sizeof(float));
-    __builtin_memset(rev_bus_l, 0, size * sizeof(float));
-    __builtin_memset(rev_bus_r, 0, size * sizeof(float));
-    __builtin_memset(dly_bus_l, 0, size * sizeof(float));
-    __builtin_memset(dly_bus_r, 0, size * sizeof(float));
-    for (size_t offset = 0; offset < size; offset += kChunkSize)
-        pool.Render(left + offset, right + offset,
-                    rev_bus_l + offset, rev_bus_r + offset,
-                    dly_bus_l + offset, dly_bus_r + offset, kChunkSize);
+    for (int g = 0; g < 4; g++) {
+        __builtin_memset(rev_l[g], 0, size * sizeof(float));
+        __builtin_memset(rev_r[g], 0, size * sizeof(float));
+        __builtin_memset(dly_l[g], 0, size * sizeof(float));
+        __builtin_memset(dly_r[g], 0, size * sizeof(float));
+    }
+    for (size_t offset = 0; offset < size; offset += kChunkSize) {
+        FxBuses buses = {
+            { rev_l[0] + offset, rev_l[1] + offset, rev_l[2] + offset, rev_l[3] + offset },
+            { rev_r[0] + offset, rev_r[1] + offset, rev_r[2] + offset, rev_r[3] + offset },
+            { dly_l[0] + offset, dly_l[1] + offset, dly_l[2] + offset, dly_l[3] + offset },
+            { dly_r[0] + offset, dly_r[1] + offset, dly_r[2] + offset, dly_r[3] + offset },
+        };
+        pool.Render(left + offset, right + offset, buses, kChunkSize);
+    }
 
-    // FX returns sum into the mix before the soft-clip. Each sleeps when its
-    // send bus and tail are silent, so unused FX cost nothing per block.
-    fx.ProcessDelay(dly_bus_l, dly_bus_r, left, right, size);
-    fx.ProcessReverb(rev_bus_l, rev_bus_r, left, right, size);
+    // FX returns sum into the mix before the soft-clip. Each of the 4 groups
+    // sleeps independently when its own send bus and tail are silent, so an
+    // unused group's FX costs ~0 regardless of the others.
+    fx_bp.ProcessDelay(dly_l[0], dly_r[0], left, right, size);
+    fx_bp.ProcessReverb(rev_l[0], rev_r[0], left, right, size);
+    fx_arp.ProcessDelay(dly_l[1], dly_r[1], left, right, size);
+    fx_arp.ProcessReverb(rev_l[1], rev_r[1], left, right, size);
+    fx_rec.ProcessDelay(dly_l[2], dly_r[2], left, right, size);
+    fx_rec.ProcessReverb(rev_l[2], rev_r[2], left, right, size);
+    fx_drum.ProcessDelay(dly_l[3], dly_r[3], left, right, size);
+    fx_drum.ProcessReverb(rev_l[3], rev_r[3], left, right, size);
 
     // Output: soft-clip via x/(1+|x|). Levels are per-group in VoicePool
     // (SetSeqVolume / SetPitchedVolume) — no master scale here.
@@ -2059,11 +2571,29 @@ int main() {
 #endif
 
     rng = System::GetNow() ^ 0xDEADBEEF;
+    current_engine = random_engine();   // Basic Pitch starts on a random model
+    // Rec's sound is independent from boot (unlike arp_snd, which still lazily
+    // seeds from Basic Pitch on its first-ever entry — a hardware-tested fix,
+    // kept as shipped; only Rec gets a fully unrelated model at power-on).
+    rec_snd.engine = random_engine();
+    if (rec_snd.engine >= 2 && rec_snd.engine <= 4) {
+        const auto& a = kSixOpAud[rec_snd.engine - 2];
+        rec_snd.harmonics = a.h;
+        rec_snd.timbre    = a.t;
+    }
+    rec_snd_ready = true;
 
     touch.Init(hw);
+    // S40 clock-out jack (D25): plain push-pull GPIO, pulsed from the audio ISR.
+    cv_clock_out.Init(daisy::seed::D25, GPIO::Mode::OUTPUT);
+    cv_clock_out.Write(false);
     pool.Init();
     pool.SetEngine(current_engine);
-    fx.Init(hw.AudioSampleRate());   // clears the SDRAM FX buffers (NOLOAD section)
+    // Clears the SDRAM FX buffers (NOLOAD section) for all 4 independent groups.
+    fx_bp.Init(hw.AudioSampleRate());
+    fx_arp.Init(hw.AudioSampleRate());
+    fx_rec.Init(hw.AudioSampleRate());
+    fx_drum.Init(hw.AudioSampleRate());
     // TRS MIDI always (idle UART is free); USB MIDI only with -DUSB_MIDI,
     // which is also what suppresses StartLog above — one USB port, one owner.
     midi.Init();
@@ -2091,7 +2621,7 @@ int main() {
                 // sounding (a direct note would double every trigger). The
                 // note is stored octave-normalized so P10/P11 transpose the
                 // running arp; each trigger MIDI-mirrors itself.
-                int base = static_cast<int>(compute_note(pad)) - octave_offset * 12;
+                int base = static_cast<int>(compute_note(pad)) - arp_octave * 12;
                 arp.Touch(slot, static_cast<uint8_t>(base),
                           arp_state == ArpState::HOLD);
 
@@ -2099,26 +2629,27 @@ int main() {
                 // Normal note play: Basic Pitch, or live notes in Rec (which
                 // also stamps them into the open layer).
                 if (current_mode == PlayMode::ARP_MEL) {
-                    if (touch.pads().IsTouched(0)) {
-                        // P0 + playing pad in Rec = clear that committed
-                        // layer (pad 1–4 → layer 1–4, oldest first) — the
-                        // pad neither sounds nor records under P0.
-                        if (note_rec.ClearLayer(slot)) {
-                            led_event      = LedEvent::NUMBERED;
-                            led_event_data = slot + 1;
-                        } else {
-                            led_event = LedEvent::LIMIT;   // no such layer
-                        }
+                    if (touch.pads().IsTouched(2) && slot <= 4) {
+                        // P2 + pad P3-P7 in Rec = layer gesture (tap =
+                        // ToggleMute, hold = ClearLayer, multi-hold =
+                        // ClearAll — tracked in AudioCallback, tap fires on
+                        // release). The pad neither sounds nor records here.
                         return;
                     }
                     pool.NoteOnWithParams(slot, compute_note(pad),
-                                          arp_params(arp_decay_lk),
-                                          false, true);
-                    arp_run_on = true;   // first Rec note may start the clock
-                    if (!note_rec.RecordNote(
-                            static_cast<uint8_t>(compute_note(pad)),
-                            static_cast<uint8_t>(arp_decay_lk * 255.f)))
-                        led_event = LedEvent::LIMIT;   // layers/events full
+                                          rec_params(arp_decay_lk),
+                                          VoiceGroup::kRec);
+                    // Unarmed = audition only: sound the pad, don't touch the
+                    // take or the LED. RecordNote() already no-ops while
+                    // unarmed (recording_ false) — but treating that as
+                    // "limit reached" was wrong; only react to it while armed.
+                    if (rec_armed) {
+                        arp_run_on = true;   // first Rec note may start the clock
+                        if (!note_rec.RecordNote(
+                                static_cast<uint8_t>(compute_note(pad)),
+                                static_cast<uint8_t>(arp_decay_lk * 255.f)))
+                            led_event = LedEvent::LIMIT;   // layers/events full
+                    }
                 } else if (bp_slots_active) {
                     pool.NoteOnWithParams(slot, compute_note(pad),
                                           slot_params(bp_slots[slot]));
@@ -2154,7 +2685,27 @@ int main() {
                     && !touch.pads().IsTouched(0) && rec_slot >= 0) {
                 auto& s = live_slots()[rec_slot];
                 s.note = std::max(0.f, s.note - 1.f);
-                pool.AuditionWithParams(s.note, drum_params(rec_slot), true);
+                pool.AuditionWithParams(s.note, drum_params(rec_slot), VoiceGroup::kDrum);
+            } else if (rec_mode == RecMode::IDLE && touch.pads().IsTouched(2)
+                       && !seq_mode_on && current_mode == PlayMode::ARP_MEL
+                       && arp_state == ArpState::REC) {
+                // P2+P10 while SW1=Rec: arm/disarm capture instead of the
+                // usual transport toggle (2026-07-21 follow-up — auto-start
+                // on Rec entry made auditioning Rec's own sound impossible
+                // without also recording a note). Arming makes sure the
+                // clock is actually running; disarming does NOT stop
+                // playback — committed layers keep looping while punched
+                // out, only new capture stops (and the open take commits).
+                rec_armed = !rec_armed;
+                if (rec_armed) {
+                    arp_run_on = true;
+                    note_rec.SetRecording(true);
+                    led_event = LedEvent::CONFIRM;   // 3 blinks: armed
+                } else {
+                    note_rec.SetRecording(false);
+                    led_event      = LedEvent::NUMBERED;
+                    led_event_data = 2;              // 2 blinks: disarmed
+                }
             } else if (rec_mode == RecMode::IDLE && touch.pads().IsTouched(2)) {
                 // P2 (held first) + P10 → melodic transport (arp + Rec loop),
                 // in any playmode — the mirror of P2+P11 for the drums.
@@ -2172,7 +2723,8 @@ int main() {
                        && touch.pads().IsTouched(0)) {
                 // P0+P10 in Rec = undo: clears the open take first, then pops
                 // committed layers newest-first (root-down is parked here).
-                // Kept held ~1.5s it clears everything (see AudioCallback).
+                // Clearing a specific/all layers is now P2+pad (see the
+                // P2-layer hold block in AudioCallback and SetOnRelease).
                 if (note_rec.Undo()) { led_event = LedEvent::NUMBERED; led_event_data = 1; }
                 else                 { led_event = LedEvent::LIMIT; }
             } else if (rec_mode == RecMode::IDLE && !seq_mode_on
@@ -2186,11 +2738,16 @@ int main() {
                 } else {
                     led_event = LedEvent::LIMIT;
                 }
-            } else if (touch.pads().IsTouched(0) && !any_musical_pad_held()) {
+            } else if (!seq_mode_on && current_mode == PlayMode::BASIC_PITCH
+                       && touch.pads().IsTouched(0) && !any_musical_pad_held()) {
+                // Root note is a Basic Pitch-only setting (20/07/26 notes:
+                // scale and root can only be set there) — same restriction
+                // scale_lk already has via the SW1 routing above.
                 if (root_semitone > 0) { root_semitone--; pool.Audition(root_note_f()); }
                 else                   { led_event = LedEvent::LIMIT; }
             } else if (!touch.pads().IsTouched(0)) {
-                octave_offset = std::max(-3, octave_offset - 1);
+                int& oct = active_octave();
+                oct = std::max(-3, oct - 1);
             }
 
         } else if (pad == 11) {
@@ -2198,20 +2755,20 @@ int main() {
                     && !touch.pads().IsTouched(0) && rec_slot >= 0) {
                 auto& s = live_slots()[rec_slot];
                 s.note = std::min(127.f, s.note + 1.f);
-                pool.AuditionWithParams(s.note, drum_params(rec_slot), true);
+                pool.AuditionWithParams(s.note, drum_params(rec_slot), VoiceGroup::kDrum);
             } else if (rec_mode == RecMode::IDLE && touch.pads().IsTouched(2)) {
                 // P2 (held first) + P11 → drum seq play/pause, in any playmode.
                 // P2 being down disables P11's octave function until release.
                 if (seq.IsActive()) {
                     seq.Stop();
-                    if (!midi_ext_clock) midi.SendStop();
+                    if (!midi_clock_master()) midi.SendStop();
                     led_event      = LedEvent::NUMBERED;
                     led_event_data = 2;   // 2 blinks: paused
                 } else {
                     if (!drum_kit_ready) generate_drum_random();
                     seq_entered_once = true;   // manual start counts as first entry
                     seq.Resume();
-                    if (!midi_ext_clock) midi.SendContinue();
+                    if (!midi_clock_master()) midi.SendContinue();
                     led_event = LedEvent::CONFIRM;  // 3 blinks: playing
                 }
             } else if (rec_mode == RecMode::IDLE && !seq_mode_on
@@ -2225,11 +2782,14 @@ int main() {
                 } else {
                     led_event = LedEvent::LIMIT;
                 }
-            } else if (touch.pads().IsTouched(0) && !any_musical_pad_held()) {
+            } else if (!seq_mode_on && current_mode == PlayMode::BASIC_PITCH
+                       && touch.pads().IsTouched(0) && !any_musical_pad_held()) {
+                // Root note is a Basic Pitch-only setting — see the P10 branch.
                 if (root_semitone < 11) { root_semitone++; pool.Audition(root_note_f()); }
                 else                    { led_event = LedEvent::LIMIT; }
             } else if (!touch.pads().IsTouched(0) && !touch.pads().IsTouched(2)) {
-                octave_offset = std::min(3, octave_offset + 1);
+                int& oct = active_octave();
+                oct = std::min(3, oct + 1);
             }
         }
     });
@@ -2244,9 +2804,19 @@ int main() {
             if (!seq_mode_on && current_mode == PlayMode::ARP_MEL
                     && arp_state == ArpState::ARP)
                 arp.Release(pad - 3);
+            // P2 + pad P3-P7 tap in Rec (released before the hold threshold
+            // fired a ClearLayer/ClearAll): toggle that layer's mute.
+            int slot = pad - 3;
+            if (slot <= 4 && p2layer_hold[slot] > 0 && !p2layer_fired[slot]) {
+                if (note_rec.ToggleMute(slot)) {
+                    led_event      = LedEvent::NUMBERED;
+                    led_event_data = slot + 1;
+                } else {
+                    led_event = LedEvent::LIMIT;
+                }
+            }
             // MIDI NoteOff even if rec mode swallowed the release — a hanging
             // note on external gear is worse than a stray off.
-            int slot = pad - 3;
             if (midi_pad_note_out[slot] >= 0) {
                 midi.SendNoteOff(kMidiPitchCh,
                                  static_cast<uint8_t>(midi_pad_note_out[slot]));
@@ -2321,6 +2891,32 @@ int main() {
             set_led(true);  delay_serviced(interval);
             set_led(false); delay_serviced(interval);
             continue;
+        }
+
+        // P2+pad layer-clear countdown (21/07/26 LED redesign): the same
+        // accelerating-blink language as every other hold gesture, so
+        // holding toward Clear/Clear-all reads as unmistakably different
+        // from the instant tap that means mute/unmute — the tap gets its
+        // own confirm blink (NUMBERED) with no preceding animation at all.
+        // Stops claiming the loop the instant a pad's hold actually fires,
+        // so the queued completion event (see AudioCallback) dispatches
+        // through the normal path below instead of being swallowed here.
+        {
+            uint32_t max_hold   = 0;
+            bool     any_count = false;
+            for (int i = 0; i < 5; i++) {
+                if (p2layer_hold[i] > 0 && !p2layer_fired[i]) {
+                    any_count = true;
+                    if (p2layer_hold[i] > max_hold) max_hold = p2layer_hold[i];
+                }
+            }
+            if (rec_mode == RecMode::IDLE && any_count && max_hold >= kRecEntryAnimStart) {
+                uint32_t t        = (max_hold < kLongHoldBlocks) ? max_hold : kLongHoldBlocks;
+                uint32_t interval = 150u - t * 120u / kLongHoldBlocks;
+                set_led(true);  delay_serviced(interval);
+                set_led(false); delay_serviced(interval);
+                continue;
+            }
         }
 
         // Recording mode LED (this branch owns the loop while recording).

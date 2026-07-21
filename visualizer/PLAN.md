@@ -292,4 +292,30 @@ a 500 px viewport, which looks like (but is not) a layout overflow.
 - LED: raw brightness at 30 Hz in v1; revisit with EVENT blink-ids only if
   recordings show aliasing.
 
+## 6e. Rec layer telemetry + action log (2026-07-21, ✅ built same day)
+
+Firmware side: Arp/Mel Rec's layer mute/clear gestures (P2+pad — see
+`notesarchive/arp-mel-plan-archive.md` §7/§8 Phase 10 and §9 Phase 15's
+LED-redesign follow-up) had no visualizer-visible signal at all — the LED
+changed, but the app couldn't tell a mute from a clear.
+
+1. ✅ **STATE frame 19 → 21 payload bytes**: `rec_layers` (NoteRec committed
+   layer count, 0..5) and `rec_mute` (bitmask, bit i = layer i muted) —
+   append-only, guarded by `p.length >= 21` in `protocol.ts`, same pattern
+   as the 16→18 and 18→19 extensions above (no version bump).
+2. ✅ **Action log entries**: `DeviceStore.setRecLayers()` carries both the
+   new and previous (count, mask) so `labels.ts` can classify the change
+   without re-deriving state — count dropped = a layer cleared (or "all
+   layers cleared" when it dropped to 0 from more than 1), count rose = a
+   layer was recorded, count unchanged + mask bit flipped = that layer was
+   muted/unmuted. Mirrors the firmware LED's own disambiguation (distinct
+   blink pattern per gesture) as a log line instead of inferring it purely
+   from LED timing, which would have been far more fragile.
+3. ✅ **Status chip**: `N layers` shown next to the mode/model chip while in
+   Arp/Mel with `recLayers > 0`.
+
+Not done: no persistent per-layer indicator on the panel drawing itself
+(e.g. 5 dots showing filled/muted/empty) — only the log + status chip.
+Would need `panel.ts`/SVG layout work; parked as a future round.
+
 

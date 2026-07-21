@@ -4,8 +4,16 @@
 
 namespace synthux {
 
-// Shared FX section: one reverb + one stereo delay, each fed by its own send
-// bus accumulated in VoicePool::Render (per-group send levels live there).
+// Four independent FX groups (21/07/26 follow-up to the 20/07/26 notes:
+// Basic Pitch, the arp, Rec and the drum seq each get their own reverb AND
+// delay — not just their own send amount, their own *character* too, since
+// one shared instance can't be room and hall at once). Each group owns its
+// own reverb + delay DSP instance (and SDRAM buffers, ~570 KB per group —
+// trivial against the 64 MB budget) and sleeps independently when its send
+// is quiet, so an unused group's FX costs ~0 regardless of the others.
+enum class FxGroup : int { kBP = 0, kArp = 1, kRec = 2, kDrum = 3 };
+constexpr int kFxGroupCount = 4;
+
 // The mirror-knob decode (center = off, each side = a character, wet grows
 // outward) happens in TouchPlaited.cpp; this class receives the decoded
 // side/amount. Buffers live in SDRAM — cleared in Init() because .sdram_bss
@@ -15,6 +23,8 @@ namespace synthux {
 // plaits_voice.h — see the note there about stmlib's global `namespace impl`.
 class FxSection {
 public:
+    explicit FxSection(FxGroup group) : group_(group) {}
+
     // Call from main() after hw.Init() (SDRAM must be up). Clears all buffers.
     void Init(float sample_rate);
 
@@ -35,8 +45,11 @@ public:
                       float* main_l, float* main_r, size_t size);
     void ProcessReverb(const float* send_l, const float* send_r,
                        float* main_l, float* main_r, size_t size);
+
+private:
+    FxGroup group_;
 };
 
-extern FxSection fx;
+extern FxSection fx_bp, fx_arp, fx_rec, fx_drum;
 
 } // namespace synthux

@@ -741,10 +741,11 @@ file.
 Playmode overhaul:
 
 > **Status 2026-07-16: implemented** (branch `arp-mel`) — this sketch became
-> ARP-MEL-PLAN.md, which resolves every open question below (transport =
-> P2+P10, octave range = P1+P10/P11, 4 layers, clear gestures, and the arp's
-> own independent sound + P0+P1 sound edit after the first hardware round,
-> see its §6). Current reference: MANUAL.md. Kept as the original design note.
+> `notesarchive/arp-mel-plan-archive.md`, which resolves every open question
+> below (transport = P2+P10, octave range = P1+P10/P11, 5 layers, clear
+> gestures, and the arp's own independent sound + P0+P1 sound edit after the
+> first hardware round, see its §6). Current reference: MANUAL.md. Kept as
+> the original design note.
 
 instead of Random we'll introduce ARP / MEL
 
@@ -796,3 +797,76 @@ Recording:
   - S33 density = > not applied from the start, after knob is touched can add chance left 0 % chance, right 100 %
   - S34 Decay = ok, move while recording to change the decay per note
   - S35 Order = use this to shift timing; center original timing, left move back, right move forward 
+
+
+  ---
+
+> **Status 2026-07-21: implemented** — conflict analysis, resolved design
+> decisions, and Phases 6–16 (per-mode octave, Rec's own sound, per-mode
+> volume/FX send/drive/blend, Rec-only S32-S35, P2+pad layer gestures, four
+> fully independent FX instances, Rec capture arming, an LED redesign for
+> the layer gestures, telemetry + visualizer reporting, and a run of
+> stale-pickup bug fixes) live in `notesarchive/arp-mel-plan-archive.md`
+> §7–§9. Root note additionally scoped to Basic Pitch-only (implied by
+> "scale and root can only be set in Basic Pitch" below but not originally
+> called out as a conflict). P2+P10 transport confirmed staying tied
+> together outside Rec (Rec itself later got its own arm/disarm meaning for
+> the same combo — see the archive's Phase 12). NOT yet hardware-tested.
+> Kept below as the original sketch.
+
+20/07/2026
+
+- Each playmode has its own volume
+- Each playmode has its own send to FX
+
+  - REC is considered seperate VOL and FX 
+
+- fully Detach sound model from playmodes Pitch, arp and REC mel
+  - each starts with a random model at boot, they are no longer linked
+
+- Arp and Mel Rec should both follow the setting of Basic Pitch, meaning that when scales are set they adhere to that setting and map to nearest. 
+  - Setting scales and setting the root note can only be done in Basic Pitch
+  - octaves are independently adjustable per ARP, REC and Basic Pitch
+
+
+Rec melody:
+
+- method to start stop the rec melody:
+
+If P2 + P11 is start/stop for the SEQ, and P2 + P10 is to start stop the arp mel rec mode, this should work per arp and melrec
+The layer on / of switches should be P2 + P3-P7 > one more layer than currently built in
+  - clearing layers = hold P2 + P3-P7
+  - clearing all layers = hold P2 + P3/P7 (any combo of P3 - P7, at least two + the mod)
+
+
+
+In Rec mode the adjustable settings are: 
+- s30 drive
+- S31 decay
+- S32 speed playback of the recorded bars 0% is 1X, 100% is 8X
+- S33 shift all recorded bars (in full) in time, allow shifting smaller than a step (e.g. 1,2,3 - 16 could become 14,15,16,1,2-13)
+- S34 Chance (global for all rec notes)
+- S35 Order = 2 options: left of 50% for original, right of 50% for randomized order 
+
+
+---
+
+Syncing
+
+> **Status 2026-07-21: implemented** — S43 rides the knob ADC scan (9th
+> channel, raw/unsmoothed) with a software Schmitt trigger polled once per
+> block; 1 pulse = one 16th step, multiplied to 6 synthetic 24 ppqn ticks
+> down the existing MIDI-clock path (period-measured, phase snapped to every
+> edge). Hierarchy: MIDI F8 outranks CV (higher resolution + transport); CV
+> stays measured in the background and takes over within one pulse if MIDI
+> goes silent 500ms; CV itself times out after ~2.5 missed pulses → knob
+> tempo. Forwarding both ways: CV in → F8s on MIDI out, MIDI in (and the
+> internal clock) → ~12ms pulses on S40 (GPIO D25), phase-anchored to Start.
+> CV clock carries no transport — P2+P11 stays local. See MANUAL "Clock
+> sync — MIDI and CV". NOT yet hardware-tested (thresholds ~1.0V rise /
+> ~0.6V re-arm at the pin may need tuning against the jack conditioning).
+
+Let's also listen for a clock signal on analog inputs for when a jack is connected to: S43 and to S40 for also sending out a clock signal.
+
+S43  clock in: Daisy pins D28	A11
+S40 clock out: Daisy pins D25	A10
