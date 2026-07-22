@@ -1042,7 +1042,18 @@ static void service_telemetry() {
     t.sw2 = kSw2Map[(sw2_raw >= 0 && sw2_raw <= 2) ? sw2_raw : 0];
 
     t.led      = led_lit ? 127 : 0;
-    t.model    = static_cast<uint8_t>(current_engine);
+    // Per-playmode sound independence (21/07/26): the model in view is the
+    // active group's engine, not Basic Pitch's. Same ready-flag fallback as
+    // the audio dispatch in on_midi_note_on — an unseeded arp/rec sound still
+    // shows BP's engine, which is what a first-ever entry will latch anyway.
+    if (!seq_mode_on && current_mode == PlayMode::ARP_MEL) {
+        const bool rec_view = arp_state == ArpState::REC;
+        t.model = static_cast<uint8_t>(
+            rec_view ? (rec_snd_ready ? rec_snd.engine : current_engine)
+                     : (arp_snd_ready ? arp_snd.engine : current_engine));
+    } else {
+        t.model = static_cast<uint8_t>(current_engine);
+    }
     t.mode     = seq_mode_on ? 0
                : (current_mode == PlayMode::ARP_MEL ? 1 : 2);
     t.playing  = seq.IsActive();
@@ -1069,6 +1080,14 @@ static void service_telemetry() {
     // for mute/clear (21/07/26 LED/telemetry follow-up).
     t.rec_layers = static_cast<uint8_t>(note_rec.Layers());
     t.rec_mute   = note_rec.MuteMask();
+    // Master clock source + the change-latched Arp/Mel sub-state (the live
+    // SW1 lever can disagree with it — mode memory keeps arp_state across
+    // SW2 round-trips) and Rec's capture-armed flag (P2+P10).
+    t.clock_src = static_cast<uint8_t>(ext_clock_src == ClockSrc::MIDI ? 1
+                                       : ext_clock_src == ClockSrc::CV ? 2 : 0);
+    t.arp_flags = static_cast<uint8_t>(
+        (arp_state == ArpState::HOLD ? 1 : arp_state == ArpState::REC ? 2 : 0)
+        | (rec_armed ? 0x04 : 0x00));
     for (int i = 0; i < kPadSlots; i++) {
         const PadSlot& s = drum_slots[i];
         t.kit[i][0] = static_cast<uint8_t>(s.engine) & 0x7F;

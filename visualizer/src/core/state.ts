@@ -38,6 +38,10 @@ export interface DeviceState {
   kit: KitSlot[] | null;  // Seq drum kit (P3..P9), null until a KIT frame lands
   recLayers: number;      // NoteRec committed layer count, 0..5 (Arp/Mel Rec)
   recMute: number;        // bitmask, bit i = NoteRec layer i muted
+  clockSrc: number;       // master clock: 0 internal, 1 MIDI, 2 CV
+  arpSub: number;         // Arp/Mel sub-state: 0 Arp, 1 Hold, 2 Rec — the
+                          // device's change-latched state, NOT the SW1 lever
+  recArmed: boolean;      // Rec capture armed (P2+P10)
 }
 
 export type StateEvent =
@@ -56,6 +60,8 @@ export type StateEvent =
   | { kind: 'recSlot'; v: number | null }
   | { kind: 'kit' }
   | { kind: 'recLayers'; layers: number; mute: number; prevLayers: number; prevMute: number }
+  | { kind: 'clockSrc'; v: number }
+  | { kind: 'arpSub'; sub: number; armed: boolean; prevSub: number; prevArmed: boolean }
   | { kind: 'connected'; v: boolean }
   | { kind: 'note'; channel: number; note: number; on: boolean } // transient, not stored
   | { kind: 'sync' }; // emitted after a bulk update; views should repaint all
@@ -82,6 +88,9 @@ function initialState(): DeviceState {
     kit: null,
     recLayers: 0,
     recMute: 0,
+    clockSrc: 0,
+    arpSub: 0,
+    recArmed: false,
   };
 }
 
@@ -198,6 +207,24 @@ export class DeviceStore {
     this.state.recLayers = layers;
     this.state.recMute = mute;
     this.emit({ kind: 'recLayers', layers, mute, prevLayers, prevMute });
+  }
+
+  setClockSrc(v: number) {
+    if (this.state.clockSrc === v) return;
+    this.state.clockSrc = v;
+    this.emit({ kind: 'clockSrc', v });
+  }
+
+  /** Arp/Mel sub-state (change-latched on the device) + Rec armed flag —
+   * carries the previous values so listeners can log the specific transition
+   * (arm/disarm vs a sub-state move) without re-deriving it. */
+  setArpSub(sub: number, armed: boolean) {
+    const prevSub = this.state.arpSub;
+    const prevArmed = this.state.recArmed;
+    if (sub === prevSub && armed === prevArmed) return;
+    this.state.arpSub = sub;
+    this.state.recArmed = armed;
+    this.emit({ kind: 'arpSub', sub, armed, prevSub, prevArmed });
   }
 
   /** Replace the kit snapshot; the 2 s KIT heartbeat re-sends unchanged kits,

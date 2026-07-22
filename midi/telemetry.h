@@ -30,6 +30,10 @@ struct TelemetryState {
                            // decay, MIDI note — the app's info screen / rec labels
     uint8_t  rec_layers;   // NoteRec committed layer count, 0..5 (Arp/Mel Rec)
     uint8_t  rec_mute;     // bit i = NoteRec layer i muted
+    uint8_t  clock_src;    // master clock: 0 internal, 1 MIDI, 2 CV
+    uint8_t  arp_flags;    // bits0-1 Arp/Mel sub-state (0 Arp, 1 Hold, 2 Rec —
+                           // the change-latched state, NOT the live lever),
+                           // bit2 Rec capture armed (P2+P10)
 };
 
 // Emits full-state SysEx frames over USB MIDI, rate-limited:

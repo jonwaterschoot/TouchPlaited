@@ -52,7 +52,7 @@ F0 7D 54 50 <ver> <type> <payload…> F7        ("TP" = 0x54 0x50)
 
 | type | name        | payload                                                        | when |
 |------|-------------|----------------------------------------------------------------|------|
-| 0x01 | STATE       | pads lo7, pads hi5 · S30–S37 (8×7-bit) · swA, swB · LED (7-bit brightness) · model# · mode flags (bits0-1 mode, bit2 playing, bit3 Arp/Mel sound edit) · seq step · octave+3 · root semitone · rec slot (0x7F = idle) | 30 Hz while anything changed, 2 Hz keep-alive |
+| 0x01 | STATE       | pads lo7, pads hi5 · S30–S37 (8×7-bit) · swA, swB · LED (7-bit brightness) · model# · mode flags (bits0-1 mode, bit2 playing, bit3 Arp/Mel sound edit) · seq step · octave+3 · root semitone · rec slot (0x7F = idle) · NoteRec layers · NoteRec mute mask · clock src (0 int, 1 MIDI, 2 CV) · arp flags (bits0-1 latched Arp/Hold/Rec sub-state, bit2 Rec armed) | 30 Hz while anything changed, 2 Hz keep-alive |
 | 0x02 | EVENT       | event id + arg (pad down/up, patch blink start, mode change)   | on occurrence |
 | 0x03 | HELLO/CAPS  | firmware version, feature bits                                 | on host request `0x7E` |
 | 0x04 | FX          | drive · reverb · delay · nTrims (trims reserved)               | ≤10 Hz on change |
@@ -314,8 +314,49 @@ changed, but the app couldn't tell a mute from a clear.
 3. ✅ **Status chip**: `N layers` shown next to the mode/model chip while in
    Arp/Mel with `recLayers > 0`.
 
-Not done: no persistent per-layer indicator on the panel drawing itself
-(e.g. 5 dots showing filled/muted/empty) — only the log + status chip.
-Would need `panel.ts`/SVG layout work; parked as a future round.
+The persistent per-layer indicator on the panel drawing was parked here and
+built in §6g below.
+
+## 6f. Clock source + Arp/Mel sub-state telemetry (2026-07-21, ✅ built same day)
+
+Follow-up to the CV clock-in commit (S43/A11) and the Rec arm/disarm rework:
+the firmware knew its master clock (`ext_clock_src` NONE/MIDI/CV) and the
+change-latched Arp/Mel sub-state + `rec_armed`, but none of it was on the
+wire — the app inferred sub-state from the live SW1 lever, which is exactly
+wrong after a mode round-trip restores Rec with the lever resting on Arp.
+
+1. ✅ **STATE frame 21 → 23 payload bytes**: byte 21 = clock source (0
+   internal, 1 MIDI, 2 CV); byte 22 = arp flags (bits0-1 latched sub-state
+   0 Arp / 1 Hold / 2 Rec, bit2 = Rec capture armed). Append-only, guarded
+   by `p.length >= 23` in `protocol.ts`, no version bump.
+2. ✅ **`t.model` now reports the active playmode's engine** (BP's
+   `current_engine` vs `arp_snd`/`rec_snd`) — with per-playmode sound
+   independence the status chip and sound-edit knob labels were resolving
+   against Basic Pitch's engine while in Arp/Mel. No wire change; the
+   ready-flag fallback mirrors `on_midi_note_on`'s dispatch.
+3. ✅ **UI**: status chip gains `⏱ MIDI/CV clock`, the Arp/Mel mode chip
+   carries the latched sub-state (`Arp/Mel · Rec`) plus `● armed`/`unarmed`;
+   Rec-only knob labels (S30 Drive, S32–S35 Speed/Shift/Chance/Order) and
+   the Rec gestures (P2+P10 arm/disarm, P2+P3–P7 layer mute/clear, P0+P10
+   undo) are named in callouts/log; Seq S31 says "knob muted" and the model
+   panel shows `ext` instead of a fake BPM while externally clocked; action
+   log lines for clock hand-overs and arm/disarm.
+
+## 6g. Per-layer dots on the panel drawing (2026-07-21, ✅ built same day)
+
+The §6e leftover. One dot per gesture pad P3–P7 (P2+pad = that layer's
+mute/clear), so the badge sits on the pad you'd actually touch:
+
+- Anchored near the top of each pad blob's bbox (clear of the centered
+  static pad labels), generated at runtime in `panel.ts` from the pad
+  geometry — no change to the SVG asset or its build tool.
+- States (CSS classes, driven by `bindings.ts` off `recLayers`/`arpSub`/
+  `mode`/`sync`): outline = empty slot, filled = committed layer, dimmed =
+  muted, and the next free slot pulses red while Rec capture is armed —
+  which doubles as the panel-visible armed indicator.
+- Visible only in Arp/Mel when there's something to say: in the Rec
+  sub-state, or with committed layers still looping from Arp/Hold.
+- `pointer-events: none` so the dots never steal clicks from the pads
+  (interact.ts's pad → MIDI feature).
 
 

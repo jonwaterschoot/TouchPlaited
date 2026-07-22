@@ -20,6 +20,7 @@ export class PanelBindings {
     this.switch('A', s.swA);
     this.switch('B', s.swB);
     this.led(s.led);
+    this.layerDots();
   }
 
   private apply(ev: StateEvent) {
@@ -28,8 +29,29 @@ export class PanelBindings {
       case 'pad': this.pad(ev.i, ev.v); break;
       case 'sw': this.switch(ev.which, ev.v); break;
       case 'led': this.led(ev.v); break;
+      case 'recLayers':
+      case 'arpSub':
+      case 'mode': this.layerDots(); break;
       case 'sync': this.syncAll(); break;
     }
+  }
+
+  /** NoteRec layer badges on P3–P7: filled = committed, dimmed = muted,
+   * outline = empty; the next free slot pulses while capture is armed.
+   * Shown only in Arp/Mel with something to say (in Rec, or with committed
+   * layers still looping from another sub-state). */
+  private layerDots() {
+    const s = this.store.state;
+    const show = s.mode === 1 && (s.arpSub === 2 || s.recLayers > 0);
+    this.panel.recDots.forEach((dot, i) => {
+      const committed = i < s.recLayers;
+      const muted = committed && ((s.recMute >> i) & 1) !== 0;
+      dot.classList.toggle('hidden', !show);
+      dot.classList.toggle('filled', committed && !muted);
+      dot.classList.toggle('muted', muted);
+      dot.classList.toggle('armed',
+        show && s.arpSub === 2 && s.recArmed && i === s.recLayers);
+    });
   }
 
   private control(i: number, v: number) {

@@ -75,7 +75,8 @@
       "Bash(npm install *)",
       "Bash(npx tsc *)",
       "Bash(npm run *)",
-      "Bash(git mv *)"
+      "Bash(git mv *)",
+      "Bash(make -j8)"
     ],
     "additionalDirectories": [
       "c:\\Users\\jonwa\\Documents\\GitHub\\TouchPlaited"

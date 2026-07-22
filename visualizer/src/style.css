@@ -99,6 +99,28 @@ body.transparent {
   filter: drop-shadow(0 0 5px rgba(120, 180, 255, 0.95));
 }
 
+/* NoteRec layer badges (P3–P7): outline = empty slot, filled = committed
+   layer, dimmed = muted; the next free slot pulses red while capture is
+   armed. State UI generated in panel.ts, not faceplate artwork. */
+#panel .rec-dot {
+  fill: none;
+  stroke: rgba(255, 255, 255, 0.55);
+  stroke-width: 0.7;
+  pointer-events: none; /* never steal clicks from the pad underneath */
+  transition: fill 120ms linear, opacity 120ms linear;
+}
+#panel .rec-dot.hidden { display: none; }
+#panel .rec-dot.filled { fill: var(--accent-hi); }
+#panel .rec-dot.muted  { fill: var(--accent-hi); opacity: 0.35; }
+#panel .rec-dot.armed  {
+  stroke: #e6371e;
+  animation: rec-dot-pulse 1s ease-in-out infinite;
+}
+@keyframes rec-dot-pulse {
+  0%, 100% { fill: rgba(230, 55, 30, 0); }
+  50%      { fill: rgba(230, 55, 30, 0.85); }
+}
+
 /* Fader handles ease; knobs must NOT transition transform — interpolating
    rotation matrices about a non-origin point drifts the whole group, which
    made the label anchors wobble. 30 Hz raw updates look smooth. */

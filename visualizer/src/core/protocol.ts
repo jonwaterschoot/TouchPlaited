@@ -3,9 +3,9 @@
 //
 //   F0 7D 54 50 <ver> <type> <payload…> F7      "TP" = 0x54 0x50, mfr 0x7D
 //
-// STATE (0x01) payload, 21 bytes, all 7-bit (bytes 16-17 appended in fw v2,
-// byte 18 in fw v3, bytes 19-20 in fw v4; decode guards on length so older
-// frames still parse):
+// STATE (0x01) payload, 23 bytes, all 7-bit (bytes 16-17 appended in fw v2,
+// byte 18 in fw v3, bytes 19-20 in fw v4, bytes 21-22 in fw v5; decode guards
+// on length so older frames still parse):
 //   0    pads P0..P6 bitmask (bit0 = P0)
 //   1    pads P7..P11 bitmask (bit0 = P7)
 //   2-9  S30..S37, 0..127
@@ -21,6 +21,10 @@
 //   18   recording slot 0..6, 0x7F = not recording
 //   19   NoteRec committed layer count, 0..5 (Arp/Mel Rec)
 //   20   NoteRec mute mask, bit i = layer i muted
+//   21   master clock source: 0 internal, 1 MIDI, 2 CV
+//   22   bits0-1 Arp/Mel sub-state (0 Arp, 1 Hold, 2 Rec — change-latched on
+//        the device, so it can disagree with the live SW1 lever), bit2 Rec
+//        capture armed (P2+P10)
 //
 // FX (0x04) payload: drive, reverb, delay, nTrims, trims…   (all 0..127)
 // KIT (0x05) payload: nSlots, then per slot 6 bytes: engine, harmonics,
@@ -100,6 +104,10 @@ export function applySysex(data: Uint8Array, store: DeviceStore): boolean {
       }
       if (p.length >= 21) {
         store.setRecLayers(p[19], p[20]);
+      }
+      if (p.length >= 23) {
+        store.setClockSrc(p[21]);
+        store.setArpSub(p[22] & 0x03, (p[22] & 0x04) !== 0);
       }
       return true;
     }

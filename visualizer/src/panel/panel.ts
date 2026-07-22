@@ -21,6 +21,7 @@ export class Panel {
   readonly knobs = new Map<number, KnobRef>();   // control index 0..5 (S30..S35)
   readonly faders = new Map<number, FaderRef>(); // control index 6..7 (S36..S37)
   readonly pads: SVGGraphicsElement[] = [];      // P0..P11
+  readonly recDots: SVGCircleElement[] = [];     // NoteRec layer badges, P3..P7
   readonly sw1: SVGGElement;
   readonly sw2: SVGGElement;
   readonly ledUser: SVGRectElement;
@@ -52,6 +53,25 @@ export class Panel {
       if (!el) throw new Error(`panel.svg is missing #${pad.svgId}`);
       this.pads.push(el);
     }
+
+    // NoteRec layer badges: one dot per gesture pad P3–P7 (P2+pad = that
+    // layer's mute/clear), anchored near the top of each pad blob so they
+    // stay clear of the centered static pad labels. Generated here rather
+    // than in the asset build — they're state UI, not faceplate artwork.
+    const ns = 'http://www.w3.org/2000/svg';
+    const dots = document.createElementNS(ns, 'g');
+    dots.setAttribute('id', 'rec-dots');
+    for (let i = 0; i < 5; i++) {
+      const bb = this.pads[3 + i].getBBox();
+      const c = document.createElementNS(ns, 'circle');
+      c.setAttribute('cx', (bb.x + bb.width / 2).toFixed(1));
+      c.setAttribute('cy', (bb.y + bb.height * 0.2).toFixed(1));
+      c.setAttribute('r', '3');
+      c.classList.add('rec-dot', 'hidden');
+      dots.appendChild(c);
+      this.recDots.push(c);
+    }
+    this.svg.appendChild(dots);
 
     this.sw1 = this.svg.querySelector<SVGGElement>('#sw1')!;
     this.sw2 = this.svg.querySelector<SVGGElement>('#sw2')!;

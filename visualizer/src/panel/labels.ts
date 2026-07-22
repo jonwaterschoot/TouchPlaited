@@ -105,6 +105,20 @@ function describeControl(
     return { combo: 'S37', fn: b.fn, dead: b.dead, engine: s.model };
   }
   if (i === 7 && s.pads[0]) return { combo: 'P0 + S37', fn: 'Stereo width' };
+  // Rec sub-state (device-latched, not the live lever): S32–S35 take the
+  // Rec-only meanings and S30 is Rec's own drive; S31 stays the shared arp
+  // Decay and falls through to the engine-specific branch below.
+  if (s.mode === 1 && !s.sndEdit && s.arpSub === 2) {
+    if (i === 0) return { combo: 'S30', fn: 'Drive (Rec)' };
+    if (i === 2) return { combo: 'S32', fn: 'Speed · layer playback 1x–8x' };
+    if (i === 3) return { combo: 'S33', fn: 'Shift · layers in time' };
+    if (i === 4) return { combo: 'S34', fn: 'Chance · per-hit probability' };
+    if (i === 5) return { combo: 'S35', fn: 'Order · as recorded ↔ shuffled' };
+  }
+  // Seq tempo is muted while an external clock is master (it still sets the
+  // fallback tempo) — say so instead of pretending the knob drives the BPM.
+  if (s.mode === 0 && s.recSlot === null && i === 1 && s.clockSrc !== 0)
+    return { combo: 'S31', fn: `Tempo · ext ${s.clockSrc === 1 ? 'MIDI' : 'CV'} clock (knob muted)` };
   // Arp/Mel base layer: S31 is the arp's Decay — same engine routing as
   // everywhere, so it gets the engine-specific label too.
   if (s.mode === 1 && !s.sndEdit && i === 1) {
@@ -131,7 +145,20 @@ function describeControl(
  * worth a log line on its own. */
 function describePad(i: number, s: DeviceState): { combo: string; fn: string } | null {
   const meta = PADS[i];
+  const inRec = s.mode === 1 && s.arpSub === 2;
   if (i === 11 && s.pads[2]) return { combo: 'P2 + P11', fn: 'Seq play / pause' };
+  // P2+P10 is the melodic transport everywhere except in Rec, where it
+  // arms/disarms capture instead (disarming keeps committed layers looping).
+  if (i === 10 && s.pads[2])
+    return inRec
+      ? { combo: 'P2 + P10', fn: s.recArmed ? 'Rec disarm capture' : 'Rec arm capture' }
+      : { combo: 'P2 + P10', fn: 'Arp/loop stop / start' };
+  // P2 + P3–P7 in Rec: per-layer gesture (tap = mute, hold = clear,
+  // multi-hold = clear all) — the pad neither sounds nor records.
+  if (inRec && s.pads[2] && i >= 3 && i <= 7)
+    return { combo: `P2 + P${i}`, fn: `Layer ${i - 2} mute · hold = clear` };
+  if (inRec && s.pads[0] && i === 10)
+    return { combo: 'P0 + P10', fn: 'Undo · open take, then newest layer' };
   if (i === 10 && s.pads[0]) return { combo: 'P0 + P10', fn: 'Root −1 semitone' };
   if (i === 11 && s.pads[0]) return { combo: 'P0 + P11', fn: 'Root +1 semitone' };
   if (i === 10) return { combo: 'P10', fn: s.mode === 0 ? 'Drum pitch −1' : 'Octave −' };
@@ -304,12 +331,13 @@ export class Labels {
     // The model section reflects knob values, engine, mode, kit and rec state.
     if (ev.kind === 'control' || ev.kind === 'model' || ev.kind === 'mode' ||
         ev.kind === 'kit' || ev.kind === 'recSlot' || ev.kind === 'sndEdit' ||
-        ev.kind === 'sync')
+        ev.kind === 'arpSub' || ev.kind === 'clockSrc' || ev.kind === 'sync')
       this.renderModel(s);
     // The static label overlays additionally track switches and pitch state
     // (pad note names) — cheap full re-render, they're a handful of divs.
     if (ev.kind === 'mode' || ev.kind === 'model' || ev.kind === 'sw' ||
         ev.kind === 'kit' || ev.kind === 'recSlot' || ev.kind === 'sndEdit' ||
+        ev.kind === 'arpSub' || ev.kind === 'clockSrc' ||
         ev.kind === 'octave' || ev.kind === 'root' || ev.kind === 'sync')
       this.renderStatic(s);
     switch (ev.kind) {
@@ -350,6 +378,10 @@ export class Labels {
           value = ev.i === 0
             ? fxValueLabel('reverb', s.fx.reverb ?? ev.v)
             : fxValueLabel('delay', s.fx.delay ?? ev.v);
+        } else if (meta.name === 'S35' && s.mode === 1 && s.arpSub === 2
+                   && !s.sndEdit && !s.pads[0] && !s.pads[2]) {
+          // Rec's Order is a left/right-of-center choice, not the arp walk.
+          value = ev.v < 0.5 ? 'as recorded' : 'shuffled';
         } else if (meta.name === 'S35' && s.mode === 1 && !s.pads[0] && !s.pads[2]) {
           // Bare S35 in Arp/Mel is the note Order — name the setting, same
           // spirit as the model names on Basic Pitch's S35.
@@ -467,6 +499,30 @@ export class Labels {
         this.renderStatus(s);
         break;
       }
+      case 'clockSrc': {
+        const name = ev.v === 1 ? 'MIDI' : ev.v === 2 ? 'CV' : null;
+        this.addLog('clock', name
+          ? `<b>Clock</b> external <span>${name}</span> — tempo knob muted`
+          : `<b>Clock</b> back to <span>internal</span> (knob tempo)`);
+        this.renderStatus(s);
+        break;
+      }
+      case 'arpSub': {
+        // Arm/disarm is its own gesture (P2+P10); a sub-state move is the
+        // latched SW1 change — log whichever actually happened.
+        if (ev.armed !== ev.prevArmed) {
+          this.addLog('rec-arm', ev.armed
+            ? `<b>Rec</b> <span>armed</span> — pads record`
+            : `<b>Rec</b> <span>disarmed</span> — playback continues`);
+        }
+        if (ev.sub !== ev.prevSub) {
+          const names = ['Arp', 'Hold', 'Rec'];
+          this.addLog('arp-sub',
+            `<b>Arp/Mel</b> state → <span>${names[ev.sub] ?? ev.sub}</span>`);
+        }
+        this.renderStatus(s);
+        break;
+      }
       case 'mode':
       case 'playing':
       case 'seqStep':
@@ -503,7 +559,9 @@ export class Labels {
     const edit = s.mode === 1 && s.sndEdit;
     const title = s.mode === 0 ? 'Drum kit' : `${modelName(s.model)} #${s.model}`;
     const sub = s.mode === 0 && s.recSlot !== null ? ` · rec P${s.recSlot + 3}`
-              : edit ? ' · sound edit' : '';
+              : s.mode === 1 && s.arpSub === 2
+                ? ` · Rec${s.recArmed ? ' ●' : ''}${edit ? ' · sound edit' : ''}`
+                : edit ? ' · sound edit' : '';
     this.modelHead.innerHTML = `${arrow} <b>${title}</b>${sub}`;
     if (!this.modelOpen) return;
 
@@ -523,7 +581,10 @@ export class Labels {
           (['decay', 'harmonics', 'timbre', 'morph'] as const)[i - 1];
         value = formatKnobValue(d.engine, param, s.controls[i]);
       } else if (s.mode === 0 && s.recSlot === null && i === 1) {
-        value = `${Math.round(60 + s.controls[1] * 120)} BPM`;
+        // Under an external clock the knob is muted — the BPM shown would be
+        // the fallback tempo, not what's playing.
+        value = s.clockSrc !== 0
+          ? 'ext' : `${Math.round(60 + s.controls[1] * 120)} BPM`;
       } else {
         value = `${Math.round(s.controls[i] * 100)}%`;
       }
@@ -669,13 +730,21 @@ export class Labels {
   }
 
   private renderStatus(s: DeviceState) {
+    // In Arp/Mel the mode chip carries the device's latched sub-state (which
+    // the SW1 lever may disagree with after a mode round-trip).
+    const modeName = s.mode === 1
+      ? `Arp/Mel · ${['Arp', 'Hold', 'Rec'][s.arpSub] ?? s.arpSub}`
+      : MODE_NAMES[s.mode] ?? `mode ${s.mode}`;
     const parts = [
       `<b>${modelName(s.model)}</b> #${s.model}`,
-      MODE_NAMES[s.mode] ?? `mode ${s.mode}`,
+      modeName,
       s.playing ? '▶' : '⏸',
     ];
     if (s.seqStep !== null) parts.push(`step ${s.seqStep + 1}`);
+    if (s.clockSrc !== 0) parts.push(`<i>⏱ ${s.clockSrc === 1 ? 'MIDI' : 'CV'} clock</i>`);
     if (s.mode === 1 && s.sndEdit) parts.push('<i>sound edit</i>');
+    if (s.mode === 1 && s.arpSub === 2)
+      parts.push(s.recArmed ? '<i>● armed</i>' : '<i>unarmed</i>');
     if (s.mode === 1 && s.recLayers > 0)
       parts.push(`<i>${s.recLayers} layer${s.recLayers > 1 ? 's' : ''}</i>`);
     if (s.recSlot !== null) parts.push(`<i>REC P${s.recSlot + 3}</i>`);

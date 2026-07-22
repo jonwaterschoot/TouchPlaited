@@ -5,7 +5,7 @@
 import type { Transport } from './transport';
 import type { DeviceStore } from '../core/state';
 
-const LOOP_S = 24;
+const LOOP_S = 31;
 
 export class MockTransport implements Transport {
   readonly kind = 'mock';
@@ -47,13 +47,17 @@ export class MockTransport implements Transport {
     const s = this.store;
 
     if (t < 6) {
-      // Phase 1 — knob sweeps, one at a time (S31..S34)
+      // Phase 1 — knob sweeps, one at a time (S31..S34); also resets the
+      // Rec/clock state phase 6 leaves behind (setters no-op when unchanged)
       const i = Math.floor(t / 1.5);
       const phase = (t % 1.5) / 1.5;
       s.setMode(2);
       s.setSw('B', 2);
       s.setPlaying(false);
       s.setSeqStep(null);
+      s.setClockSrc(0);
+      s.setArpSub(0, false);
+      s.setRecLayers(0, 0);
       s.setControl(1 + i, 0.5 - 0.45 * Math.cos(phase * Math.PI * 2));
       s.setLed(0);
     } else if (t < 10) {
@@ -101,7 +105,7 @@ export class MockTransport implements Transport {
         s.setControl(5, v);
         s.setModel(Math.min(11, Math.floor(v * 12)));
       }
-    } else {
+    } else if (t < 24) {
       // Phase 5 — faders + FX layer
       s.setPad(0, false);
       s.setControl(6, 0.5 - 0.5 * Math.cos((t - 19) / 5 * Math.PI * 2)); // volume
@@ -115,6 +119,18 @@ export class MockTransport implements Transport {
         s.setPad(1, false);
       }
       s.setLed(0);
+    } else {
+      // Phase 6 — Arp/Mel Rec: arm capture, stack layers (dots fill on
+      // P3–P7), mute layer 2, disarm, and a CV-clock cameo at the end
+      s.setPad(1, false);
+      s.setMode(1);
+      s.setSw('B', 1);
+      s.setSw('A', 2); // lever on Rec
+      const u = t - 24; // 0..7
+      s.setArpSub(2, u > 0.6 && u < 5.4);
+      const layers = Math.min(5, Math.max(0, Math.floor((u - 0.6) / 0.9) + 1));
+      s.setRecLayers(layers, u > 3.4 && layers >= 2 ? 0b00010 : 0);
+      s.setClockSrc(u > 5.6 ? 2 : 0);
     }
   }
 }
