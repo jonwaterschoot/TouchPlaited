@@ -6,6 +6,7 @@
 #include "synth/arp.h"
 #include "synth/note_rec.h"
 #include "synth/fx.h"
+#include "synth/settings_journal.h"
 #include "midi/midi_io.h"
 #include "midi/telemetry.h"
 #include "log.h"
@@ -34,6 +35,12 @@ static inline void set_led(bool on) {
 // ISR load measurement — groundwork for expanding the voice pool. Printed over
 // serial every 2s from the main loop (visible via `make debug` / USB serial).
 static CpuLoadMeter cpu_meter;
+
+// Settings persistence (QSPI journal — synth/settings_journal.h, README):
+// restored gates the boot-time pot arming below so the saved state holds
+// until each pot picks it up, instead of the pots stomping it on block one.
+static SettingsJournal settings_journal;
+static bool            settings_restored = false;
 
 // Load shedding: 6 worst-case voices can exceed the 4ms block budget (measured
 // 138% peak). If the previous block ran past the threshold, force-sleep the
@@ -1573,6 +1580,48 @@ void AudioCallback(AudioHandle::InputBuffer in, AudioHandle::OutputBuffer out, s
     last_m    = k.s34().Value();
     last_d    = k.s31().Value();   // unified Decay lives on S31 (LPG colour retired)
 
+    // One-time fader arm: volume and blend follow their pots live from boot —
+    // the pickups only start gating after a mode hand-off or P0 width edit.
+    // Must run BEFORE the cc_pu_* updates below: a default-constructed pickup
+    // catches on its first update (thresh 0), which on a persisted boot would
+    // let the pots stomp the restored eff_* before the arm ever happened.
+    static bool faders_armed = false;
+    if (!faders_armed) {
+        faders_armed = true;
+        if (settings_restored) {
+            // Persisted boot: every restored value holds until its pot
+            // crosses it — the same pickup doctrine as a mode hand-off,
+            // applied to the pots' arbitrary power-on positions.
+            pitch_pu_vol.arm_to(pitched_vol_lk, k.s36().Value());
+            pitch_pu_blend.arm_to(pitched_blend_lk, k.s37().Value());
+            pitch_pu_w.arm(k.s37().Value());
+            cc_pu_h.arm_to(eff_h, last_h);
+            cc_pu_t.arm_to(eff_t, last_t);
+            cc_pu_m.arm_to(eff_m, last_m);
+            cc_pu_d.arm_to(eff_d, last_d);
+            cc_pu_drive.arm_to(eff_drive, drive);
+            // Restored BP snapshots: anchor the knob-grab escape refs to the
+            // pots' current rest positions, not their pre-reboot values —
+            // otherwise block one reads "knob moved" and escapes to live.
+            if (bp_slots_active) {
+                bp_ref_h = last_h; bp_ref_t = last_t;
+                bp_ref_m = last_m; bp_ref_d = last_d;
+            }
+        } else {
+            pitched_vol_lk = k.s36().Value();
+            pitch_pu_vol.force_catch(pitched_vol_lk);
+            pitched_blend_lk = k.s37().Value();
+            pitch_pu_blend.force_catch(pitched_blend_lk);
+            pitch_pu_w.arm(k.s37().Value());
+            // CC pickups start caught: pots drive eff_* until the first CC write.
+            eff_h = last_h;        cc_pu_h.force_catch(last_h);
+            eff_t = last_t;        cc_pu_t.force_catch(last_t);
+            eff_m = last_m;        cc_pu_m.force_catch(last_m);
+            eff_d = last_d;        cc_pu_d.force_catch(last_d);
+            eff_drive = drive;     cc_pu_drive.force_catch(drive);
+        }
+    }
+
     // P1 = FX modifier: held → S30 edits the reverb, S35 the delay. Their
     // bare roles (drive / pattern select) freeze for the duration. Disabled
     // while recording (rec borrows S30 — in drum recording the same combo
@@ -1588,24 +1637,6 @@ void AudioCallback(AudioHandle::InputBuffer in, AudioHandle::OutputBuffer out, s
     if (cc_pu_m.update(last_m))     eff_m     = last_m;
     if (cc_pu_d.update(last_d))     eff_d     = last_d;
     if (!p1_fx && cc_pu_drive.update(drive))  eff_drive = drive;
-
-    // One-time fader arm: volume and blend follow their pots live from boot —
-    // the pickups only start gating after a mode hand-off or P0 width edit.
-    static bool faders_armed = false;
-    if (!faders_armed) {
-        faders_armed = true;
-        pitched_vol_lk = k.s36().Value();
-        pitch_pu_vol.force_catch(pitched_vol_lk);
-        pitched_blend_lk = k.s37().Value();
-        pitch_pu_blend.force_catch(pitched_blend_lk);
-        pitch_pu_w.arm(k.s37().Value());
-        // CC pickups start caught: pots drive eff_* until the first CC write.
-        eff_h = last_h;        cc_pu_h.force_catch(last_h);
-        eff_t = last_t;        cc_pu_t.force_catch(last_t);
-        eff_m = last_m;        cc_pu_m.force_catch(last_m);
-        eff_d = last_d;        cc_pu_d.force_catch(last_d);
-        eff_drive = drive;     cc_pu_drive.force_catch(drive);
-    }
 
     // SW1 / scale or genre — change-latched: the position only takes effect
     // when the switch moves while its role is active, so a position it
@@ -1655,14 +1686,20 @@ void AudioCallback(AudioHandle::InputBuffer in, AudioHandle::OutputBuffer out, s
             // setting first (it served another mode in the meantime).
             if (!seq_entered_once) {
                 seq_entered_once = true;
-                seq_drive_lk = k.s30().Value();  seq_pu30.force_catch(seq_drive_lk);
-                seq_tempo_lk = k.s31().Value();  seq_pu31.force_catch(seq_tempo_lk);
-                seq_shuf_lk  = k.s32().Value();  seq_pu32.force_catch(seq_shuf_lk);
-                seq_dens_lk  = k.s33().Value();  seq_pu33.force_catch(seq_dens_lk);
-                seq_punch_lk = k.s34().Value();  seq_pu34.force_catch(seq_punch_lk);
-                seq_pu35.arm_to(seq_var_lk, k.s35().Value());  // variant stays 0 until S35 crosses it
-                seq_vol_lk   = k.s36().Value();  seq_pu36.force_catch(seq_vol_lk);
-                seq_tight_lk = k.s37().Value();  seq_pu37.force_catch(seq_tight_lk);
+                if (settings_restored) {
+                    // Persisted boot: the first entry behaves like a re-entry
+                    // — restored settings hold, pots must pick them up.
+                    rearm_seq_pickups();
+                } else {
+                    seq_drive_lk = k.s30().Value();  seq_pu30.force_catch(seq_drive_lk);
+                    seq_tempo_lk = k.s31().Value();  seq_pu31.force_catch(seq_tempo_lk);
+                    seq_shuf_lk  = k.s32().Value();  seq_pu32.force_catch(seq_shuf_lk);
+                    seq_dens_lk  = k.s33().Value();  seq_pu33.force_catch(seq_dens_lk);
+                    seq_punch_lk = k.s34().Value();  seq_pu34.force_catch(seq_punch_lk);
+                    seq_pu35.arm_to(seq_var_lk, k.s35().Value());  // variant stays 0 until S35 crosses it
+                    seq_vol_lk   = k.s36().Value();  seq_pu36.force_catch(seq_vol_lk);
+                    seq_tight_lk = k.s37().Value();  seq_pu37.force_catch(seq_tight_lk);
+                }
                 seq.Start();
                 if (!midi_clock_master()) midi.SendStart();
                 clkout_resync = true;
@@ -2571,6 +2608,172 @@ void AudioCallback(AudioHandle::InputBuffer in, AudioHandle::OutputBuffer out, s
     cpu_meter.OnBlockEnd();
 }
 
+// ─── Settings persistence ─────────────────────────────────────────────────────
+// What survives a power cycle: every per-mode lock (*_lk), the effective
+// Basic Pitch params, all four slot groups (BP snapshots, drum kit, arp/Rec
+// sounds), octaves/root and the change-latched switch states — quantized to
+// 8 bits, which both keeps the record small and stops ADC noise from reading
+// as a settings change. Deliberately NOT saved: anything a physical switch
+// dictates at boot (SW1 scale, SW2 playmode), transport states, and the note
+// recorder's loop content (that's a take, not a setting). The snapshot
+// doubles as the change detector inside SettingsJournal::Tick, so no gesture
+// handler needs a dirty flag.
+static constexpr uint16_t kPersistVersion = 1;
+
+struct __attribute__((packed)) SlotPersist {
+    uint8_t  engine;
+    uint8_t  pad;
+    uint16_t note_q;   // note * 256
+    uint8_t  harmonics, timbre, morph, decay, volume, drive, blend, width,
+             rev_send, dly_send;
+};
+
+struct __attribute__((packed)) PersistState {
+    uint8_t seq_tempo, seq_shuf, seq_dens, seq_punch, seq_tight, seq_drive,
+            seq_var, seq_vol, seq_width, seq_genre;
+    uint8_t pitched_vol, pitched_blend, pitched_width;
+    uint8_t fx_rev_seq, fx_rev_pitched, fx_rev_arp, fx_rev_rec;
+    uint8_t fx_dly_seq, fx_dly_pitched, fx_dly_arp, fx_dly_rec;
+    uint8_t eff_h, eff_t, eff_m, eff_d, eff_drive, lpg_colour;
+    uint8_t arp_drive, arp_div, arp_swing, arp_dens, arp_decay, arp_order;
+    uint8_t rec_speed, rec_shift, rec_chance, rec_order, rec_drive;
+    uint8_t arp_vol, rec_vol, arp_blend, rec_blend;
+    int8_t  engine, bp_oct, arp_oct, rec_oct, root, arp_range;
+    uint8_t arp_state8;
+    uint8_t flags;   // bit0 bp_slots_active, 1 drum_kit_ready,
+                     // 2 arp_snd_ready, 3 rec_snd_ready, 4 arp_run_on
+    SlotPersist bp[kPadSlots], drum[kPadSlots], arp_s, rec_s;
+};
+static_assert(sizeof(PersistState) <= SettingsJournal::kMaxPayload,
+              "PersistState must fit one journal slot");
+
+static uint8_t  q8(float v) { v = clampf(v); return static_cast<uint8_t>(v * 255.f + 0.5f); }
+static float    dq8(uint8_t b) { return static_cast<float>(b) / 255.f; }
+static uint16_t q_note(float n) {
+    if (n < 0.f)   n = 0.f;
+    if (n > 127.f) n = 127.f;
+    return static_cast<uint16_t>(n * 256.f + 0.5f);
+}
+static float dq_note(uint16_t q) { return static_cast<float>(q) / 256.f; }
+
+static void persist_slot(SlotPersist& d, const PadSlot& s) {
+    d.engine    = static_cast<uint8_t>(s.engine);
+    d.pad       = 0;
+    d.note_q    = q_note(s.note);
+    d.harmonics = q8(s.harmonics); d.timbre   = q8(s.timbre);
+    d.morph     = q8(s.morph);     d.decay    = q8(s.decay);
+    d.volume    = q8(s.volume);    d.drive    = q8(s.drive);
+    d.blend     = q8(s.blend);     d.width    = q8(s.width);
+    d.rev_send  = q8(s.rev_send);  d.dly_send = q8(s.dly_send);
+}
+
+static void restore_slot(PadSlot& d, const SlotPersist& s) {
+    d.engine    = (s.engine <= 23) ? s.engine : 0;
+    d.note      = dq_note(s.note_q);
+    d.harmonics = dq8(s.harmonics); d.timbre   = dq8(s.timbre);
+    d.morph     = dq8(s.morph);     d.decay    = dq8(s.decay);
+    d.volume    = dq8(s.volume);    d.drive    = dq8(s.drive);
+    d.blend     = dq8(s.blend);     d.width    = dq8(s.width);
+    d.rev_send  = dq8(s.rev_send);  d.dly_send = dq8(s.dly_send);
+}
+
+static void capture_state(PersistState& st) {
+    st.seq_tempo = q8(seq_tempo_lk); st.seq_shuf  = q8(seq_shuf_lk);
+    st.seq_dens  = q8(seq_dens_lk);  st.seq_punch = q8(seq_punch_lk);
+    st.seq_tight = q8(seq_tight_lk); st.seq_drive = q8(seq_drive_lk);
+    st.seq_var   = q8(seq_var_lk);   st.seq_vol   = q8(seq_vol_lk);
+    st.seq_width = q8(seq_width_lk);
+    st.seq_genre = static_cast<uint8_t>(seq_genre_lk);
+    st.pitched_vol   = q8(pitched_vol_lk);
+    st.pitched_blend = q8(pitched_blend_lk);
+    st.pitched_width = q8(pitched_width_lk);
+    st.fx_rev_seq = q8(fx_rev_seq_lk); st.fx_rev_pitched = q8(fx_rev_pitched_lk);
+    st.fx_rev_arp = q8(fx_rev_arp_lk); st.fx_rev_rec     = q8(fx_rev_rec_lk);
+    st.fx_dly_seq = q8(fx_dly_seq_lk); st.fx_dly_pitched = q8(fx_dly_pitched_lk);
+    st.fx_dly_arp = q8(fx_dly_arp_lk); st.fx_dly_rec     = q8(fx_dly_rec_lk);
+    st.eff_h = q8(eff_h); st.eff_t = q8(eff_t); st.eff_m = q8(eff_m);
+    st.eff_d = q8(eff_d); st.eff_drive = q8(eff_drive);
+    st.lpg_colour = q8(lpg_colour);
+    st.arp_drive = q8(arp_drive_lk); st.arp_div   = q8(arp_div_lk);
+    st.arp_swing = q8(arp_swing_lk); st.arp_dens  = q8(arp_dens_lk);
+    st.arp_decay = q8(arp_decay_lk); st.arp_order = q8(arp_order_lk);
+    st.rec_speed = q8(rec_speed_lk); st.rec_shift  = q8(rec_shift_lk);
+    st.rec_chance = q8(rec_chance_lk); st.rec_order = q8(rec_order_lk);
+    st.rec_drive = q8(rec_drive_lk);
+    st.arp_vol   = q8(arp_vol_lk);   st.rec_vol   = q8(rec_vol_lk);
+    st.arp_blend = q8(arp_blend_lk); st.rec_blend = q8(rec_blend_lk);
+    st.engine    = static_cast<int8_t>(current_engine);
+    st.bp_oct    = static_cast<int8_t>(bp_octave);
+    st.arp_oct   = static_cast<int8_t>(arp_octave);
+    st.rec_oct   = static_cast<int8_t>(rec_octave);
+    st.root      = static_cast<int8_t>(root_semitone);
+    st.arp_range = static_cast<int8_t>(arp_oct_range);
+    st.arp_state8 = static_cast<uint8_t>(arp_state);
+    st.flags = (bp_slots_active ? 1u : 0u) | (drum_kit_ready ? 2u : 0u)
+             | (arp_snd_ready ? 4u : 0u)  | (rec_snd_ready ? 8u : 0u)
+             | (arp_run_on ? 16u : 0u);
+    for (int i = 0; i < kPadSlots; i++) {
+        persist_slot(st.bp[i],   bp_slots[i]);
+        persist_slot(st.drum[i], drum_slots[i]);
+    }
+    persist_slot(st.arp_s, arp_snd);
+    persist_slot(st.rec_s, rec_snd);
+}
+
+static void apply_state(const PersistState& st) {
+    seq_tempo_lk = dq8(st.seq_tempo); seq_shuf_lk  = dq8(st.seq_shuf);
+    seq_dens_lk  = dq8(st.seq_dens);  seq_punch_lk = dq8(st.seq_punch);
+    seq_tight_lk = dq8(st.seq_tight); seq_drive_lk = dq8(st.seq_drive);
+    seq_var_lk   = dq8(st.seq_var);   seq_vol_lk   = dq8(st.seq_vol);
+    seq_width_lk = dq8(st.seq_width);
+    seq_genre_lk = (st.seq_genre <= 2) ? st.seq_genre : 0;
+    pitched_vol_lk   = dq8(st.pitched_vol);
+    pitched_blend_lk = dq8(st.pitched_blend);
+    pitched_width_lk = dq8(st.pitched_width);
+    fx_rev_seq_lk = dq8(st.fx_rev_seq); fx_rev_pitched_lk = dq8(st.fx_rev_pitched);
+    fx_rev_arp_lk = dq8(st.fx_rev_arp); fx_rev_rec_lk     = dq8(st.fx_rev_rec);
+    fx_dly_seq_lk = dq8(st.fx_dly_seq); fx_dly_pitched_lk = dq8(st.fx_dly_pitched);
+    fx_dly_arp_lk = dq8(st.fx_dly_arp); fx_dly_rec_lk     = dq8(st.fx_dly_rec);
+    eff_h = dq8(st.eff_h); eff_t = dq8(st.eff_t); eff_m = dq8(st.eff_m);
+    eff_d = dq8(st.eff_d); eff_drive = dq8(st.eff_drive);
+    lpg_colour = dq8(st.lpg_colour);
+    arp_drive_lk = dq8(st.arp_drive); arp_div_lk   = dq8(st.arp_div);
+    arp_swing_lk = dq8(st.arp_swing); arp_dens_lk  = dq8(st.arp_dens);
+    arp_decay_lk = dq8(st.arp_decay); arp_order_lk = dq8(st.arp_order);
+    rec_speed_lk = dq8(st.rec_speed); rec_shift_lk  = dq8(st.rec_shift);
+    rec_chance_lk = dq8(st.rec_chance); rec_order_lk = dq8(st.rec_order);
+    rec_drive_lk = dq8(st.rec_drive);
+    arp_vol_lk   = dq8(st.arp_vol);   rec_vol_lk   = dq8(st.rec_vol);
+    arp_blend_lk = dq8(st.arp_blend); rec_blend_lk = dq8(st.rec_blend);
+    current_engine = (st.engine >= 0 && st.engine <= 23) ? st.engine : 0;
+    bp_octave  = std::max(-3, std::min(3, static_cast<int>(st.bp_oct)));
+    arp_octave = std::max(-3, std::min(3, static_cast<int>(st.arp_oct)));
+    rec_octave = std::max(-3, std::min(3, static_cast<int>(st.rec_oct)));
+    root_semitone = std::max(0, std::min(11, static_cast<int>(st.root)));
+    arp_oct_range = std::max(0, std::min(3, static_cast<int>(st.arp_range)));
+    arp_state = static_cast<ArpState>(st.arp_state8 <= 2 ? st.arp_state8 : 0);
+    bp_slots_active = st.flags & 1u;
+    drum_kit_ready  = st.flags & 2u;
+    arp_snd_ready   = st.flags & 4u;
+    rec_snd_ready   = st.flags & 8u;
+    arp_run_on      = st.flags & 16u;
+    for (int i = 0; i < kPadSlots; i++) {
+        restore_slot(bp_slots[i],   st.bp[i]);
+        restore_slot(drum_slots[i], st.drum[i]);
+    }
+    restore_slot(arp_snd, st.arp_s);
+    restore_slot(rec_snd, st.rec_s);
+}
+
+// Main-loop hook: capture → journal. The journal rate-limits internally
+// (250 ms compare cadence, 3 s settle, one flash page per pass, skipped
+// while the audio ISR is near its block budget).
+static void persist_tick(uint32_t now_ms) {
+    static PersistState snap;
+    capture_state(snap);
+    settings_journal.Tick(&snap, now_ms, last_block_load);
+}
+
 // ─── Main ─────────────────────────────────────────────────────────────────────
 int main() {
     hw.Init();
@@ -2590,17 +2793,32 @@ int main() {
 #endif
 
     rng = System::GetNow() ^ 0xDEADBEEF;
-    current_engine = random_engine();   // Basic Pitch starts on a random model
-    // Rec's sound is independent from boot (unlike arp_snd, which still lazily
-    // seeds from Basic Pitch on its first-ever entry — a hardware-tested fix,
-    // kept as shipped; only Rec gets a fully unrelated model at power-on).
-    rec_snd.engine = random_engine();
-    if (rec_snd.engine >= 2 && rec_snd.engine <= 4) {
-        const auto& a = kSixOpAud[rec_snd.engine - 2];
-        rec_snd.harmonics = a.h;
-        rec_snd.timbre    = a.t;
+
+    // Restore persisted settings from the QSPI journal (see README). This is
+    // also where stale journal sectors get erased — blocking, but audio has
+    // not started yet, so the 45–300 ms per-sector cost is invisible.
+    {
+        static PersistState boot_state;
+        if (settings_journal.Init(&boot_state, sizeof(boot_state),
+                                  kPersistVersion)) {
+            apply_state(boot_state);
+            settings_restored = true;
+        }
     }
-    rec_snd_ready = true;
+    if (!settings_restored) {
+        // First boot (or settings layout changed): original randomized start.
+        current_engine = random_engine();   // Basic Pitch starts on a random model
+        // Rec's sound is independent from boot (unlike arp_snd, which still lazily
+        // seeds from Basic Pitch on its first-ever entry — a hardware-tested fix,
+        // kept as shipped; only Rec gets a fully unrelated model at power-on).
+        rec_snd.engine = random_engine();
+        if (rec_snd.engine >= 2 && rec_snd.engine <= 4) {
+            const auto& a = kSixOpAud[rec_snd.engine - 2];
+            rec_snd.harmonics = a.h;
+            rec_snd.timbre    = a.t;
+        }
+        rec_snd_ready = true;
+    }
 
     touch.Init(hw);
     // S40 clock-out jack (D25): plain push-pull GPIO, pulsed from the audio ISR.
@@ -2862,14 +3080,21 @@ int main() {
         if (now_ms - last_cpu_print >= 2000) {
             last_cpu_print = now_ms;
 #ifndef USB_MIDI
-            HW::hw().print("CPU avg %d%% max %d%% shed %d",
+            HW::hw().print("CPU avg %d%% max %d%% shed %d sv %d%s%s",
                            static_cast<int>(cpu_meter.GetAvgCpuLoad() * 100.f),
                            static_cast<int>(cpu_meter.GetMaxCpuLoad() * 100.f),
-                           static_cast<int>(shed_count));
+                           static_cast<int>(shed_count),
+                           static_cast<int>(settings_journal.save_count()),
+                           settings_journal.saving_disabled() ? " FULL" : "",
+                           settings_journal.write_error() ? " WERR" : "");
 #endif
             cpu_meter.Reset();
             shed_count = 0;
         }
+
+        // Debounced settings auto-save (runs every pass — before the LED
+        // branches below, which `continue` past the rest of the loop).
+        persist_tick(now_ms);
 
         uint32_t hold  = p0p2_hold_count;
         bool     done  = p0p2_all_done;

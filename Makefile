@@ -19,7 +19,8 @@ CPP_SOURCES = TouchPlaited.cpp \
               midi/midi_io.cpp \
               midi/telemetry.cpp \
               synth/plaits_voice.cpp \
-              synth/fx.cpp
+              synth/fx.cpp \
+              synth/settings_journal.cpp
 
 # Plaits DSP sources (.cc extension — compiled as C++)
 # Requires thirdparty/plaits/ and thirdparty/stmlib/ to be populated first.
