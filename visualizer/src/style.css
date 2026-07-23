@@ -145,37 +145,98 @@ body.transparent {
 
 /* --- overlay ----------------------------------------------------------- */
 
-.callout {
-  position: absolute;
-  background: var(--overlay);
-  border: 1px solid var(--accent);
-  color: var(--text);
-  font-size: 15px;
-  line-height: 1.2;
-  padding: 5px 10px;
-  white-space: nowrap;
-  opacity: 1;
-  transition: opacity 300ms ease;
-}
-.callout b {
-  color: var(--accent);
-  margin-right: 6px;
-}
-.callout span {
-  color: var(--value);
-  margin-left: 6px;
-  font-variant-numeric: tabular-nums;
-}
 /* Unassigned-knob note ("no effect on Six-Op A") — muted, not a value. */
-.callout i,
 .action-line i {
   color: var(--text);
   opacity: 0.55;
   font-style: italic;
   margin-left: 6px;
 }
-.callout.fading {
-  opacity: 0;
+
+/* --- OLED faceplate screen --------------------------------------------- */
+/* Sits in the free zone between the knob columns (positioned by oled.ts in
+   SVG units, so it rides the device drawing). Replaces the per-control
+   callouts: the control lights up (.live-hl) and its text lands here — a
+   dim status strip on top, the last three actions below it, newest at the
+   bottom. The text glow is emitted light, not elevation. */
+.oled {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 0.25em 0.5em 0.3em;
+  background: #060605;
+  border: 1px solid #38332c;
+  font-family: 'Sofia Sans Extra Condensed', 'Arial Narrow', 'Roboto Condensed', sans-serif;
+  letter-spacing: 0.02em;
+  color: #e8e2d4;
+  text-shadow: 0 0 2px rgba(255, 220, 150, 0.4);
+}
+/* The classic SSD1306 yellow top row: model · mode · transport. */
+.oled-status {
+  flex: none;
+  font-size: 0.75em;
+  line-height: 1.4;
+  white-space: nowrap;
+  overflow: hidden;
+  color: var(--accent);
+  opacity: 0.9;
+  border-bottom: 1px solid rgba(233, 160, 37, 0.3);
+  padding-bottom: 0.15em;
+}
+.oled-status b {
+  color: var(--accent-hi);
+}
+.oled-status i {
+  color: var(--alert);
+  font-style: normal;
+}
+.oled-lines {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  /* Text cranked past three rows: the oldest line clips off the top. */
+  overflow: hidden;
+}
+.oled-line {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5em;
+  line-height: 1.3;
+  white-space: nowrap;
+}
+/* Combo + function truncate; the value is pinned right and never does. */
+.oled-line .t {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* No tabular-nums here: the condensed font pads digits to tabular width
+   ("3/3 2"), and right-pinning already keeps the value visually stable. */
+.oled-line .v {
+  flex: none;
+  color: var(--value);
+}
+.oled-line b {
+  color: var(--accent);
+  margin-right: 0.35em;
+}
+.oled-line i {
+  opacity: 0.55;
+  font-style: italic;
+}
+.oled-line.idle {
+  opacity: 0.35;
+}
+/* Older lines fade like phosphor. */
+.oled-line:nth-last-child(2) {
+  opacity: 0.6;
+}
+.oled-line:nth-last-child(3) {
+  opacity: 0.35;
 }
 
 /* Live-info panel: draggable "screen" holding the status + action log.
@@ -262,6 +323,27 @@ body.transparent {
   cursor: pointer;
 }
 
+/* Device handle cluster: pinned to the drawing's top-left corner (layout.ts
+   clamps it into the stage). Drag grip + label/screen text size + explicit
+   reset — replaces the old double-click reset, which pad double-taps kept
+   triggering. Reuses the .info-controls button styling. */
+.panel-handle {
+  position: absolute;
+  align-items: center;
+  pointer-events: auto;
+  background: var(--overlay);
+  border: 1px solid var(--line);
+  padding: 2px 4px;
+}
+.panel-grip {
+  color: var(--accent);
+  font-size: 13px;
+  letter-spacing: 0.1em;
+  padding: 0 5px 0 2px;
+  cursor: grab;
+  touch-action: none;
+}
+
 .info-grip {
   position: absolute;
   right: -7px;
@@ -337,8 +419,11 @@ body.transparent {
   background: rgba(255, 255, 255, 0.06);
 }
 
-/* Hover highlight on the drawing (from info-panel rows). */
-.ctl-hl {
+/* Hover highlight on the drawing (from info-panel rows), and the live
+   highlight that replaced the callouts: the control that just moved glows
+   while its text shows on the OLED screen. */
+.ctl-hl,
+#panel .live-hl {
   filter: drop-shadow(0 0 4px var(--accent)) drop-shadow(0 0 10px var(--accent));
 }
 

@@ -2,7 +2,8 @@
 
 Live on-screen mirror of the TouchPlaited panel for video tutorials: pads light
 up when touched, knobs and faders move, the user LED blinks like the real one,
-and contextual labels (P0, S35 · Timbre · 64%…) point at whatever is being used.
+whatever you're using glows, and an **OLED-style screen** on the faceplate
+(the free zone between the knobs) names it — `S33 · Timbre · 64%`.
 Design and protocol details: [PLAN.md](PLAN.md).
 
 ## Run
@@ -37,19 +38,32 @@ what every pot/fader does right now with engine-aware values, the drum kit in
 Seq, the **last-4 action log** with smart gesture names like `P0 + S35 · Model
 select · bank 0`, and the FX readout) is **draggable** — put it wherever the
 shot needs it. The corner grip resizes the box (text wraps and scrolls, it
-never scales), the hover-revealed **A− / A+** buttons set the font size, and
-double-click resets everything. **Hovering a knob-map or kit row highlights
-that control on the drawing.**
+never scales); its title bar has **A− / A+** buttons for its font size and a
+**⟲** reset. **Hovering a knob-map or kit row highlights that control on the
+drawing.**
+
+The **device drawing** moves too: drag any non-pad area, pinch or scroll to
+zoom, or use the handle cluster pinned to its top-left corner — a **⠿ drag
+grip**, **A− / A+** for the label & screen text size, and **⟲** to reset
+position and zoom (there is no double-click reset — double-tapping a pad
+plays it, nothing else).
+
+**The OLED screen** sits between the knob columns and rides the drawing when
+you drag or zoom it. Top row: model · mode · transport (the classic yellow
+strip). Below it, the last three actions, newest at the bottom — the control
+that moved also glows on the drawing, so nothing pops up next to the controls
+to overlap anymore. Values are pinned to the screen's right edge; quantized
+settings show their names (Six-Op patch x/32, chord types, arp Order
+Played/Up/Down/Ping-pong/Random), and modifier holds (P0/P1FX/P2) show their
+hint without spamming the action log.
 
 **Label overlays** — the button next to A−/A+ cycles three modes: `dyn`
-(default, transient callouts only), `S#` (permanent designators S30…S37 /
-P0…P11 / SW1-2 on the panel), and `Aa` (permanent full labels of the current
-mode and model in a condensed faceplate font — pads show their drum role in
-Seq or their live note name in the pitched modes). Knob designators sit
-inside the knob caps; the labels follow the drawing when you drag, zoom or
-resize it. Callouts with values stay active in every mode — quantized
-settings show their names (Six-Op patch x/32, chord types, arp Order
-Played/Up/Down/Ping-pong/Random).
+(default, no static labels — glow + screen only), `S#` (permanent designators
+S30…S37 / P0…P11 / SW1-2 on the panel), and `Aa` (permanent full labels of
+the current mode and model in a condensed faceplate font — pads show their
+drum role in Seq or their live note name in the pitched modes). Knob
+designators sit inside the knob caps; the labels follow the drawing when you
+drag, zoom or resize it.
 
 P10 and P11 are the two halves of the **TouCH logo** ("Tou" / "CH") — the
 letters themselves light up when touched, like every other pad.

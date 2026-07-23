@@ -26,7 +26,7 @@ Note: While playable and pretty stable; I am still working on this, so things mi
 
 ![hover to see the labels](img/TouchPlaited_dynamicvisualizer_hovernotconnected.png)
 
-Hover the info screen, toggle **dyn** (live callouts on top of the drawing) / **S#** (label numbers only) / **Aa** (full labels + text)
+Hover the info screen, toggle **dyn** (glow + the on-panel OLED screen only) / **S#** (label numbers only) / **Aa** (full labels + text)
 
 
 **SW2 — playmode:** Down = Basic Pitch · Center = Arp/Mel · Up = Seq

@@ -870,3 +870,20 @@ Let's also listen for a clock signal on analog inputs for when a jack is connect
 
 S43  clock in: Daisy pins D28	A11
 S40 clock out: Daisy pins D25	A10
+
+--------
+
+23/07/2026
+
+The visualizer
+- flow (on mobile especially) is not optimal. The drawing of Simple touch: a double click resets its position, but when using the pads and "double clicking" that to play that also resets the postion.
+- fitting everything in one view is proving to be hard on mobile, readability of the labels becomes edgy when you fit both the device drawing and the info screen. 
+- not that much can be done to optimize giving the limited screen space, though i'd suggest these features to start:
+1. give the device a draghandle (top left corner)
+2. give it similar `a A` icons like the info panel to allow setting the label size, as well as the dynamic labels
+
+The dynamic labels that follow the actual knob positions, though informative, when using multiple they do tend to overlap.
+  - possible solutions: move them up / down when overlapping
+   - make one "screen" in the middle of the faceplate, and use an oled type of info screen that displays the extended info of the last used knobs, e.g. have two or three lines to allow multiple lines
+
+I've been contemplating using one of these small oled screens (128px) but our screen should use the optimal available space for now. 

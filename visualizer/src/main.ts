@@ -30,7 +30,7 @@ const panel = new Panel(panelWrap);
 new PanelBindings(panel, store);
 new Labels(overlay, panel, store);
 enablePadInteraction(panel, store);
-enablePanelLayout(panel);
+enablePanelLayout(panel, overlay);
 const toolbar = new Toolbar(topbar, store);
 const ccPanel = new CcPanel((el) => toolbar.addMenuItem(el));
 if (params.has('drawer')) ccPanel.open();

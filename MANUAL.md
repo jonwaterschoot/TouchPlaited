@@ -455,11 +455,11 @@ The order matters: **P2 first**. While P2 is held, P10/P11's octave functions ar
 
 ## Visualizer webapp
 
-[The visualizer](https://jonwaterschoot.github.io/TouchPlaited/visualizer/) mirrors the panel live in the browser while you learn or play: connect the device over USB MIDI (Chrome/Edge, grant the SysEx permission) and the pads light up as you touch them, the knobs follow the pots, and contextual callouts name whatever you're using — quantized settings show their actual names (Six-Op patch x/32, chord types, arp Order Played/Up/Down/Ping-pong/Random). A **Demo** button runs a scripted loop when no hardware is connected.
+[The visualizer](https://jonwaterschoot.github.io/TouchPlaited/visualizer/) mirrors the panel live in the browser while you learn or play: connect the device over USB MIDI (Chrome/Edge, grant the SysEx permission) and the pads light up as you touch them, the knobs follow the pots, whatever you're using glows, and an OLED-style screen between the knobs names it with its value — quantized settings show their actual names (Six-Op patch x/32, chord types, arp Order Played/Up/Down/Ping-pong/Random). A **Demo** button runs a scripted loop when no hardware is connected.
 
 ![The visualizer with dynamic labels following the panel](img/TouchPlaited_dynamicvisualizer.png)
 
-The draggable info panel shows model / mode / step, a knob map of what every pot does *right now* (engine-aware — it also tells you which knobs have no effect on the current model), the drum kit in Seq, and a log of your last gestures. Hover it for the font-size buttons and the label-overlay toggle, which cycles **dyn** (live callouts only, the default) / **S#** (permanent S30…S37 / P0…P11 designators) / **Aa** (full faceplate-style labels for the current mode and model).
+The draggable info panel shows model / mode / step, a knob map of what every pot does *right now* (engine-aware — it also tells you which knobs have no effect on the current model), the drum kit in Seq, and a log of your last gestures. Hover it for the font-size buttons and the label-overlay toggle, which cycles **dyn** (no static labels — glow + on-panel screen only, the default) / **S#** (permanent S30…S37 / P0…P11 designators) / **Aa** (full faceplate-style labels for the current mode and model).
 
 ![Hover the info screen for the size buttons and label toggle](img/TouchPlaited_dynamicvisualizer_hovernotconnected.png)
 

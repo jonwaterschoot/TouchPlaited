@@ -1,10 +1,15 @@
-// Contextual label callouts ("S33 · Timbre · 64%") plus a draggable live-info
-// panel (model / mode / transport / step + a collapsible model section with
-// per-engine knob functions and values + action log). Callouts appear next
-// to whatever just changed and fade out, so a tutorial viewer's eye is guided
-// to the control being used.
+// Live-action feedback: whatever just changed lights up on the drawing and
+// its text ("S33 · Timbre · 64%") goes to the OLED-style faceplate screen
+// (oled.ts) — the old per-control callouts overlapped each other on small
+// screens. Also owns the draggable live-info panel (model / mode / transport
+// / step + a collapsible model section with per-engine knob functions and
+// values + action log) and the static label overlays.
 
 import type { Panel } from './panel';
+import { Oled } from './oled';
+import {
+  svgToOverlay as mapSvgToOverlay, labelScale, LABEL_SCALE_EVENT,
+} from './overlay-utils';
 import type { DeviceStore, StateEvent, DeviceState } from '../core/state';
 import {
   CONTROLS, PADS, SW1_POSITIONS, SW2_POSITIONS, MODE_NAMES, modelName,
@@ -13,16 +18,16 @@ import {
 } from '../core/controls-meta';
 import type { KnobParam } from '../core/controls-meta';
 
-const CALLOUT_TTL_MS = 1600;
+const HL_TTL_MS = 1600;
 
 // The device's NoteOn arrives immediately but the matching pad-down rides the
 // STATE frame (rate-limited to 33 ms), so a note usually lands before its pad:
 // hold it briefly and let the pad-down claim it.
 const PENDING_NOTE_MS = 300;
 
-// A fresh callout needs a deliberate move (~2 pot steps); real pots jitter
-// ±1 step forever (S36 on the test unit). An already-visible callout keeps
-// tracking every step so turns read smoothly.
+// A fresh highlight needs a deliberate move (~2 pot steps); real pots jitter
+// ±1 step forever (S36 on the test unit). An already-lit control keeps
+// tracking every step so turns read smoothly on the screen.
 const SHOW_EPS = 2.2 / 127;
 
 // Default info-panel anchor: the free zone of the faceplate, as a fraction of
@@ -34,8 +39,9 @@ const INFO_SIZE_KEY = 'tp-info-size';
 const MODEL_OPEN_KEY = 'tp-model-open';
 const OVERLAY_MODE_KEY = 'tp-overlay-mode';
 
-/** Label overlay modes: dynamic callouts only / static designators (S32, P3…)
- * / static full labels of the current model & mode, faceplate-style. */
+/** Label overlay modes: no static labels (highlights + screen only) / static
+ * designators (S32, P3…) / static full labels of the current model & mode,
+ * faceplate-style. */
 type OverlayMode = 'dynamic' | 'ids' | 'full';
 const OVERLAY_MODES: OverlayMode[] = ['dynamic', 'ids', 'full'];
 const OVERLAY_MODE_LABEL: Record<OverlayMode, string> = {
@@ -47,8 +53,8 @@ const OVERLAY_MODE_LABEL: Record<OverlayMode, string> = {
 // the pointer-line rotation).
 const KNOB_R = 11;
 
-interface Callout {
-  el: HTMLDivElement;
+interface Highlight {
+  el: Element;
   expiresAt: number; // Infinity = sticky (held pad)
 }
 
@@ -169,7 +175,8 @@ function describePad(i: number, s: DeviceState): { combo: string; fn: string } |
 }
 
 export class Labels {
-  private callouts = new Map<string, Callout>();
+  private hls = new Map<string, Highlight>();
+  private oled: Oled;
   private lastLabeled = new Map<number, number>(); // control i → value last shown
   private infoPanel: HTMLDivElement;
   private status: HTMLDivElement;
@@ -190,10 +197,13 @@ export class Labels {
     private panel: Panel,
     private store: DeviceStore,
   ) {
-    // Static label layer sits under the info panel and callouts.
+    // Static label layer sits under the info panel and the OLED screen.
     this.staticWrap = document.createElement('div');
     this.staticWrap.className = 'static-labels';
     overlay.appendChild(this.staticWrap);
+
+    // The faceplate screen — receives everything the callouts used to say.
+    this.oled = new Oled(overlay, panel);
 
     this.infoPanel = document.createElement('div');
     this.infoPanel.className = 'info-panel';
@@ -267,7 +277,7 @@ export class Labels {
     if (storedMode && OVERLAY_MODES.includes(storedMode)) this.overlayMode = storedMode;
     const ovBtn = document.createElement('button');
     ovBtn.textContent = OVERLAY_MODE_LABEL[this.overlayMode];
-    ovBtn.title = 'Label overlay: dynamic callouts / designators / full labels';
+    ovBtn.title = 'Label overlay: screen only / designators / full labels';
     ovBtn.addEventListener('pointerdown', (e) => e.stopPropagation());
     ovBtn.addEventListener('click', (e) => {
       e.stopPropagation();
@@ -308,6 +318,8 @@ export class Labels {
       this.placeInfoPanel();
       this.renderStatic(this.store.state);
     });
+    window.addEventListener(LABEL_SCALE_EVENT, () =>
+      this.renderStatic(this.store.state));
     // The device drawing itself can be dragged / pinch-zoomed (layout.ts
     // fires this on every transform change, incl. per-pointermove) — follow
     // it, throttled to one re-render per frame.
@@ -343,7 +355,7 @@ export class Labels {
     switch (ev.kind) {
       case 'control': {
         const meta = CONTROLS[ev.i];
-        const existing = this.callouts.get(meta.svgId);
+        const existing = this.hls.get(meta.svgId);
         const visible = existing && existing.expiresAt > performance.now();
         if (!visible) {
           const prev = this.lastLabeled.get(ev.i);
@@ -351,12 +363,12 @@ export class Labels {
         }
         this.lastLabeled.set(ev.i, ev.v);
         const { combo, fn, dead, engine } = describeControl(ev.i, s);
+        this.highlight(meta.svgId);
         let value: string;
         if (dead) {
           // Unassigned knob on this engine — name the fact, skip the %.
-          const html = `<b>${combo}</b> ${fn} <i>no effect on ${modelName(engine ?? s.model)}</i>`;
-          this.show(meta.svgId, html);
-          this.addLog(combo, html);
+          this.addLog(combo,
+            `<b>${combo}</b> ${fn} <i>no effect on ${modelName(engine ?? s.model)}</i>`);
           break;
         }
         if (engine !== undefined && ev.i >= 1 && ev.i <= 4) {
@@ -365,9 +377,7 @@ export class Labels {
           const param: KnobParam =
             (['decay', 'harmonics', 'timbre', 'morph'] as const)[ev.i - 1];
           value = formatKnobValue(engine, param, ev.v);
-          const html = `<b>${combo}</b> ${fn} <span>${value}</span>`;
-          this.show(meta.svgId, html);
-          this.addLog(combo, html);
+          this.addLog(combo, `<b>${combo}</b> ${fn} <span>${value}</span>`);
           break;
         }
         if (s.pads[1] && meta.fx && !(s.mode === 0 && s.recSlot !== null)) {
@@ -393,9 +403,7 @@ export class Labels {
         } else {
           value = `${Math.round(ev.v * 100)}%`;
         }
-        const html = `<b>${combo}</b> ${fn} <span>${value}</span>`;
-        this.show(meta.svgId, html);
-        this.addLog(combo, html);
+        this.addLog(combo, `<b>${combo}</b> ${fn} <span>${value}</span>`);
         break;
       }
       case 'pad': {
@@ -407,8 +415,10 @@ export class Labels {
             ? `<b>${d.combo}</b> ${d.fn}`
             : `<b>${meta.name}</b>${meta.hint ? ` ${meta.hint}` : ''}`;
           this.padBaseHtml.set(ev.i, html);
-          this.show(meta.svgId, html, Infinity);
+          this.highlight(meta.svgId, Infinity);
           if (d) this.addLog(d.combo, html);
+          // Pure modifier (P0/P1FX/P2): worth a screen line, not a log line.
+          else this.oled.push(meta.name, html);
           // Claim a note that arrived just before this pad-down (see
           // PENDING_NOTE_MS).
           const pn = this.pendingNote;
@@ -449,13 +459,11 @@ export class Labels {
           const names = s.mode === 0 ? SW1_POSITIONS.seq
                       : s.mode === 1 ? SW1_POSITIONS.arp
                                      : SW1_POSITIONS.pitch;
-          const html = `<b>SW1</b> <span>${names[ev.v] ?? ev.v}</span>`;
-          this.show('sw1', html);
-          this.addLog('SW1', html);
+          this.highlight('sw1');
+          this.addLog('SW1', `<b>SW1</b> <span>${names[ev.v] ?? ev.v}</span>`);
         } else {
-          const html = `<b>SW2</b> <span>${SW2_POSITIONS[ev.v] ?? ev.v}</span>`;
-          this.show('sw2', html);
-          this.addLog('SW2', html);
+          this.highlight('sw2');
+          this.addLog('SW2', `<b>SW2</b> <span>${SW2_POSITIONS[ev.v] ?? ev.v}</span>`);
         }
         break;
       }
@@ -469,6 +477,7 @@ export class Labels {
             ` <span>${modelName(ev.v)} #${ev.v}</span>`,
           );
           this.renderLog();
+          this.oled.amendValue(top.key, `${modelName(ev.v)} #${ev.v}`);
         } else {
           this.addLog('model', `Model → <b>${modelName(ev.v)}</b> #${ev.v}`);
         }
@@ -631,14 +640,15 @@ export class Labels {
   /** Static label overlay ('ids' / 'full' modes): permanent labels anchored
    * to the panel geometry in a condensed faceplate font. 'ids' shows the
    * designators only; 'full' shows each control's current function and the
-   * pads' roles/notes. Values stay on the dynamic callouts. */
+   * pads' roles/notes. Values live on the OLED screen. */
   private renderStatic(s: DeviceState) {
     this.staticWrap.innerHTML = '';
     if (this.overlayMode === 'dynamic') return;
     const ids = this.overlayMode === 'ids';
-    // Font tracks the rendered panel size: KNOB_R svg units → overlay px.
+    // Font tracks the rendered panel size (KNOB_R svg units → overlay px)
+    // times the user's A−/A+ setting on the device handle.
     const scale = this.svgToOverlay(KNOB_R, 0).x - this.svgToOverlay(0, 0).x;
-    const fontPx = Math.max(8.5, Math.min(22, scale * 0.72));
+    const fontPx = Math.max(8.5, Math.min(36, scale * 0.72 * labelScale()));
     const mk = (x: number, y: number, text: string, cls = '') => {
       if (!text) return;
       const el = document.createElement('div');
@@ -704,19 +714,22 @@ export class Labels {
     }
   }
 
-  /** Append the device's note output to a held pad's callout and log line. */
+  /** Append the device's note output to a held pad's screen and log line. */
   private attachNote(pad: number, note: number, s: DeviceState) {
     const base = this.padBaseHtml.get(pad);
     if (!base) return;
     const noteHtml = `<span>${noteName(note)} · ${note}</span>`;
-    this.show(PADS[pad].svgId, `${base} ${noteHtml}`, Infinity);
     const d = describePad(pad, s);
     if (d) this.addLog(d.combo, `<b>${d.combo}</b> ${d.fn} ${noteHtml}`);
+    else this.oled.push(PADS[pad].name, `${base} ${noteHtml}`);
   }
 
   /** Rolling list of the last few actions; repeats of the same gesture update
-   * in place instead of flooding the list. */
+   * in place instead of flooding the list. Every log line also goes to the
+   * faceplate screen — the log is the screen's single feed apart from the
+   * modifier-pad hints, which the screen shows but the log skips. */
   private addLog(key: string, html: string) {
+    this.oled.push(key, html);
     if (this.log[0]?.key === key) this.log[0].html = html;
     else this.log.unshift({ key, html });
     this.log = this.log.slice(0, 4);
@@ -750,26 +763,26 @@ export class Labels {
     if (s.recSlot !== null) parts.push(`<i>REC P${s.recSlot + 3}</i>`);
     if (!s.connected) parts.push('<i>not connected</i>');
     this.status.innerHTML = parts.join(' · ');
+    this.oled.setStatus(parts.join(' · '));
   }
 
-  private show(svgId: string, html: string, ttl = CALLOUT_TTL_MS) {
-    let c = this.callouts.get(svgId);
-    if (!c) {
-      const el = document.createElement('div');
-      el.className = 'callout';
-      this.overlay.appendChild(el);
-      c = { el, expiresAt: 0 };
-      this.callouts.set(svgId, c);
+  /** Light up a control on the drawing for a while (Infinity = held pad).
+   * The matching text lives on the OLED screen, not next to the control. */
+  private highlight(svgId: string, ttl = HL_TTL_MS) {
+    let h = this.hls.get(svgId);
+    if (!h) {
+      const el = this.panel.elementFor(svgId);
+      if (!el) return;
+      h = { el, expiresAt: 0 };
+      this.hls.set(svgId, h);
     }
-    c.el.innerHTML = html;
-    c.el.classList.remove('fading');
-    c.expiresAt = ttl === Infinity ? Infinity : performance.now() + ttl;
-    this.place(svgId, c.el);
+    h.el.classList.add('live-hl');
+    h.expiresAt = ttl === Infinity ? Infinity : performance.now() + ttl;
   }
 
   private release(svgId: string) {
-    const c = this.callouts.get(svgId);
-    if (c) c.expiresAt = performance.now() + 400;
+    const h = this.hls.get(svgId);
+    if (h) h.expiresAt = performance.now() + 400;
   }
 
   /** Rendered device rect in overlay coords. The SVG element box is
@@ -787,76 +800,15 @@ export class Labels {
 
   /** Map a point in SVG user units to overlay-local pixels. */
   private svgToOverlay(x: number, y: number): { x: number; y: number } {
-    const svg = this.panel.svg;
-    const vb = svg.viewBox.baseVal;
-    const s = svg.getBoundingClientRect();
-    const o = this.overlay.getBoundingClientRect();
-    // preserveAspectRatio default: content scaled uniformly, centered
-    const scale = Math.min(s.width / vb.width, s.height / vb.height);
-    const ox = s.left - o.left + (s.width - vb.width * scale) / 2 - vb.x * scale;
-    const oy = s.top - o.top + (s.height - vb.height * scale) / 2 - vb.y * scale;
-    return { x: ox + x * scale, y: oy + y * scale };
-  }
-
-  private place(svgId: string, el: HTMLDivElement) {
-    const o = this.overlay.getBoundingClientRect();
-
-    // Knobs: anchor from panel geometry, immune to the rotating pointer line.
-    const knobIdx = CONTROLS.findIndex((c) => c.svgId === svgId);
-    const knob = knobIdx >= 0 ? this.panel.knobs.get(knobIdx) : undefined;
-    if (knob) {
-      const c = this.svgToOverlay(knob.cx, knob.cy);
-      const r = this.svgToOverlay(knob.cx + KNOB_R, knob.cy).x - c.x;
-      let x = c.x + r + 8;
-      el.style.top = `${c.y}px`;
-      el.style.transform = 'translateY(-50%)';
-      el.style.left = `${x}px`;
-      const w = el.offsetWidth;
-      if (x + w > o.width - 4) {
-        x = c.x - r - 8 - w;
-        el.style.left = `${Math.max(4, x)}px`;
-      }
-      return;
-    }
-
-    const target = this.panel.elementFor(svgId);
-    if (!target) return;
-    const t = target.getBoundingClientRect();
-
-    // Pads: centered on the shape, clamped inside the overlay — a long label
-    // on an edge pad must never widen the page (mobile browsers pan the
-    // visual viewport when content overflows).
-    if (svgId.startsWith('pad-')) {
-      el.style.transform = '';
-      const x = t.left - o.left + t.width / 2 - el.offsetWidth / 2;
-      const y = t.top - o.top + t.height / 2 - el.offsetHeight / 2;
-      el.style.left = `${Math.min(Math.max(4, x), o.width - el.offsetWidth - 4)}px`;
-      el.style.top = `${Math.min(Math.max(4, y), o.height - el.offsetHeight - 4)}px`;
-      return;
-    }
-
-    // Faders / switches: to the side, flipping near the right edge.
-    let x = t.right - o.left + 8;
-    const y = t.top - o.top + t.height / 2;
-    el.style.top = `${y}px`;
-    el.style.transform = 'translateY(-50%)';
-    el.style.left = `${x}px`;
-    const w = el.offsetWidth;
-    if (x + w > o.width - 4) {
-      x = t.left - o.left - 8 - w;
-      el.style.left = `${Math.max(4, x)}px`;
-    }
+    return mapSvgToOverlay(this.panel.svg, this.overlay, x, y);
   }
 
   private expire() {
     const now = performance.now();
-    for (const [id, c] of this.callouts) {
-      if (c.expiresAt !== Infinity && now > c.expiresAt) {
-        c.el.classList.add('fading');
-        if (now > c.expiresAt + 350) {
-          c.el.remove();
-          this.callouts.delete(id);
-        }
+    for (const [id, h] of this.hls) {
+      if (h.expiresAt !== Infinity && now > h.expiresAt) {
+        h.el.classList.remove('live-hl');
+        this.hls.delete(id);
       }
     }
   }
