@@ -1,19 +1,27 @@
-// OLED-style faceplate screen in the free zone between the knob columns.
-// The dynamic callouts used to pop up next to each control and overlapped
-// each other on small screens; now the control itself just lights up and
-// this screen carries the text: a dim status strip on top (model · mode ·
-// transport, like an SSD1306's yellow row) and the last few actions below
-// it, newest at the bottom. An HTML overlay div (not SVG text) so it can
-// render the same html the action log uses; positioned through the SVG
-// viewBox so it rides the device drawing's drag/pinch transform.
+// Wide secondary screen sitting on top of the Daisy silhouette on the
+// faceplate drawing — the expanded, multi-line readout this project started
+// with before oled-mini.ts took over as the primary (and more physically
+// honest) 128×32 screen between the knob columns. Kept around as an
+// optional "more detail" companion: a dim status strip on top (model · mode
+// · transport, like an SSD1306's yellow row) and the last few actions below
+// it, newest at the bottom. Toggled from the menu (see labels.ts) and
+// remembered across sessions.
+//
+// An HTML overlay div (not SVG text) so it can render the same html the
+// action log uses; positioned through the SVG viewBox so it rides the
+// device drawing's drag/pinch transform.
 
 import type { Panel } from './panel';
-import { svgToOverlay, labelScale, LABEL_SCALE_EVENT } from './overlay-utils';
+import { svgToOverlay, labelScale, LABEL_SCALE_EVENT, splitLabelValue } from './overlay-utils';
 
-// Screen rect in SVG user units: the faceplate zone between the knob
-// columns (S30/S31 left, S34/S35 right), below the S31–S34 row.
-const SCREEN = { x: 66.1, y: 148, w: 100.1, h: 44 };
+// Screen rect in SVG user units: over the "Daisy" group on the faceplate
+// (id="Daisy" bbox x 60.17–213.33, y 38.84–89.86 in panel.svg) — a couple of
+// units bigger on every side so the board's edges (header pins, USB) don't
+// peek out from behind it, and clear of the "TouCH" logo letters above it
+// (id="pad-p10"/"pad-p11", bbox bottom ~33.6).
+const SCREEN = { x: 58, y: 38, w: 158, h: 52 };
 const LINES = 3;
+const VISIBLE_KEY = 'tp-oled-wide-visible';
 
 interface Line {
   key: string;
@@ -21,15 +29,18 @@ interface Line {
   value: string; // plain text, pinned to the right edge, never truncated
 }
 
-export class Oled {
+export class OledWide {
   private el: HTMLDivElement;
   private statusEl: HTMLDivElement;
   private linesEl: HTMLDivElement;
   private lines: Line[] = [];
+  private visible: boolean;
 
   constructor(private overlay: HTMLElement, private panel: Panel) {
     this.el = document.createElement('div');
-    this.el.className = 'oled';
+    this.el.className = 'oled-wide';
+    this.visible = localStorage.getItem(VISIBLE_KEY) !== '0';
+    this.el.classList.toggle('hidden', !this.visible);
     this.statusEl = document.createElement('div');
     this.statusEl.className = 'oled-status';
     this.linesEl = document.createElement('div');
@@ -61,10 +72,8 @@ export class Oled {
    * keeps a knob turn streaming into one line; a key resurfacing from an
    * older line moves back to the bottom (recency order, no duplicates). */
   push(key: string, html: string) {
-    // Split a trailing "<span>value</span>" off so the value renders
-    // right-pinned and a long function name truncates before it does.
-    const m = html.match(/^(.*)\s<span>([^<]*)<\/span>$/);
-    const line = { key, label: m ? m[1] : html, value: m ? m[2] : '' };
+    const { label, value } = splitLabelValue(html);
+    const line = { key, label, value };
     const newest = this.lines[this.lines.length - 1];
     if (newest?.key === key) this.lines[this.lines.length - 1] = line;
     else this.lines = [...this.lines.filter((l) => l.key !== key), line].slice(-LINES);
@@ -78,6 +87,15 @@ export class Oled {
     if (!newest || newest.key !== key) return;
     newest.value = value;
     this.render();
+  }
+
+  setVisible(v: boolean) {
+    this.visible = v;
+    this.el.classList.toggle('hidden', !v);
+  }
+
+  isVisible(): boolean {
+    return this.visible;
   }
 
   private render() {

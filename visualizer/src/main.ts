@@ -28,10 +28,10 @@ const topbar = document.getElementById('topbar')!;
 
 const panel = new Panel(panelWrap);
 new PanelBindings(panel, store);
-new Labels(overlay, panel, store);
 enablePadInteraction(panel, store);
 enablePanelLayout(panel, overlay);
 const toolbar = new Toolbar(topbar, store);
+new Labels(overlay, panel, store, (el) => toolbar.addMenuItem(el));
 const ccPanel = new CcPanel((el) => toolbar.addMenuItem(el));
 if (params.has('drawer')) ccPanel.open();
 if (params.has('menu')) toolbar.openMenu();

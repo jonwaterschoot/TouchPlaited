@@ -6,9 +6,11 @@
 // values + action log) and the static label overlays.
 
 import type { Panel } from './panel';
-import { Oled } from './oled';
+import { OledWide } from './oled-wide';
+import { OledMini } from './oled-mini';
 import {
   svgToOverlay as mapSvgToOverlay, labelScale, LABEL_SCALE_EVENT,
+  splitLabelValue, stripTags,
 } from './overlay-utils';
 import type { DeviceStore, StateEvent, DeviceState } from '../core/state';
 import {
@@ -174,9 +176,16 @@ function describePad(i: number, s: DeviceState): { combo: string; fn: string } |
   return null; // P0 / P1FX / P2 alone are modifiers
 }
 
+// Mini screen rect in SVG user units: the faceplate zone between the knob
+// columns (S30/S31 left, S34/S35 right), below the S31–S34 row — where the
+// screen has always lived; oled-wide.ts moved up onto the Daisy silhouette.
+const MINI_SCREEN = { x: 66.1, y: 148, w: 100.1, h: 44 };
+const OLED_WIDE_VISIBLE_KEY = 'tp-oled-wide-visible';
+
 export class Labels {
   private hls = new Map<string, Highlight>();
-  private oled: Oled;
+  private oledWide: OledWide;
+  private oledMini: OledMini;
   private lastLabeled = new Map<number, number>(); // control i → value last shown
   private infoPanel: HTMLDivElement;
   private status: HTMLDivElement;
@@ -196,14 +205,32 @@ export class Labels {
     private overlay: HTMLElement,
     private panel: Panel,
     private store: DeviceStore,
+    addToMenu?: (el: HTMLElement) => void,
   ) {
-    // Static label layer sits under the info panel and the OLED screen.
+    // Static label layer sits under the info panel and the OLED screens.
     this.staticWrap = document.createElement('div');
     this.staticWrap.className = 'static-labels';
     overlay.appendChild(this.staticWrap);
 
-    // The faceplate screen — receives everything the callouts used to say.
-    this.oled = new Oled(overlay, panel);
+    // The primary faceplate screen — a real 128×32 panel emulation, showing
+    // whatever's currently happening. The wide screen on the Daisy is an
+    // optional companion with more history/detail, toggled from the menu.
+    this.oledMini = new OledMini(overlay, panel, MINI_SCREEN);
+    this.oledWide = new OledWide(overlay, panel);
+    if (addToMenu) {
+      const btn = document.createElement('button');
+      btn.className = 'menu-item';
+      const label = (v: boolean) => `Expanded display: ${v ? 'On' : 'Off'}`;
+      btn.textContent = label(this.oledWide.isVisible());
+      btn.title = 'Show/hide the wider screen above the Daisy (history + status)';
+      btn.addEventListener('click', () => {
+        const v = !this.oledWide.isVisible();
+        this.oledWide.setVisible(v);
+        localStorage.setItem(OLED_WIDE_VISIBLE_KEY, v ? '1' : '0');
+        btn.textContent = label(v);
+      });
+      addToMenu(btn);
+    }
 
     this.infoPanel = document.createElement('div');
     this.infoPanel.className = 'info-panel';
@@ -418,7 +445,7 @@ export class Labels {
           this.highlight(meta.svgId, Infinity);
           if (d) this.addLog(d.combo, html);
           // Pure modifier (P0/P1FX/P2): worth a screen line, not a log line.
-          else this.oled.push(meta.name, html);
+          else this.screenPush(meta.name, html);
           // Claim a note that arrived just before this pad-down (see
           // PENDING_NOTE_MS).
           const pn = this.pendingNote;
@@ -477,7 +504,7 @@ export class Labels {
             ` <span>${modelName(ev.v)} #${ev.v}</span>`,
           );
           this.renderLog();
-          this.oled.amendValue(top.key, `${modelName(ev.v)} #${ev.v}`);
+          this.screenAmend(top.key, `${modelName(ev.v)} #${ev.v}`);
         } else {
           this.addLog('model', `Model → <b>${modelName(ev.v)}</b> #${ev.v}`);
         }
@@ -721,19 +748,33 @@ export class Labels {
     const noteHtml = `<span>${noteName(note)} · ${note}</span>`;
     const d = describePad(pad, s);
     if (d) this.addLog(d.combo, `<b>${d.combo}</b> ${d.fn} ${noteHtml}`);
-    else this.oled.push(PADS[pad].name, `${base} ${noteHtml}`);
+    else this.screenPush(PADS[pad].name, `${base} ${noteHtml}`);
   }
 
   /** Rolling list of the last few actions; repeats of the same gesture update
-   * in place instead of flooding the list. Every log line also goes to the
-   * faceplate screen — the log is the screen's single feed apart from the
-   * modifier-pad hints, which the screen shows but the log skips. */
+   * in place instead of flooding the list. Every log line also goes to both
+   * OLED screens — the log is their single feed apart from the modifier-pad
+   * hints, which the screens show but the log skips. */
   private addLog(key: string, html: string) {
-    this.oled.push(key, html);
+    this.screenPush(key, html);
     if (this.log[0]?.key === key) this.log[0].html = html;
     else this.log.unshift({ key, html });
     this.log = this.log.slice(0, 4);
     this.renderLog();
+  }
+
+  /** Feed one action-line HTML string to both screens: the wide screen keeps
+   * the styled html, the mini screen gets it as plain text (its font is a
+   * fixed bitmap grid, not HTML). */
+  private screenPush(key: string, html: string) {
+    this.oledWide.push(key, html);
+    const { label, value } = splitLabelValue(html);
+    this.oledMini.show(stripTags(label), stripTags(value));
+  }
+
+  private screenAmend(key: string, value: string) {
+    this.oledWide.amendValue(key, value);
+    this.oledMini.amendValue(value);
   }
 
   private renderLog() {
@@ -763,7 +804,13 @@ export class Labels {
     if (s.recSlot !== null) parts.push(`<i>REC P${s.recSlot + 3}</i>`);
     if (!s.connected) parts.push('<i>not connected</i>');
     this.status.innerHTML = parts.join(' · ');
-    this.oled.setStatus(parts.join(' · '));
+    this.oledWide.setStatus(parts.join(' · '));
+    // Mini screen's home row: model + mode (truncates), and whatever's most
+    // "alive" right now — the seq step if one's playing, else transport.
+    this.oledMini.setStatus(
+      `${modelName(s.model)} ${modeName}`,
+      s.seqStep !== null ? `${s.seqStep + 1}` : s.playing ? 'PLAY' : 'STOP',
+    );
   }
 
   /** Light up a control on the drawing for a while (Infinity = held pad).

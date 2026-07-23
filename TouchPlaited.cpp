@@ -1,6 +1,8 @@
 #include "daisy_seed.h"
 #include "util/CpuLoadMeter.h"
 #include "touch/touch.h"
+#include "display/oled_screen.h"
+#include "display/oled_ui.h"
 #include "synth/voice_pool.h"
 #include "synth/sequencer.h"
 #include "synth/arp.h"
@@ -18,6 +20,7 @@ using namespace synthux;
 
 DaisySeed hw;
 Touch touch;
+OledScreen oled;
 VoicePool pool;
 Sequencer seq;
 Arp arp;
@@ -1004,6 +1007,7 @@ static const MidiHandlers kMidiHandlers = { on_midi_note_on, on_midi_note_off,
 // Telemetry). Runs from service_midi so it keeps flowing during the blocking
 // LED blink loops — that's exactly what lets the visualizer mirror the blinks.
 static Telemetry telemetry;
+static OledUi oled_ui;
 
 static void service_telemetry() {
     TelemetryState t;
@@ -1106,7 +1110,11 @@ static void service_telemetry() {
         t.kit[i][5] = static_cast<uint8_t>(n < 0 ? 0 : (n > 127 ? 127 : n));
     }
 
-    telemetry.Service(t, System::GetNow(), midi);
+    const uint32_t now_ms = System::GetNow();
+    telemetry.Service(t, now_ms, midi);
+    // Same snapshot the visualizer decodes, straight to the physical
+    // screen — see display/oled_ui.h.
+    oled_ui.Service(t, now_ms, oled);
 }
 
 static void service_midi() {
@@ -2821,6 +2829,7 @@ int main() {
     }
 
     touch.Init(hw);
+    oled.Init(hw); // service_telemetry() below drives it once the loop starts
     // S40 clock-out jack (D25): plain push-pull GPIO, pulsed from the audio ISR.
     cv_clock_out.Init(daisy::seed::D25, GPIO::Mode::OUTPUT);
     cv_clock_out.Write(false);

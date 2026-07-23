@@ -153,13 +153,36 @@ body.transparent {
   margin-left: 6px;
 }
 
-/* --- OLED faceplate screen --------------------------------------------- */
-/* Sits in the free zone between the knob columns (positioned by oled.ts in
-   SVG units, so it rides the device drawing). Replaces the per-control
-   callouts: the control lights up (.live-hl) and its text lands here — a
-   dim status strip on top, the last three actions below it, newest at the
-   bottom. The text glow is emitted light, not elevation. */
-.oled {
+/* --- mini OLED: real 128×32 panel emulation ----------------------------- */
+/* Sits in the free zone between the knob columns (positioned by
+   oled-mini.ts in SVG units, so it rides the device drawing) — the primary
+   screen, replacing the per-control callouts that used to overlap on small
+   screens. All the pixels are drawn into the canvas at the device's actual
+   128×32 resolution; this wrapper only supplies the bezel. */
+.oled-mini {
+  position: absolute;
+  overflow: hidden;
+  background: #000;
+  border: 1px solid #38332c;
+  box-shadow: inset 0 0 4px rgba(0, 0, 0, 0.8);
+}
+.oled-mini canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  /* Keeps the low-res canvas blocky when scaled up instead of blurring it
+     into a smooth (and much less convincingly "physical") gradient. */
+  image-rendering: pixelated;
+  filter: drop-shadow(0 0 1.2px rgba(255, 178, 56, 0.55));
+}
+
+/* --- wide OLED: expanded companion screen ------------------------------- */
+/* Sits over the Daisy silhouette (positioned by oled-wide.ts in SVG units).
+   Optional "more detail" companion to the mini screen: a dim status strip
+   on top, the last three actions below it, newest at the bottom. Toggled
+   from the menu; .hidden collapses it entirely. The text glow is emitted
+   light, not elevation. */
+.oled-wide {
   position: absolute;
   display: flex;
   flex-direction: column;
@@ -171,6 +194,9 @@ body.transparent {
   letter-spacing: 0.02em;
   color: #e8e2d4;
   text-shadow: 0 0 2px rgba(255, 220, 150, 0.4);
+}
+.oled-wide.hidden {
+  display: none;
 }
 /* The classic SSD1306 yellow top row: model · mode · transport. */
 .oled-status {

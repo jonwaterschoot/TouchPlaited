@@ -13,9 +13,10 @@ OPT = -O3
 # TRS MIDI (USART1, D13/D14) is always built either way.
 C_DEFS += -DUSB_MIDI
 
-# Sources: main entry + touch hardware layer + MIDI I/O + Plaits voice wrapper
+# Sources: main entry + touch hardware layer + display + MIDI I/O + Plaits voice wrapper
 CPP_SOURCES = TouchPlaited.cpp \
               $(wildcard touch/*.cpp) \
+              $(wildcard display/*.cpp) \
               midi/midi_io.cpp \
               midi/telemetry.cpp \
               synth/plaits_voice.cpp \

@@ -1,4 +1,5 @@
 #include "pads.h"
+#include "../i2c1_lock.h"
 
 using namespace synthux;
 using namespace daisy;
@@ -9,6 +10,11 @@ void Pads::Init(DaisySeed& hw) {
 }
 
 void Pads::Process() {
+    // OLED mid-transfer on the shared I2C1 bus (see i2c1_lock.h) — skip this
+    // poll rather than risk a torn read; _state just holds last block's
+    // value until the bus frees up, a block or two later.
+    if (i2c1_bus_busy) return;
+
     uint16_t pad;
     bool is_touched;
     bool was_touched;
