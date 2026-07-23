@@ -3,6 +3,7 @@
 #   /manual.html rendered from MANUAL.md
 #   /visualizer/ the Vite app
 #   /editor/     tools/pattern_editor.html
+#   /codemap/    tools/codemap.html
 # One-time repo setting: Settings → Pages → Source: "GitHub Actions".
 
 name: Deploy site to GitHub Pages
@@ -13,6 +14,7 @@ on:
     paths:
       - 'visualizer/**'
       - 'tools/pattern_editor.html'
+      - 'tools/codemap.html'
       - 'doc/**'
       - 'README.md'
       - 'MANUAL.md'

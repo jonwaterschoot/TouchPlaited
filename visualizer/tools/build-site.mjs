@@ -5,6 +5,7 @@
 //   theme.css    ← doc/theme.css
 //   img/         ← repo img/ (README/MANUAL images)
 //   editor/      ← tools/pattern_editor.html, copied verbatim
+//   codemap/     ← tools/codemap.html, copied verbatim
 //   visualizer/  ← visualizer/dist (run `npm run build` first)
 //
 // Lives in visualizer/tools/ so `marked` resolves from visualizer's
@@ -35,6 +36,7 @@ function rewriteLinks(md) {
     if (path === 'MANUAL.md') return `](manual.html${hash && '#' + hash})`;
     if (path === 'README.md') return `](./${hash && '#' + hash})`;
     if (path === 'tools/pattern_editor.html') return `](editor/)`;
+    if (path === 'tools/codemap.html') return `](codemap/)`;
     // other repo files/folders → GitHub (dir links need /tree/, files /blob/)
     const abs = join(repo, path);
     const kind = existsSync(abs) && statSync(abs).isDirectory() ? 'tree' : 'blob';
@@ -57,6 +59,7 @@ const template = readFileSync(join(repo, 'doc', 'template.html'), 'utf8');
 
 rmSync(out, { recursive: true, force: true });
 mkdirSync(join(out, 'editor'), { recursive: true });
+mkdirSync(join(out, 'codemap'), { recursive: true });
 
 renderPage('README.md', 'TouchPlaited', 'index.html');
 renderPage('MANUAL.md', 'TouchPlaited — Manual', 'manual.html');
@@ -68,8 +71,9 @@ cpSync(join(repo, 'img'), join(out, 'img'), {
   filter: (src) => statSync(src).isDirectory() || /\.(png|jpe?g|svg|gif|webp)$/i.test(src),
 });
 cpSync(join(repo, 'tools', 'pattern_editor.html'), join(out, 'editor', 'index.html'));
+cpSync(join(repo, 'tools', 'codemap.html'), join(out, 'codemap', 'index.html'));
 writeFileSync(join(out, '.nojekyll'), '');
-console.log('  theme.css · img/ · editor/ · .nojekyll');
+console.log('  theme.css · img/ · editor/ · codemap/ · .nojekyll');
 
 const dist = join(repo, 'visualizer', 'dist');
 if (existsSync(dist)) {

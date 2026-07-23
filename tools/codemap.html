@@ -1,0 +1,1024 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TouchPlaited Code Map</title>
+<style>
+  :root {
+    /* keep in sync with doc/theme.css (this file must stay self-contained
+       so it also works from file://) */
+    --bg: #141412; --panel: #1d1c19; --line: #35322b; --line2: #4a4538;
+    --txt: #e8e4da; --dim: #8f8a7d;
+    --w: #edb655;            /* accent — Simple Touch yellow */
+    --whi: #ffd97a;          /* accent hover                 */
+    --c1: #e07f33;           /* warm 1                       */
+    --c2: #d5503a;           /* warm 2                       */
+    --c3: #b0333f;           /* warm 3                       */
+    --v: #9fd0ff;            /* live-value blue (visualizer) */
+    --pcb: #2c2517;          /* seed pcb                     */
+    --pcb2: #2a1614;         /* mpr121 pcb                   */
+    --chip: #11100e;
+    --trace: #6b5f45;
+  }
+  * { box-sizing: border-box; border-radius: 0 !important; }
+  html, body { margin: 0; background: var(--bg); color: var(--txt);
+    font: 12px/1.5 ui-monospace, "Cascadia Mono", Consolas, "Courier New", monospace;
+    scrollbar-color: var(--line2) var(--bg); }
+  body { padding: 16px; }
+  a { color: var(--w); } a:hover { color: var(--whi); }
+  h1 { font-size: 13px; letter-spacing: .25em; font-weight: 700; margin: 0;
+       text-transform: uppercase; }
+  h1 .px { color: var(--w); }
+  .sub { color: var(--dim); letter-spacing: .08em; margin: 2px 0 0; }
+  header.page { display: flex; flex-wrap: wrap; align-items: baseline; gap: 10px 24px; }
+  header.page nav { display: flex; flex-wrap: wrap; gap: 4px 18px; font-size: 11px;
+    letter-spacing: .08em; text-transform: uppercase; margin-left: auto; }
+  header.page nav a { color: var(--dim); text-decoration: none; }
+  header.page nav a:hover { color: var(--whi); }
+
+  .top { display: flex; flex-wrap: wrap; gap: 10px 24px; align-items: center;
+         border: 1px solid var(--line); background: var(--panel);
+         padding: 8px 14px; margin: 14px 0; }
+  .cap { color: var(--dim); font-size: 9px; letter-spacing: .15em;
+         text-transform: uppercase; margin-right: 6px; }
+  button { font: inherit; color: var(--txt); background: var(--panel);
+           border: 1px solid var(--line2); padding: 4px 10px; cursor: pointer;
+           text-transform: uppercase; letter-spacing: .1em; font-size: 11px; }
+  button:hover { border-color: var(--w); color: var(--w); }
+  button.on { border-color: var(--w); background: var(--w); color: var(--bg); }
+  button:focus-visible { outline: 2px solid var(--w); outline-offset: -1px; }
+  .hint { color: var(--dim); font-size: 10px; letter-spacing: .06em; margin-left: auto; }
+
+  #layout { display: flex; gap: 14px; align-items: flex-start; }
+  #maps { flex: 1 1 0; min-width: 0; }
+  section { border: 1px solid var(--line); background: var(--panel);
+            padding: 12px 14px; margin-bottom: 14px; }
+  section > h2 { font-size: 10px; letter-spacing: .2em; text-transform: uppercase;
+                 color: var(--w); margin: 0 0 10px; font-weight: 700; }
+  #hwwrap { overflow-x: auto; scrollbar-width: thin;
+            scrollbar-color: var(--line2) var(--panel); }
+  #hw { display: block; min-width: 980px; width: 100%; height: auto; }
+
+  /* ── info panel ─────────────────────────────────────────────────────── */
+  #info { flex: 0 0 340px; position: sticky; top: 14px; border: 1px solid var(--line);
+          background: var(--panel); padding: 12px 14px; max-height: calc(100vh - 28px);
+          overflow-y: auto; scrollbar-width: thin;
+          scrollbar-color: var(--line2) var(--panel); }
+  #info h3 { margin: 0; font-size: 11px; letter-spacing: .2em;
+             text-transform: uppercase; color: var(--w); }
+  #info .meta { color: var(--v); font-size: 10px; letter-spacing: .06em; margin: 2px 0 8px; }
+  #info .body p { margin: 0 0 8px; color: var(--txt); }
+  #info .body ul { margin: 0 0 8px; padding-left: 16px; color: var(--txt); }
+  #info .body li { margin: 2px 0; }
+  #info .body code { color: var(--v); background: var(--bg);
+                     border: 1px solid var(--line); padding: 0 3px; font-size: 11px; }
+  #info .src { border-top: 1px dashed var(--line2); margin-top: 10px; padding-top: 8px; }
+  #info .src .cap { display: block; margin-bottom: 4px; }
+  #info .src a { display: block; font-size: 11px; text-decoration: none; margin: 2px 0; }
+  #info .src a span { color: var(--dim); }
+  #info .tags { margin-top: 10px; display: flex; gap: 6px; flex-wrap: wrap; }
+  #info .tag { font-size: 9px; letter-spacing: .12em; text-transform: uppercase;
+               border: 1px solid var(--line2); color: var(--dim); padding: 1px 6px; }
+  #info .tag.isr  { border-color: var(--c1); color: var(--c1); }
+  #info .tag.main { border-color: var(--v);  color: var(--v);  }
+  #info .tag.boot { border-color: var(--c2); color: var(--c2); }
+  #info .pin { float: right; }
+  #info .linkline { margin-top: 10px; font-size: 10px; color: var(--dim); }
+  #info .linkline code { color: var(--dim); }
+
+  /* ── SVG hardware map ───────────────────────────────────────────────── */
+  #hw text { font: 8.5px ui-monospace, "Cascadia Mono", Consolas, monospace;
+             fill: var(--txt); }
+  #hw text.dim { fill: var(--dim); }
+  #hw text.tiny { font-size: 7.5px; }
+  #hw text.cap { font-size: 9px; letter-spacing: .15em; fill: var(--dim);
+                 text-transform: uppercase; }
+  #hw text.acc { fill: var(--w); }
+  #hw .trace { stroke: var(--trace); stroke-width: 1.5; fill: none; }
+  #hw .hit { stroke: transparent; stroke-width: 12; fill: none;
+             pointer-events: stroke; }
+  #hw [data-id] { cursor: pointer; }
+  #hw .blk { fill: var(--bg); stroke: var(--line2); }
+  #hw .jack { fill: var(--bg); stroke: #8a867c; stroke-width: 2; }
+  #hw .pinsq { fill: #3a3428; stroke: var(--line2); stroke-width: .75; }
+  #hw .pinsq.used { fill: var(--w); stroke: var(--w); }
+  #hw .pinsq.pwr { fill: #23211c; }
+  #hw .pinsq.aud { fill: var(--v); stroke: var(--v); }
+
+  /* coordinated hover / selection highlight (class set from JS) */
+  #hw .hl path.trace, #hw .hl.trace, #hw g.hl rect, #hw rect.hl,
+  #hw circle.hl, #hw g.hl circle { stroke: var(--whi); }
+  #hw g.hl text, #hw text.hl { fill: var(--whi); }
+  .mrow.hl, .bstep.hl, .lane.hl, .seg.hl { border-color: var(--whi) !important; }
+  .mrow.sel, .bstep.sel, .lane.sel, .seg.sel { outline: 1px solid var(--w); }
+
+  /* execution-context dimming */
+  body[data-ctx="isr"]  [data-id]:not([data-ctx~="isr"]),
+  body[data-ctx="main"] [data-id]:not([data-ctx~="main"]),
+  body[data-ctx="boot"] [data-id]:not([data-ctx~="boot"]) { opacity: .16; }
+
+  /* ── flow animation ─────────────────────────────────────────────────── */
+  #flow { display: none; pointer-events: none; }
+  body.flow #flow { display: block; }
+  #flow path { fill: none; stroke-width: 2; stroke-dasharray: 5 7;
+               animation: march 1.1s linear infinite; }
+  #flow path.audio { stroke: var(--v); }
+  #flow path.clock { stroke: var(--w); animation-duration: 1.6s; }
+  @keyframes march { to { stroke-dashoffset: -24; } }
+  #flow text { font-size: 8.5px; }
+
+  /* ── memory map ─────────────────────────────────────────────────────── */
+  .bootchain { display: flex; flex-wrap: wrap; gap: 6px; align-items: stretch;
+               margin-bottom: 14px; }
+  .bstep { border: 1px solid var(--line2); background: var(--bg); padding: 6px 10px;
+           font-size: 10px; letter-spacing: .04em; cursor: pointer; flex: 1 1 150px; }
+  .bstep b { color: var(--c2); display: block; font-size: 9px; letter-spacing: .15em;
+             text-transform: uppercase; margin-bottom: 2px; }
+  .bstep .d { color: var(--dim); }
+  .barrow { align-self: center; color: var(--line2); font-size: 14px; }
+
+  .mrow { display: grid; grid-template-columns: 108px 128px 128px 1fr;
+          gap: 0 12px; align-items: center; border: 1px solid var(--line);
+          background: var(--bg); padding: 6px 10px; margin-bottom: 4px;
+          cursor: pointer; }
+  .mrow .a { color: var(--v); font-size: 10px; }
+  .mrow .n { color: var(--txt); font-size: 11px; letter-spacing: .06em;
+             text-transform: uppercase; }
+  .mrow .s { color: var(--dim); font-size: 10px; text-align: right; }
+  .mrow .bar { grid-column: 1 / -1; height: 10px; background: #23211c;
+               border: 1px solid var(--line); margin-top: 5px; position: relative;
+               display: flex; overflow: hidden; }
+  .mrow .fill { background: var(--w); opacity: .55; height: 100%; }
+  .mrow .what { grid-column: 1 / -1; color: var(--dim); font-size: 10px; margin-top: 3px; }
+  .mrow .what b { color: var(--txt); font-weight: 400; }
+  .seg { height: 100%; border-right: 1px solid var(--bg); position: relative;
+         display: flex; align-items: center; justify-content: center;
+         font-size: 8px; letter-spacing: .05em; color: var(--bg); cursor: pointer; }
+  .seg.rsv  { background: #3a3428; color: var(--dim); }
+  .seg.app  { background: var(--w); }
+  .seg.free { background: #23211c; color: var(--dim); }
+  .seg.jrn  { background: var(--c1); }
+  .seg.grd  { background: var(--c3); color: var(--txt); }
+  .notescale { color: var(--dim); font-size: 9px; letter-spacing: .1em;
+               text-transform: uppercase; margin: 2px 0 10px; }
+
+  .lanes { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 14px; }
+  .lane { flex: 1 1 320px; border: 1px solid var(--line2); background: var(--bg);
+          padding: 8px 12px; cursor: pointer; }
+  .lane h4 { margin: 0 0 6px; font-size: 10px; letter-spacing: .18em;
+             text-transform: uppercase; }
+  .lane.isr h4 { color: var(--c1); } .lane.mainloop h4 { color: var(--v); }
+  .lane ol { margin: 0; padding-left: 18px; color: var(--txt); font-size: 11px; }
+  .lane li { margin: 2px 0; } .lane li .d { color: var(--dim); }
+
+  footer { color: var(--dim); font-size: 10px; letter-spacing: .06em;
+           border-top: 1px solid var(--line); padding-top: 10px; margin-top: 4px; }
+
+  @media (max-width: 900px) {
+    #layout { flex-direction: column; }
+    #info { position: static; flex: none; width: 100%; max-height: none; }
+  }
+</style>
+
+<header class="page">
+  <div>
+    <h1>Touch<span class="px">Plaited</span> — code map</h1>
+    <p class="sub">the instrument as a map: boards, pins, memory, and where the code runs</p>
+  </div>
+  <nav>
+    <a href="../">Home</a>
+    <a href="../visualizer/">Visualizer</a>
+    <a href="../editor/">Pattern editor</a>
+    <a href="../manual.html">Manual</a>
+    <a href="https://github.com/jonwaterschoot/TouchPlaited">GitHub</a>
+  </nav>
+</header>
+
+<div class="top">
+  <span class="cap">execution context</span>
+  <button class="ctxbtn on" data-ctxbtn="">All</button>
+  <button class="ctxbtn" data-ctxbtn="boot" id="ctx-boot">Boot</button>
+  <button class="ctxbtn" data-ctxbtn="isr" id="ctx-isr">Audio ISR · 250 Hz</button>
+  <button class="ctxbtn" data-ctxbtn="main" id="ctx-main">Main loop</button>
+  <span class="cap" style="margin-left:18px">signal flow</span>
+  <button id="flowbtn">Flow</button>
+  <span class="hint">hover any part · click to pin it (and get a #link) · esc to unpin</span>
+</div>
+
+<div id="layout">
+<div id="maps">
+
+<!-- ══════════════════════ HARDWARE MAP ══════════════════════ -->
+<section id="hwmap">
+  <h2>Hardware</h2>
+  <div id="hwwrap">
+  <svg id="hw" viewBox="0 0 1160 700" role="img"
+       aria-label="Map of the Simple Touch hardware: Daisy Seed, MPR121, pots, jacks, switches, MIDI">
+    <defs>
+      <marker id="arr" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7"
+              markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L8,4 L0,8 z" fill="var(--v)"/>
+      </marker>
+      <marker id="arrw" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7"
+              markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L8,4 L0,8 z" fill="var(--w)"/>
+      </marker>
+    </defs>
+
+    <!-- carrier board -->
+    <rect data-id="carrier" data-ctx="isr main boot" x="20" y="34" width="1120"
+          height="632" fill="#1b1a17" stroke="var(--line)"/>
+    <text data-id="carrier" data-ctx="isr main boot" x="32" y="52" class="cap">SYNTHUX SIMPLE TOUCH — carrier PCB</text>
+
+    <!-- ═════ MPR121 breakout ═════ -->
+    <g data-id="mpr121" data-ctx="isr boot">
+      <rect x="60" y="280" width="150" height="220" fill="var(--pcb2)"
+            stroke="var(--c2)" stroke-width="1.25"/>
+      <rect x="105" y="352" width="60" height="56" fill="var(--chip)" stroke="var(--line2)"/>
+      <text x="135" y="376" text-anchor="middle">MPR121</text>
+      <text x="135" y="388" text-anchor="middle" class="tiny dim">12·ch cap</text>
+      <text x="66" y="273" class="cap">MPR121 BREAKOUT</text>
+      <text x="135" y="296" text-anchor="middle" class="tiny dim">I2C addr 0x5A</text>
+    </g>
+    <!-- pad terminals (built by JS) -->
+    <g id="padpins"></g>
+    <text data-id="pads-note" data-ctx="isr boot" x="30" y="470"
+          transform="rotate(-90 30 470)" class="cap">12 TOUCH PADS ON PANEL →</text>
+    <!-- breakout right-edge pins -->
+    <g data-id="pins-i2c" data-ctx="isr boot">
+      <rect x="204" y="399" width="12" height="12" class="pinsq used"/>
+      <rect x="204" y="424" width="12" height="12" class="pinsq used"/>
+      <text x="198" y="408" text-anchor="end">SCL</text>
+      <text x="198" y="433" text-anchor="end">SDA</text>
+    </g>
+    <g data-id="mpr121" data-ctx="isr boot">
+      <rect x="204" y="316" width="12" height="12" class="pinsq pwr"/>
+      <rect x="204" y="341" width="12" height="12" class="pinsq pwr"/>
+      <rect x="204" y="366" width="12" height="12" class="pinsq pwr"/>
+      <rect x="204" y="449" width="12" height="12" class="pinsq"/>
+      <text x="198" y="325" text-anchor="end" class="dim tiny">3V3</text>
+      <text x="198" y="350" text-anchor="end" class="dim tiny">GND</text>
+      <text x="198" y="375" text-anchor="end" class="dim tiny">ADDR</text>
+      <text x="198" y="458" text-anchor="end" class="dim tiny">IRQ</text>
+    </g>
+    <!-- I2C bus -->
+    <g data-id="pins-i2c" data-ctx="isr boot">
+      <path class="trace" d="M216,405 L400,405 L410,408 L424,408"/>
+      <path class="trace" d="M216,430 L400,430 L410,434 L424,434"/>
+      <path class="hit" d="M216,405 L424,408"/>
+      <path class="hit" d="M216,430 L424,434"/>
+      <text x="228" y="398" class="acc">I2C1 · read in the audio ISR</text>
+    </g>
+
+    <!-- ═════ switches ═════ -->
+    <g data-id="sw2" data-ctx="isr">
+      <rect x="292" y="236" width="80" height="50" class="blk"/>
+      <text x="332" y="252" text-anchor="middle" class="acc">SW2</text>
+      <text x="332" y="264" text-anchor="middle" class="tiny dim">right 3-pos</text>
+      <text x="332" y="276" text-anchor="middle" class="tiny dim">playmode</text>
+      <path class="trace" d="M424,278 L396,278 L372,270"/>
+      <path class="trace" d="M424,304 L396,304 L372,282"/>
+      <path class="hit" d="M424,278 L372,270"/><path class="hit" d="M424,304 L372,282"/>
+    </g>
+    <g data-id="sw1" data-ctx="isr">
+      <rect x="292" y="320" width="80" height="50" class="blk"/>
+      <text x="332" y="336" text-anchor="middle" class="acc">SW1</text>
+      <text x="332" y="348" text-anchor="middle" class="tiny dim">left 3-pos</text>
+      <text x="332" y="360" text-anchor="middle" class="tiny dim">scale·genre·arp</text>
+      <path class="trace" d="M424,330 L396,330 L372,338"/>
+      <path class="trace" d="M424,356 L396,356 L372,350"/>
+      <path class="hit" d="M424,330 L372,338"/><path class="hit" d="M424,356 L372,350"/>
+    </g>
+
+    <!-- ═════ MIDI ═════ -->
+    <g data-id="midi" data-ctx="main boot">
+      <rect x="272" y="446" width="100" height="56" class="blk"/>
+      <text x="322" y="464" text-anchor="middle" class="acc">TRS MIDI</text>
+      <text x="322" y="476" text-anchor="middle" class="tiny dim">in / out mod</text>
+      <text x="322" y="488" text-anchor="middle" class="tiny dim">always active</text>
+      <path class="trace" d="M424,460 L396,460 L372,466"/>
+      <path class="trace" d="M424,486 L396,486 L372,480"/>
+      <path class="hit" d="M424,460 L372,466"/><path class="hit" d="M424,486 L372,480"/>
+    </g>
+
+    <!-- ═════ audio jacks ═════ -->
+    <g data-id="audio-io" data-ctx="isr boot">
+      <rect x="272" y="540" width="100" height="68" class="blk"/>
+      <text x="322" y="558" text-anchor="middle" class="acc">AUDIO</text>
+      <text x="322" y="570" text-anchor="middle" class="tiny dim">out L/R jacks</text>
+      <text x="322" y="582" text-anchor="middle" class="tiny dim">+ audio in</text>
+      <text x="322" y="597" text-anchor="middle" class="tiny dim">48 kHz</text>
+      <path class="trace" d="M424,512 L396,512 L372,556"/>
+      <path class="trace" d="M424,538 L396,538 L372,566"/>
+      <path class="trace" d="M424,564 L396,564 L372,576"/>
+      <path class="trace" d="M424,590 L396,590 L372,586"/>
+      <path class="hit" d="M424,512 L372,556"/><path class="hit" d="M424,590 L372,586"/>
+    </g>
+
+    <!-- ═════ Daisy Seed ═════ -->
+    <g data-id="seed" data-ctx="isr main boot">
+      <rect x="430" y="96" width="220" height="550" fill="var(--pcb)"
+            stroke="var(--w)" stroke-width="1.5"/>
+      <text x="540" y="90" text-anchor="middle" class="cap">DAISY SEED</text>
+    </g>
+    <g data-id="usb" data-ctx="main boot">
+      <rect x="506" y="62" width="68" height="36" fill="#55524a" stroke="#8a867c"/>
+      <text x="540" y="84" text-anchor="middle" style="fill:var(--bg)">USB</text>
+      <path class="trace" d="M540,62 L540,44" stroke-dasharray="3 3"/>
+      <text x="540" y="40" text-anchor="middle" class="tiny">one port, one owner: USB MIDI or serial log (<tspan class="acc">-DUSB_MIDI</tspan>)</text>
+    </g>
+    <g data-id="led" data-ctx="main boot">
+      <rect x="612" y="110" width="16" height="9" fill="var(--c2)" stroke="var(--c3)"/>
+      <text x="628" y="106" text-anchor="end" class="tiny dim">LED = the display</text>
+    </g>
+    <g data-id="sdram-chip" data-ctx="isr boot">
+      <rect x="475" y="146" width="130" height="62" fill="var(--chip)" stroke="var(--line2)"/>
+      <text x="540" y="172" text-anchor="middle">SDRAM</text>
+      <text x="540" y="186" text-anchor="middle" class="tiny dim">64 MB · voices + FX</text>
+    </g>
+    <g data-id="mcu" data-ctx="isr main boot">
+      <rect x="480" y="248" width="120" height="112" fill="var(--chip)" stroke="var(--line2)" stroke-width="1.25"/>
+      <text x="540" y="294" text-anchor="middle">STM32H750</text>
+      <text x="540" y="308" text-anchor="middle" class="tiny dim">Cortex-M7 · 480 MHz</text>
+      <text x="540" y="322" text-anchor="middle" class="tiny dim">everything runs here</text>
+    </g>
+    <g data-id="qspi-chip" data-ctx="isr main boot">
+      <rect x="480" y="392" width="120" height="52" fill="var(--chip)" stroke="var(--line2)"/>
+      <text x="540" y="414" text-anchor="middle">QSPI NOR</text>
+      <text x="540" y="428" text-anchor="middle" class="tiny dim">8 MB · XIP + settings</text>
+    </g>
+    <g data-id="codec" data-ctx="isr boot">
+      <rect x="476" y="500" width="112" height="56" fill="var(--chip)" stroke="var(--line2)"/>
+      <text x="532" y="522" text-anchor="middle">CODEC</text>
+      <text x="532" y="536" text-anchor="middle" class="tiny dim">48 kHz · 192-smp blocks</text>
+    </g>
+    <!-- pin headers (built by JS) -->
+    <g id="pinsL"></g>
+    <g id="pinsR"></g>
+
+    <!-- ═════ pots ═════ -->
+    <g data-id="pots" data-ctx="isr">
+      <path class="trace" d="M660,408 L676,408 L676,590 L660,590"/>
+      <path class="trace" d="M676,499 L820,499"/>
+      <path class="hit" d="M676,408 L676,590"/><path class="hit" d="M676,499 L820,499"/>
+      <text x="700" y="492" class="acc">A0–A7</text>
+      <rect x="820" y="410" width="304" height="180" class="blk"/>
+      <text x="828" y="404" class="cap">8 POTS — PER-MODE KNOB LAYERS</text>
+    </g>
+    <g id="potcircles"></g>
+
+    <!-- ═════ CV jacks ═════ -->
+    <g data-id="jack-in" data-ctx="isr">
+      <path class="trace" d="M660,252 L886,252"/>
+      <path class="hit" d="M660,252 L886,252"/>
+      <circle cx="906" cy="252" r="15" class="jack"/>
+      <circle cx="906" cy="252" r="5" fill="#8a867c"/>
+      <text x="932" y="248">S43 · CV clock in</text>
+      <text x="932" y="260" class="tiny dim">raw ADC counts → edge detector</text>
+    </g>
+    <g data-id="jack-out" data-ctx="isr">
+      <path class="trace" d="M660,330 L886,330"/>
+      <path class="hit" d="M660,330 L886,330"/>
+      <circle cx="906" cy="330" r="15" class="jack"/>
+      <circle cx="906" cy="330" r="5" fill="#8a867c"/>
+      <text x="932" y="326">S40 · CV clock out</text>
+      <text x="932" y="338" class="tiny dim">pulsed from the audio ISR</text>
+    </g>
+
+    <!-- ═════ flow overlay ═════ -->
+    <g id="flow">
+      <path class="audio" d="M46,382 L105,382 L135,382"/>
+      <path class="audio" d="M165,382 L192,382 L192,417 L216,417 L400,417 L424,421"/>
+      <path class="audio" d="M424,421 L460,421 L460,330 L480,330"/>
+      <path class="audio" d="M540,248 L540,208"/>
+      <path class="audio" d="M540,208 L552,208 L552,248" marker-end="url(#arr)"/>
+      <path class="audio" d="M510,360 L510,376 L466,376 L466,528 L476,528"/>
+      <path class="audio" d="M476,542 L372,574"/>
+      <path class="audio" d="M272,578 L120,578" marker-end="url(#arr)"/>
+      <path class="clock" d="M600,330 L886,330" marker-end="url(#arrw)"/>
+      <text x="60" y="626" fill="var(--v)">touch → I2C → AudioCallback → voices (SDRAM/AXI) → FX → limiter → codec → out</text>
+    </g>
+
+    <!-- legend -->
+    <g>
+      <rect x="700" y="626" width="9" height="9" class="pinsq used"/>
+      <text x="714" y="634" class="tiny dim">pin in use</text>
+      <rect x="782" y="626" width="9" height="9" class="pinsq aud"/>
+      <text x="796" y="634" class="tiny dim">audio</text>
+      <rect x="846" y="626" width="9" height="9" class="pinsq pwr"/>
+      <text x="860" y="634" class="tiny dim">power/gnd</text>
+      <rect x="932" y="626" width="9" height="9" class="pinsq"/>
+      <text x="946" y="634" class="tiny dim">free</text>
+      <rect x="700" y="644" width="9" height="9" fill="var(--c1)"/>
+      <text x="714" y="652" class="tiny dim">P0–P2 modifiers</text>
+      <rect x="812" y="644" width="9" height="9" fill="var(--w)"/>
+      <text x="826" y="652" class="tiny dim">P3–P9 musical</text>
+      <rect x="916" y="644" width="9" height="9" fill="var(--v)"/>
+      <text x="930" y="652" class="tiny dim">P10/P11 octave</text>
+    </g>
+  </svg>
+  </div>
+</section>
+
+<!-- ══════════════════════ MEMORY & EXECUTION ══════════════════════ -->
+<section id="memmap">
+  <h2>Memory &amp; execution</h2>
+
+  <div class="bootchain">
+    <div class="bstep" data-id="boot-loader" data-ctx="boot">
+      <b>1 · bootloader</b><span class="d">internal flash, 128 KB — reserves first 256 KB of QSPI</span></div>
+    <span class="barrow">→</span>
+    <div class="bstep" data-id="boot-xip" data-ctx="boot">
+      <b>2 · app, XIP from QSPI</b><span class="d">runs in place at <code>0x90040000</code> (<code>APP_TYPE = BOOT_QSPI</code>)</span></div>
+    <span class="barrow">→</span>
+    <div class="bstep" data-id="boot-init" data-ctx="boot">
+      <b>3 · main() init</b><span class="d">hw + LED workaround · journal scan/restore · stale-sector erase (blocking, pre-audio)</span></div>
+    <span class="barrow">→</span>
+    <div class="bstep" data-id="boot-run" data-ctx="boot">
+      <b>4 · StartAudio()</b><span class="d">AudioCallback @ 250 Hz ‖ main loop, forever</span></div>
+  </div>
+
+  <div class="mrow" data-id="mem-qspi" data-ctx="isr main boot">
+    <span class="a">0x90000000</span><span class="n">QSPI flash</span>
+    <span class="s">8 MB</span><span></span>
+    <div class="bar">
+      <div class="seg rsv"  data-id="boot-loader" data-ctx="boot" style="width:9%">boot rsv 256K</div>
+      <div class="seg app"  data-id="seg-app" data-ctx="isr main boot" style="width:14%">app ~360K</div>
+      <div class="seg free" style="width:57%">free</div>
+      <div class="seg jrn"  data-id="seg-journal" data-ctx="main boot" style="width:12%">journal 2×32K</div>
+      <div class="seg grd"  data-id="seg-guard" data-ctx="boot" style="width:8%">guard 64K</div>
+    </div>
+    <span class="what"><b>code + rodata (XIP)</b> · settings journal just below a 64 KB no-touch guard band at the top</span>
+  </div>
+  <p class="notescale">segment widths not to scale</p>
+
+  <div class="mrow" data-id="mem-axi" data-ctx="isr main boot">
+    <span class="a">0x24000000</span><span class="n">AXI SRAM</span>
+    <span class="s">512 KB · ~53%</span><span></span>
+    <div class="bar"><div class="fill" style="width:53%"></div></div>
+    <span class="what"><b>.data/.bss hot state · voice working set</b> (moved from SDRAM for the 6-voice CPU win) · RAM-resident QSPI write routine <code>tp_qspi_ram_op</code></span>
+  </div>
+  <div class="mrow" data-id="mem-sdram" data-ctx="isr boot">
+    <span class="a">0xC0000000</span><span class="n">SDRAM</span>
+    <span class="s">64 MB · ~2.3 MB</span><span></span>
+    <div class="bar"><div class="fill" style="width:4%"></div></div>
+    <span class="what"><b>Plaits voice instances · FX delay/reverb buffers</b> (<code>.sdram_bss</code>, NOLOAD)</span>
+  </div>
+  <div class="mrow" data-id="mem-sram1" data-ctx="isr">
+    <span class="a">0x30000000</span><span class="n">SRAM1 (D2)</span>
+    <span class="s">32 KB</span><span></span>
+    <div class="bar"><div class="fill" style="width:20%"></div></div>
+    <span class="what"><b>audio DMA buffers</b> — MPU marks the region non-cacheable</span>
+  </div>
+  <div class="mrow" data-id="mem-dtcm" data-ctx="isr main boot">
+    <span class="a">0x20000000</span><span class="n">DTCM</span>
+    <span class="s">128 KB</span><span></span>
+    <div class="bar"><div class="fill" style="width:12%"></div></div>
+    <span class="what"><b>stack</b> · mostly free</span>
+  </div>
+  <div class="mrow" data-id="mem-itcm" data-ctx="">
+    <span class="a">0x00000000</span><span class="n">ITCM</span>
+    <span class="s">64 KB · 0%</span><span></span>
+    <div class="bar"></div>
+    <span class="what"><b>unused</b> — the known future lever for a 7th voice</span>
+  </div>
+  <div class="mrow" data-id="mem-bkp" data-ctx="boot">
+    <span class="a">0x38800000</span><span class="n">Backup SRAM</span>
+    <span class="s">4 KB</span><span></span>
+    <div class="bar"><div class="fill" style="width:3%"></div></div>
+    <span class="what"><b>bootloader version stamp</b> — this device reports &lt; v6.0, hence the manual <code>hw.led.Init()</code> workaround</span>
+  </div>
+
+  <div class="lanes">
+    <div class="lane isr" data-id="ctx-isr-lane" data-ctx="isr">
+      <h4>AudioCallback — ISR · 250 Hz / 4 ms blocks</h4>
+      <ol>
+        <li><code>touch.Process()</code> <span class="d">— I2C pad read + touch callbacks</span></li>
+        <li>knobs + pickups <span class="d">— 8 pots, per-mode layers</span></li>
+        <li>SW1/SW2 handling <span class="d">— change-latched sub-states</span></li>
+        <li>seq / arp / note-rec ticks <span class="d">+ CV clock in &amp; out</span></li>
+        <li>8 × 24-sample Plaits chunks <span class="d">→ voice pool</span></li>
+        <li>4 FX groups → soft limiter</li>
+        <li>CPU meter <span class="d">+ &gt;90 % load-shed guard</span></li>
+      </ol>
+    </div>
+    <div class="lane mainloop" data-id="ctx-main-lane" data-ctx="main">
+      <h4>Main loop — everything the ISR must not do</h4>
+      <ol>
+        <li>LED pattern state machine <span class="d">— the only display</span></li>
+        <li>MIDI service <span class="d">— UART + USB, bounded TX drain</span></li>
+        <li>CPU serial print <span class="d">— <code>sv N</code> = settings save count</span></li>
+        <li><code>persist_tick()</code> <span class="d">— debounced auto-save: 250 ms compare · 3 s settle · one flash page per pass · gated on load &lt; 85 %</span></li>
+      </ol>
+    </div>
+  </div>
+</section>
+
+</div><!-- /#maps -->
+
+<aside id="info" aria-live="polite"></aside>
+</div><!-- /#layout -->
+
+<footer>
+  TouchPlaited — firmware for the Synthux Simple Touch ·
+  <a href="https://github.com/jonwaterschoot/TouchPlaited">github.com/jonwaterschoot/TouchPlaited</a>
+  · this map is hand-verified against the code; every panel links to its source
+</footer>
+
+<script>
+'use strict';
+const GH = 'https://github.com/jonwaterschoot/TouchPlaited/blob/main/';
+
+/* ── Daisy Seed pin headers (physical pinout per Electrosmith card) ────── */
+// [physNo, label, use-id or '', kind: g=gpio p=power a=audio]
+const PINS_L = [ // physical 1..20, top→bottom, USB at top
+  [1,'D0','','g'],[2,'D1','','g'],[3,'D2','','g'],[4,'D3','','g'],[5,'D4','','g'],
+  [6,'D5','','g'],[7,'D6','sw2','g'],[8,'D7','sw2','g'],[9,'D8','sw1','g'],
+  [10,'D9','sw1','g'],[11,'D10','','g'],[12,'D11','pins-i2c','g'],
+  [13,'D12','pins-i2c','g'],[14,'D13','midi','g'],[15,'D14','midi','g'],
+  [16,'IN L','audio-io','a'],[17,'IN R','audio-io','a'],
+  [18,'OUT L','audio-io','a'],[19,'OUT R','audio-io','a'],[20,'AGND','pins-power','p'],
+];
+const PINS_R = [ // physical 40..21, top→bottom (numbering runs up this side)
+  [40,'DGND','pins-power','p'],[39,'VIN','pins-power','p'],[38,'3V3D','pins-power','p'],
+  [37,'D30','','g'],[36,'D29','','g'],[35,'A11','jack-in','g'],[34,'D27','','g'],
+  [33,'D26','','g'],[32,'D25','jack-out','g'],[31,'A9','','g'],[30,'A8','','g'],
+  [29,'A7','pots','g'],[28,'A6','pots','g'],[27,'A5','pots','g'],[26,'A4','pots','g'],
+  [25,'A3','pots','g'],[24,'A2','pots','g'],[23,'A1','pots','g'],[22,'A0','pots','g'],
+  [21,'3V3A','pins-power','p'],
+];
+const CTX_OF = { sw1:'isr', sw2:'isr', 'pins-i2c':'isr boot', midi:'main boot',
+  'audio-io':'isr boot', 'jack-in':'isr', 'jack-out':'isr', pots:'isr',
+  'pins-power':'isr main boot', 'seed-pins':'' };
+
+const SVGNS = 'http://www.w3.org/2000/svg';
+function el(name, attrs, text) {
+  const e = document.createElementNS(SVGNS, name);
+  for (const k in attrs) e.setAttribute(k, attrs[k]);
+  if (text) e.textContent = text;
+  return e;
+}
+function buildPins(host, pins, left) {
+  pins.forEach(([no, label, use, kind], i) => {
+    const y = 122 + i * 26;
+    const g = el('g', { 'data-id': use || 'seed-pins',
+                        'data-ctx': CTX_OF[use || 'seed-pins'] ?? '' });
+    const sq = el('rect', { x: left ? 424 : 644, y: y - 6, width: 12, height: 12,
+      class: 'pinsq' + (use && use !== 'pins-power' ? ' used' : '')
+                     + (kind === 'p' ? ' pwr' : '') + (kind === 'a' ? ' aud' : '') });
+    g.appendChild(sq);
+    g.appendChild(el('text', { x: left ? 418 : 662, y: y + 3,
+      'text-anchor': left ? 'end' : 'start', class: 'tiny dim' }, String(no)));
+    g.appendChild(el('text', { x: left ? 442 : 638, y: y + 3,
+      'text-anchor': left ? 'start' : 'end',
+      class: use ? 'acc' : 'dim' }, label));
+    host.appendChild(g);
+  });
+}
+buildPins(document.getElementById('pinsL'), PINS_L, true);
+buildPins(document.getElementById('pinsR'), PINS_R, false);
+
+/* pot circles S30–S37 */
+{
+  const host = document.getElementById('potcircles');
+  const g = el('g', { 'data-id': 'pots', 'data-ctx': 'isr' });
+  for (let i = 0; i < 8; i++) {
+    const cx = 858 + (i % 4) * 76, cy = i < 4 ? 458 : 540;
+    g.appendChild(el('circle', { cx, cy, r: 20, fill: 'var(--bg)',
+      stroke: '#8a867c', 'stroke-width': 1.5 }));
+    g.appendChild(el('line', { x1: cx, y1: cy, x2: cx + 9, y2: cy - 14,
+      stroke: '#8a867c', 'stroke-width': 2 }));
+    g.appendChild(el('text', { x: cx, y: cy + 34, 'text-anchor': 'middle',
+      class: 'tiny dim' }, 'S' + (30 + i) + ' · A' + i));
+  }
+  host.appendChild(g);
+}
+
+/* MPR121 pad terminals P0..P11 */
+{
+  const host = document.getElementById('padpins');
+  const fill = k => k < 3 ? 'var(--c1)' : k < 10 ? 'var(--w)' : 'var(--v)';
+  const idOf = k => k < 3 ? 'pads-mod' : k < 10 ? 'pads-note' : 'pads-oct';
+  for (let k = 0; k < 12; k++) {
+    const y = 292 + k * 17.5;
+    const g = el('g', { 'data-id': idOf(k), 'data-ctx': 'isr boot' });
+    g.appendChild(el('rect', { x: 54, y: y - 5, width: 12, height: 11,
+      fill: fill(k), stroke: 'none' }));
+    g.appendChild(el('text', { x: 72, y: y + 4, class: 'tiny dim' }, 'P' + k));
+    g.appendChild(el('line', { x1: 54, y1: y, x2: 40, y2: y,
+      stroke: 'var(--trace)', 'stroke-width': 1 }));
+    host.appendChild(g);
+  }
+}
+
+/* ── info database ─────────────────────────────────────────────────────── */
+// t: title · m: meta · c: contexts · b: body html · src: [[path, note], …]
+const INFO = {
+  map: { t: 'Code map', m: 'hover · click · deep-link', c: [],
+    b: `<p>A literal map of the instrument: the boards as they are wired, the
+        pins as the code claims them, and an overlay of <em>where the code
+        runs</em> — which memory, which execution context.</p>
+        <ul><li><b>Hover</b> any pin, chip, trace or memory row</li>
+        <li><b>Click</b> to pin this panel — the URL gains a <code>#anchor</code> you can share</li>
+        <li><b>Boot / Audio ISR / Main loop</b> buttons dim everything not
+        involved in that context</li>
+        <li><b>Flow</b> animates the signal path: touch → voices → FX → out</li></ul>`,
+    src: [['README.md', 'project overview'], ['doc/codemap_brief.md', 'the brief this page was built from']] },
+
+  carrier: { t: 'Synthux Simple Touch', m: 'carrier PCB', c: ['isr','main','boot'],
+    b: `<p>The carrier board: the Daisy Seed is socketed onto it, and it fans the
+        Seed's pins out to 8 pots, 2 CV jacks, 2 three-position switches, the
+        TRS MIDI mod, the audio jacks and the 12 capacitive pads (via the
+        MPR121 breakout).</p>
+        <p>Everything on this map that isn't on the Seed itself lives here.</p>`,
+    src: [['img/simpletouchdrawing_blank.svg', 'panel illustration']] },
+
+  seed: { t: 'Daisy Seed', m: 'system-on-module', c: ['isr','main','boot'],
+    b: `<p>One board carries the whole computer: STM32H750 MCU, 64 MB SDRAM,
+        8 MB QSPI NOR flash, audio codec, USB and the onboard LED. The entire
+        firmware — bootloader, synth, sequencer, MIDI — runs on it.</p>`,
+    src: [['lib/libDaisy/src/daisy_seed.h', 'pin map — daisy::seed namespace']] },
+
+  mcu: { t: 'STM32H750', m: 'Cortex-M7 · 480 MHz · single core', c: ['isr','main','boot'],
+    b: `<p>One core, two worlds: the <b>AudioCallback ISR</b> preempts the
+        <b>main loop</b> every 4 ms and does nearly everything — even the I2C
+        pad read. The main loop gets whatever must not block audio: LED, MIDI
+        service, serial, settings persistence.</p>
+        <p>Internal memories (AXI SRAM, DTCM, ITCM) are inside this chip —
+        see the memory map below.</p>`,
+    src: [['TouchPlaited.cpp', 'AudioCallback + main()']] },
+
+  'sdram-chip': { t: 'SDRAM · 64 MB', m: 'on the Seed · mapped at 0xC0000000', c: ['isr','boot'],
+    b: `<p>Big but slower memory. Holds the Plaits voice instances and the FX
+        delay/reverb buffers (<code>.sdram_bss</code>, NOLOAD — nothing to
+        flash, cleared at boot). The per-voice <em>working set</em> was moved
+        out of here into AXI SRAM — that was the 6-voice CPU win.</p>`,
+    src: [['TouchPlaited.cpp', 'voice pool + .sdram_bss placements']] },
+
+  'qspi-chip': { t: 'QSPI NOR flash · 8 MB', m: 'on the Seed · memory-mapped at 0x90000000', c: ['isr','main','boot'],
+    b: `<p>The firmware executes in place (XIP) from this chip — every
+        instruction fetch that misses cache comes over QSPI. It also stores
+        the settings journal near the top.</p>
+        <p>Two hard-won H7 lessons live here: never memory-map-read the last
+        64 KB (prefetch-past-FSIZE erratum → boot hard fault), and flash
+        writes need an MPU no-access guard over the mapping or speculative
+        prefetch stalls AXI permanently.</p>`,
+    src: [['synth/settings_journal.cpp', 'RAM-resident program/erase routine'],
+          ['README.md', '“Settings memory” notes']] },
+
+  codec: { t: 'Audio codec', m: '48 kHz · 192-sample blocks (4 ms)', c: ['isr','boot'],
+    b: `<p>Stereo out and audio in, on the Seed. DMA moves samples through
+        buffers in SRAM1 (D2 domain), which the MPU marks non-cacheable. Each
+        completed block fires the AudioCallback — the 250 Hz heartbeat the
+        whole instrument runs on.</p>`,
+    src: [['TouchPlaited.cpp', 'SetAudioBlockSize(192) / 48 kHz setup']] },
+
+  usb: { t: 'USB port', m: 'one port, one owner', c: ['main','boot'],
+    b: `<p>Compile-time choice in the Makefile: with <code>-DUSB_MIDI</code>
+        the port is a USB MIDI device (notes + SysEx telemetry for the web
+        visualizer); comment it out and the port becomes the serial log for
+        the CPU meter build. Never both.</p>
+        <p>At boot the same port is how firmware gets flashed (bootloader DFU).</p>`,
+    src: [['Makefile', '-DUSB_MIDI switch'], ['midi/midi_io.cpp', 'USB MIDI init + service']] },
+
+  led: { t: 'Onboard LED', m: 'the only display', c: ['main','boot'],
+    b: `<p>All user feedback is blink patterns, driven by a state machine in
+        the main loop via <code>set_led</code>/<code>led_event</code>.</p>
+        <p>Boot quirk: this device's bootloader reports &lt; v6.0 (stamp in
+        backup SRAM), which leaves the LED GPIO uninitialised — hence the
+        manual <code>hw.led.Init()</code> workaround in <code>main()</code>.</p>`,
+    src: [['TouchPlaited.cpp', 'set_led / led_event + LED init workaround']] },
+
+  mpr121: { t: 'MPR121 breakout', m: 'I2C1 @ 0x5A · 12-channel cap sense', c: ['isr','boot'],
+    b: `<p>Reads the 12 touch pads on the panel. Polled — surprisingly — from
+        <b>inside the audio ISR</b>: <code>touch.Process()</code> does the I2C
+        read and fires the touch/release callbacks once per 4 ms block, so pad
+        timing is sample-block-accurate.</p>
+        <p>ADDR is tied so the chip sits at the default address 0x5A.</p>`,
+    src: [['touch/pads.cpp', 'Pads::Init / Process'],
+          ['lib/libDaisy/src/dev/mpr121.h', 'driver (default cfg: I2C1, PB8/PB9, 0x5A)']] },
+
+  'pads-note': { t: 'P3–P9 · musical pads', m: '7 pads → scale degrees', c: ['isr','boot'],
+    b: `<p>The seven playing pads. Their meaning shifts with SW2: notes in
+        Basic Pitch, arp/melody input in Arp/Mel (hold to enter recording),
+        pattern slots in Seq mode. Scale and root come from SW1 + knob
+        layers.</p>`,
+    src: [['TouchPlaited.cpp', 'pad touch/release handlers + compute_note()']] },
+
+  'pads-mod': { t: 'P0 / P1 / P2 · modifier pads', m: 'combo keys', c: ['isr','boot'],
+    b: `<p>Held modifiers that re-map everything else: P0 (width/shift-style
+        combos), P1 (FX modifier — its release is edge-detected in the ISR),
+        P2 (transport &amp; latch combos, e.g. P2+P10 melodic transport,
+        P2+P11 drum-seq transport).</p>`,
+    src: [['TouchPlaited.cpp', 'modifier combo handling (AudioCallback + touch callbacks)']] },
+
+  'pads-oct': { t: 'P10 / P11 · octave pads', m: 'down / up · per-playmode stores', c: ['isr','boot'],
+    b: `<p>Octave taps write whichever store matches the current mode —
+        <code>bp_octave</code>, <code>arp_octave</code> or
+        <code>rec_octave</code> — so each playmode keeps its own octave.
+        With P1 held they set the arp's extra octave range (0–3).</p>`,
+    src: [['TouchPlaited.cpp', 'active_octave() dispatch']] },
+
+  'pins-i2c': { t: 'I2C1 — SCL / SDA', m: 'D11 = PB8 (pin 12) · D12 = PB9 (pin 13)', c: ['isr','boot'],
+    b: `<p>The two-wire bus to the MPR121 at address 0x5A. These are libDaisy's
+        default MPR121 config pins — the driver's <code>Config()</code>
+        constructor already points at I2C1 / PB8 / PB9.</p>
+        <p>The bus is serviced from the audio ISR each block.</p>`,
+    src: [['lib/libDaisy/src/dev/mpr121.h', 'Config() defaults'],
+          ['touch/pads.cpp', 'init + per-block read']] },
+
+  sw2: { t: 'SW2 — playmode', m: 'right 3-pos · D7/D6 (pins 8/7)', c: ['isr'],
+    b: `<p>The mode switch: <b>Down = Basic Pitch</b>, <b>Center = Arp/Mel</b>,
+        <b>Up = Seq</b>. Read every audio block; mode changes re-target the
+        knob layers, FX instance, octave store — each playmode is fully
+        independent.</p>`,
+    src: [['touch/switches.cpp', 'Switches::Init — D7/D6'],
+          ['TouchPlaited.cpp', 'playmode dispatch']] },
+
+  sw1: { t: 'SW1 — scale / genre / arp state', m: 'left 3-pos · D9/D8 (pins 10/9)', c: ['isr'],
+    b: `<p>Context-dependent selector: scale in Basic Pitch, genre in Seq, arp
+        sub-state in Arp/Mel. It is <b>change-latched</b> — the switch only
+        takes effect when it moves, so returning to a position doesn't stomp
+        state set by other gestures.</p>`,
+    src: [['touch/switches.cpp', 'Switches::Init — D9/D8'],
+          ['TouchPlaited.cpp', 'SW1 latched handling']] },
+
+  midi: { t: 'TRS MIDI in / out', m: 'USART1 · D13 TX / D14 RX (pins 14/15)', c: ['main','boot'],
+    b: `<p>Always active, regardless of the USB build flavour. libDaisy's
+        default <code>MidiUartHandler</code> config is exactly this wiring.
+        Serviced in the main loop with a <b>bounded TX drain</b> — UART TX
+        blocks ~1 ms per 3-byte message at 31250 baud, so the loop caps how
+        much it sends per pass.</p>`,
+    src: [['midi/midi_io.cpp', 'UART + USB MIDI service']] },
+
+  'audio-io': { t: 'Audio out L/R + in', m: 'Seed pins 16–19 → panel jacks', c: ['isr','boot'],
+    b: `<p>The codec's analog side: stereo out to the panel jacks (plus audio
+        in). 48 kHz, 192-sample blocks — after the voice pool, 4 FX groups and
+        the soft limiter, this is where the sound leaves the map.</p>`,
+    src: [['TouchPlaited.cpp', 'AudioCallback output stage + limiter']] },
+
+  pots: { t: '8 pots — knob layers', m: 'A0–A7 = D15–D22 (pins 22–29) · S30–S37', c: ['isr'],
+    b: `<p>Eight analog pots, one ADC channel each. Every playmode has its own
+        <b>knob layer</b> (sound, volume, drive, blend, FX…), with
+        <b>pickup</b> behaviour: after a mode switch a knob is inert until it
+        crosses its stored value, so layers never jump.</p>`,
+    src: [['touch/knobs.cpp', 'Knobs::Init — A0–A7 + A11'],
+          ['TouchPlaited.cpp', 'per-mode layers + pickup logic']] },
+
+  'jack-in': { t: 'S43 — CV clock in', m: 'A11 = D28/PA2 (pin 35) · raw ADC', c: ['isr'],
+    b: `<p>External clock input. Read as <b>raw ADC counts with no
+        smoothing</b> — it feeds an edge detector, not a knob filter, so a
+        pulse is a pulse. Detected edges drive the same tick path as incoming
+        MIDI F8 clocks.</p>`,
+    src: [['touch/knobs.cpp', 'A11 channel (no smoothing)'],
+          ['TouchPlaited.cpp', 'CV clock-in edge detector']] },
+
+  'jack-out': { t: 'S40 — CV clock out', m: 'D25/PA0 (pin 32) · GPIO from the ISR', c: ['isr'],
+    b: `<p>Plain push-pull GPIO pulsed from the audio ISR: one pulse per 16th
+        note — every 6th tick of the master clock, whatever its source
+        (internal, MIDI, or CV in). The unit always acts as a clock hub.</p>`,
+    src: [['TouchPlaited.cpp', 'cv_clock_out — init + ISR pulse']] },
+
+  'pins-power': { t: 'Power & ground pins', m: 'AGND · 3V3A · 3V3D · VIN · DGND', c: ['isr','main','boot'],
+    b: `<p>Pin 20 AGND and pin 21 3V3 Analog bracket the far end of the
+        headers (analog domain for pots and CV); pins 38–40 are 3V3 Digital,
+        VIN and DGND next to USB. The carrier powers the Seed via VIN.</p>`,
+    src: [] },
+
+  'seed-pins': { t: 'Free pins', m: 'unclaimed by the firmware', c: [],
+    b: `<p>Everything not lit on this map is unused: D0–D5, D10 (SD-card /
+        SPI1 / USART alternates), A8/A9 (spare ADC), D26/D27, D29/D30 (USB HS
+        pair). Expansion budget, if the instrument ever grows.</p>`,
+    src: [['lib/libDaisy/src/daisy_seed.h', 'full pin map']] },
+
+  /* boot chain */
+  'boot-loader': { t: 'Daisy bootloader', m: 'internal flash · 128 KB', c: ['boot'],
+    b: `<p>Lives in the H750's internal flash and owns the first 256 KB of
+        QSPI. It maps the QSPI window (the journal later reads the window size
+        back from <code>DCR.FSIZE</code> rather than assuming it) and jumps to
+        the app. Firmware updates arrive through it via USB DFU at
+        <code>0x90040000</code>.</p>`,
+    src: [['README.md', 'flashing — dfu-util 0x90040000'], ['Makefile', 'APP_TYPE = BOOT_QSPI']] },
+
+  'boot-xip': { t: 'App runs XIP from QSPI', m: '0x90040000 · ~360 KB', c: ['boot'],
+    b: `<p>No copy to RAM: the CPU executes straight out of memory-mapped QSPI
+        flash. Cache makes it fast enough; the ITCM move (64 KB, currently
+        unused) is the known lever if the hottest render paths ever need
+        it.</p>`,
+    src: [['Makefile', 'APP_TYPE = BOOT_QSPI']] },
+
+  'boot-init': { t: 'main() init', m: 'blocking, before audio starts', c: ['boot'],
+    b: `<p>Hardware init (including the manual LED init workaround for
+        pre-v6.0 bootloaders), then the settings journal boot pass: scan both
+        banks for the newest CRC-valid record, restore it, and erase whatever
+        sectors the journal no longer needs — the slow (45–300 ms) erases all
+        happen <em>before</em> audio ever starts.</p>`,
+    src: [['synth/settings_journal.h', 'Init() contract'], ['TouchPlaited.cpp', 'main()']] },
+
+  'boot-run': { t: 'StartAudio() — steady state', m: 'ISR ‖ main loop, forever', c: ['boot'],
+    b: `<p>From here on the machine is two loops: the AudioCallback ISR at
+        250 Hz doing nearly everything, and the main loop sweeping up LED,
+        MIDI, serial and persistence behind it.</p>`,
+    src: [['TouchPlaited.cpp', 'hw.StartAudio(AudioCallback)']] },
+
+  /* memory rows */
+  'mem-qspi': { t: 'QSPI flash', m: '0x90000000 · 8 MB', c: ['isr','main','boot'],
+    b: `<p>Code + rodata execute in place from here. Layout: 256 KB bootloader
+        reserve, the app at <code>0x90040000</code>, then free space up to the
+        <b>settings journal</b> (2 × 32 KB banks) sitting just below a 64 KB
+        guard band at the very top.</p>
+        <p>The journal base is derived from <code>DCR.FSIZE</code> at boot —
+        the bootloader owns that register, so the journal adapts to whatever
+        window it mapped.</p>`,
+    src: [['synth/settings_journal.h', 'layout + wear math'],
+          ['synth/settings_journal.cpp', 'implementation']] },
+
+  'seg-app': { t: 'App image', m: '0x90040000 · ~360 KB · XIP', c: ['isr','main','boot'],
+    b: `<p>The firmware itself — every context executes from this segment
+        (through the I-cache). Flashed via the bootloader with
+        <code>dfu-util -s 0x90040000</code>.</p>`,
+    src: [['README.md', 'flashing instructions']] },
+
+  'seg-journal': { t: 'Settings journal', m: '2 × 32 KB banks · append-only', c: ['main','boot'],
+    b: `<p>Auto-save across power cycles. A save appends one 512-byte record
+        (header + CRC32 + payload); NOR programs 1→0 without erasing, so
+        appending never pays the 45–300 ms sector-erase cost at runtime.
+        Writes go one 256-byte page per <code>persist_tick()</code> pass, each
+        inside its own ~1 ms interrupt-off window, only while audio load is
+        under 85 %.</p>
+        <p>Because the app executes from this same chip, the program/erase
+        routine (<code>tp_qspi_ram_op</code>) runs from AXI SRAM while the
+        flash is briefly offline.</p>`,
+    src: [['synth/settings_journal.h', 'journal design (header comment)'],
+          ['synth/settings_journal.cpp', 'tp_qspi_ram_op']] },
+
+  'seg-guard': { t: 'Top guard band', m: 'last 64 KB · never map-read', c: ['boot'],
+    b: `<p>STM32H7 erratum: memory-mapped reads near the very end of the QSPI
+        window make the controller prefetch past the FSIZE boundary — a bus
+        error that shows up as a <b>boot hard fault</b>. The journal therefore
+        never touches the last 64 KB of the mapping.</p>`,
+    src: [['synth/settings_journal.h', 'kTopGuardBytes comment']] },
+
+  'mem-axi': { t: 'AXI SRAM', m: '0x24000000 · 512 KB · ~53 % used', c: ['isr','main','boot'],
+    b: `<p>The hot heart: <code>.data</code>/<code>.bss</code> state and the
+        per-voice working set — moved here from SDRAM, which is what made six
+        voices fit the CPU budget. Also hosts <code>tp_qspi_ram_op</code>,
+        the QSPI write routine placed in <code>.data</code> so it executes
+        from SRAM while the flash is offline mid-write.</p>`,
+    src: [['TouchPlaited.cpp', 'voice working set'],
+          ['synth/settings_journal.cpp', 'tp_qspi_ram_op placement']] },
+
+  'mem-sdram': { t: 'SDRAM', m: '0xC0000000 · 64 MB · ~2.3 MB used', c: ['isr','boot'],
+    b: `<p>Plaits voice instances and FX delay/reverb buffers, in
+        <code>.sdram_bss</code> (NOLOAD). Plenty of headroom — the constraint
+        on voice count is CPU, not memory.</p>`,
+    src: [['TouchPlaited.cpp', '.sdram_bss buffers']] },
+
+  'mem-sram1': { t: 'SRAM1 (D2 domain)', m: '0x30000000 · 32 KB region', c: ['isr'],
+    b: `<p>Audio DMA buffers. The MPU marks this region non-cacheable so the
+        DMA engine and the CPU never disagree about sample data — no cache
+        maintenance in the hot path.</p>`,
+    src: [['TouchPlaited.cpp', 'audio init']] },
+
+  'mem-dtcm': { t: 'DTCM', m: '0x20000000 · 128 KB', c: ['isr','main','boot'],
+    b: `<p>Tightly-coupled data RAM: zero-wait-state, holds the stack. Mostly
+        free.</p>`, src: [] },
+
+  'mem-itcm': { t: 'ITCM', m: '64 KB · 0 % used', c: [],
+    b: `<p>Tightly-coupled instruction RAM, currently untouched. The known
+        future lever: move the hottest Plaits render paths here (code
+        otherwise fetches from QSPI on I-cache miss) — that headroom is the
+        plan for a 7th voice.</p>`,
+    src: [['notes.md', 'optimization list — ITCM placement']] },
+
+  'mem-bkp': { t: 'Backup SRAM', m: '4 KB', c: ['boot'],
+    b: `<p>Where the Daisy bootloader stamps its version. This device reports
+        &lt; v6.0 — which is why <code>main()</code> has to init the LED GPIO
+        manually before any blink pattern works.</p>`,
+    src: [['TouchPlaited.cpp', 'LED init workaround comment']] },
+
+  /* contexts */
+  'ctx-isr': { t: 'Audio ISR', m: 'AudioCallback · 250 Hz · 4 ms budget', c: ['isr'],
+    b: `<p>The codec DMA fires this every 192 samples. It does nearly
+        everything: the I2C pad read, knobs + pickups, switch handling,
+        seq/arp/note-rec ticks, CV clock in/out, 8 × 24-sample Plaits chunks
+        through the voice pool, 4 FX groups and the soft limiter.</p>
+        <p>A CPU meter measures every block; above ~90 % load a shedding guard
+        drops work before the deadline drops audio.</p>`,
+    src: [['TouchPlaited.cpp', 'AudioCallback']] },
+
+  'ctx-main': { t: 'Main loop', m: 'everything that may block', c: ['main'],
+    b: `<p>LED pattern state machine, MIDI service (UART + USB, bounded TX
+        drain), the CPU serial print (<code>sv N</code> = settings save
+        count), and <code>persist_tick()</code>: the debounced settings
+        auto-save — compare every 250 ms, save 3 s after the last change, one
+        flash page per pass, gated on audio load &lt; 85 %.</p>`,
+    src: [['TouchPlaited.cpp', 'main loop + persist_tick()'],
+          ['midi/midi_io.cpp', 'MIDI service']] },
+
+  'ctx-boot': { t: 'Boot', m: 'power-on → steady state', c: ['boot'],
+    b: `<p>Bootloader (internal flash) → app XIP from QSPI at
+        <code>0x90040000</code> → <code>main()</code> init with the journal
+        scan/restore and pre-audio sector erases → <code>StartAudio()</code>.
+        Follow the numbered chain in the memory section.</p>`,
+    src: [['Makefile', 'APP_TYPE = BOOT_QSPI'], ['synth/settings_journal.h', 'boot pass']] },
+};
+INFO['ctx-isr-lane'] = INFO['ctx-isr'];
+INFO['ctx-main-lane'] = INFO['ctx-main'];
+
+/* ── info panel rendering ──────────────────────────────────────────────── */
+const infoEl = document.getElementById('info');
+let pinned = null; // id or null
+
+function render(id) {
+  const e = INFO[id] || INFO.map;
+  const tags = (e.c || []).map(c =>
+    `<span class="tag ${c}">${{isr:'audio isr',main:'main loop',boot:'boot'}[c]}</span>`).join('');
+  const src = (e.src && e.src.length)
+    ? `<div class="src"><span class="cap">source</span>` + e.src.map(([p, note]) =>
+        `<a href="${GH}${p}" target="_blank" rel="noopener">${p}<br><span>· ${note}</span></a>`).join('') + `</div>`
+    : '';
+  const pin = pinned ? `<button class="pin" id="unpin" title="unpin (esc)">✕</button>` : '';
+  const link = pinned ? `<p class="linkline">deep link: <code>#${id}</code></p>` : '';
+  infoEl.innerHTML = `${pin}<h3>${e.t}</h3><p class="meta">${e.m || ''}</p>
+    <div class="body">${e.b}</div>${src}<div class="tags">${tags}</div>${link}`;
+  const un = document.getElementById('unpin');
+  if (un) un.onclick = () => setPinned(null);
+}
+
+function mark(id, cls, on) {
+  document.querySelectorAll(`[data-id="${id}"]`).forEach(n => n.classList.toggle(cls, on));
+}
+function setPinned(id) {
+  if (pinned) mark(pinned, 'sel', false);
+  pinned = id;
+  if (id) { mark(id, 'sel', true); history.replaceState(null, '', '#' + id); }
+  else history.replaceState(null, '', location.pathname + location.search);
+  render(id || 'map');
+}
+
+let hovered = null;
+document.querySelectorAll('[data-id]').forEach(n => {
+  const id = n.dataset.id;
+  if (!INFO[id]) return;
+  n.setAttribute('tabindex', '0');
+  n.addEventListener('mouseenter', () => {
+    if (hovered) mark(hovered, 'hl', false);
+    hovered = id; mark(id, 'hl', true);
+    if (!pinned) render(id);
+  });
+  n.addEventListener('mouseleave', () => {
+    mark(id, 'hl', false); if (hovered === id) hovered = null;
+    if (!pinned) render('map');
+  });
+  n.addEventListener('focus', () => { if (!pinned) render(id); mark(id, 'hl', true); });
+  n.addEventListener('blur', () => mark(id, 'hl', false));
+  n.addEventListener('click', ev => {
+    ev.stopPropagation();
+    setPinned(pinned === id ? null : id);
+  });
+  n.addEventListener('keydown', ev => {
+    if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); setPinned(pinned === id ? null : id); }
+  });
+});
+document.addEventListener('keydown', ev => { if (ev.key === 'Escape') setPinned(null); });
+
+/* ── execution-context toggle ──────────────────────────────────────────── */
+const ctxBtns = document.querySelectorAll('.ctxbtn');
+function setCtx(c) {
+  if (c) document.body.dataset.ctx = c; else delete document.body.dataset.ctx;
+  ctxBtns.forEach(b => b.classList.toggle('on', b.dataset.ctxbtn === c));
+  if (c && !pinned) render('ctx-' + c);
+  if (!c && !pinned) render('map');
+}
+ctxBtns.forEach(b => b.addEventListener('click', ev => {
+  ev.stopPropagation();
+  setCtx(b.dataset.ctxbtn || '');
+}));
+
+/* ── flow toggle ───────────────────────────────────────────────────────── */
+const flowbtn = document.getElementById('flowbtn');
+flowbtn.addEventListener('click', ev => {
+  ev.stopPropagation();
+  const on = document.body.classList.toggle('flow');
+  flowbtn.classList.toggle('on', on);
+});
+
+/* ── deep links ────────────────────────────────────────────────────────── */
+function applyHash() {
+  const h = location.hash.replace('#', '');
+  if (!h) return false;
+  if (h === 'ctx-isr' || h === 'ctx-main' || h === 'ctx-boot') {
+    setCtx(h.slice(4));
+    render(h);
+    return true;
+  }
+  if (INFO[h]) {
+    setPinned(h);
+    const target = document.querySelector(`[data-id="${h}"]`);
+    if (target && target.scrollIntoView) target.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    return true;
+  }
+  return false;
+}
+window.addEventListener('hashchange', applyHash);
+if (!applyHash()) render('map');
+</script>

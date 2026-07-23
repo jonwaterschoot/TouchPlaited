@@ -6,7 +6,7 @@ A Synthux Simple Touch firmware based on Mutable Instruments Plaits (Émilie Gil
 
 Full controls reference: [MANUAL.md](MANUAL.md).
 
-**On the web:** [visualizer](https://jonwaterschoot.github.io/TouchPlaited/visualizer/) · [pattern editor](https://jonwaterschoot.github.io/TouchPlaited/editor/) · [manual](https://jonwaterschoot.github.io/TouchPlaited/manual.html) — hosted from this repo via GitHub Pages.
+**On the web:** [visualizer](https://jonwaterschoot.github.io/TouchPlaited/visualizer/) · [pattern editor](https://jonwaterschoot.github.io/TouchPlaited/editor/) · [code map](https://jonwaterschoot.github.io/TouchPlaited/codemap/) · [manual](https://jonwaterschoot.github.io/TouchPlaited/manual.html) — hosted from this repo via GitHub Pages.
 
 This version is using all 24 models (the 16 original + the 8 new ones). There are three main playmodes. Basic Pitch, Arp/Mel, and Seq.
 
