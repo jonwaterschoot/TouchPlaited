@@ -12,7 +12,7 @@
 | S31 | Decay | 23 |
 | S32 | Harmonics | 20 |
 | S33 | Timbre | 21 |
-| S34 | Morph (no effect on engines 19–23) | 22 |
+| S34 | Morph (no effect on engines 2–4 and 19–23) | 22 |
 | S35 | — *(only active with P0/P2 held)* | — |
 | S36 | Output level | 26 |
 | S37 | Model mix — OUT↔AUX blend | — |
@@ -106,26 +106,7 @@ MIDI CCs keep addressing the *global* functions while recording — they never e
 
 ---
 
-## Quick tutorial — your first five minutes
-
-Two toggles, eight knobs, twelve touch pads. **SW2** (right toggle) picks the playmode; **SW1** (left toggle) picks the scale — or the drum genre when sequencing.
-
-```
-            [ P10 ] [ P11 ]             ← down / up
-        [ P0 ]  [ P1 ]  [ P2 ]          ← control pads
-[ P3 ]  [ P4 ]  [ P5 ]  [ P6 ]  [ P7 ]  ← musical pads
-            [ P8 ]  [ P9 ]              ← musical pads
-```
-
-1. **Start the drums.** Flick **SW2 Up** (Seq mode) — a fresh drum kit is generated and the 16-step sequencer starts playing. Turn **S31** for tempo, **S32** for shuffle, **S33** for density. Flick **SW1** left or right to switch genre (Techno / Electro / IDM); turn **S35** to step through that genre's patterns.
-2. **Play drums live.** Tap the musical pads **P3–P9** — kick, snare, closed hat, open hat, clap, tom, perc.
-3. **Add a synth on top.** Flick **SW2 Down** (Basic Pitch) — the drums keep playing. P3–P9 now play notes; **P10 / P11** shift the octave down / up, and SW1 picks the scale (minor / chromatic / major).
-4. **Shape the sound.** **S32** harmonics, **S33** timbre, **S34** morph, **S31** decay, **S30** drive, **S37** OUT↔AUX blend. Choose an engine by holding **P0** (bank 0) or **P2** (bank 1) while turning **S35**.
-5. **Let it play itself.** Flick **SW2 Center** (Arp/Mel) and hold a few pads — the arpeggiator plays them. Turn **S32** for the rate, **S35** for the note order, **S34** to thin the pattern out. Flick **SW1 left** (Hold) and the notes latch — hands free. Flick **SW1 right** (Rec) and pads play Rec's own sound without recording anything yet; hold **P2 then tap P10** to arm, *then* play to record into a 2-bar loop. S32–S35 switch to Speed/Shift/Chance/Order there, and **P2 + pad** mutes/clears a layer.
-6. **Fine-tune one drum.** In Seq mode, hold any musical pad for 2 s to enter **Recording** — the LED counts down with an accelerating blink, then the knobs edit just that slot. Release, then hold the same pad 1.2 s to save.
-7. **Pause / resume the drums** from any mode: hold **P2**, then tap **P11**. Same for the arp: **P2**, then **P10** (arms/disarms Rec's capture instead if SW1 is in Rec).
-
-Everything below is the full reference.
+> **New here?** [README.md](README.md#quick-start--your-first-five-minutes) has a five-minute walkthrough to get sound out of the box. Everything below is the full reference.
 
 ---
 
@@ -544,7 +525,7 @@ Not reachable over MIDI: model select (S35), pattern/variant select, the arp con
 TouchPlaited always puts a clock on its outputs, and follows one when you give it one. There are two ways in and two ways out, always active, no setup:
 
 - **MIDI clock** (24 ppqn F8) on either MIDI port.
-- **CV clock** on the jacks: **S43 = clock in**, **S40 = clock out**, one pulse per 16th step (the common modular/4 ppqn convention). Clock out is a ~12ms trigger pulse; clock in accepts any pulse that rises above ~1V at the pin.
+- **CV clock** on the jacks: **S43 = clock in**, **S40 = clock out**, one pulse per 16th step (the common modular/4 ppqn convention). Clock out is a ~12ms trigger pulse; clock in accepts any pulse that rises above ~1V at the pin. Wiring your own jacks for a mod? See *Hardware mods* below — the pins used on this build weren't a deliberate choice.
 
 **As master (nothing coming in):** a steady 24 ppqn MIDI clock *and* a 16th-note pulse on S40 go out from power-on, both locked to the drum steps so synced gear can't drift. Starting/pausing the sequencer (SW2 Up first entry, P2+P11) also sends Start/Continue/Stop, and a Start re-anchors the S40 pulse to the downbeat.
 
@@ -616,3 +597,15 @@ The 24 Plaits models are spread over the two shift pads: hold **P0** and turn S3
 \* Starred engines (Six-Op 2–4, and 19–23) are the **morph-decay engines**: their real decay lives on the model's MORPH parameter — the DX7 envelope time for Six-Op, damping/tail for 19–23 — so S31 Decay drives it and S34 Morph has no effect (see *Unified Decay*). In Seq mode, S37 Tightness compresses the tails of 19–23. Six-Op additionally renders identical OUT and AUX signals, so the S37 blend fader and P0+S37 stereo width do nothing on 2–4.
 
 The random drum kits draw from a curated subset of these: kicks from 21 and 10 (an FM kick), snares/claps from 22 and 17, hats from 23 and 17, toms from 21 and 20, perc from 20/22/23. Particle (18) is deliberately excluded — its sporadic crackle reads as a hardware fault in a kit.
+
+---
+
+## Hardware mods
+
+Optional physical mods for anyone modding their own Simple Touch. None of these are required — the stock board works out of the box — but they make a few things easier.
+
+**1. P1 pad reach.** P1 doubles as a hold-modifier for the FX send layer (P1+S30/S35, see *FX*) and other combos, When both switches are installed on the Simple Touch, P1 is hard to reach, especially for people with big hands / fingers. Fix: push a short length of solid-core wire (standard breadboard gauge, or the kind used to close bags / tie cables) into the small hole in the P1 pad. It can be soldered for a permanent job, but just friction-fit also works. For an even bigger target, add a piece of foil or copper tape to the front of the touchplate. (A photo and the tutorial/demo video walkthrough are coming.)
+
+**2. CV clock jacks.** S43 (clock in) and S40 (clock out) — see *Clock sync* above — use Daisy Seed pins **A11** and **D25** on this build. Those were just the first free pins taken in order, not a deliberate choice, so if you're wiring your own jacks, check what's actually free/convenient on your board rather than assuming those two.
+
+**3. OLED screen.** Optional I2C 128×32 add-on (SSD1306) on **D11/D12**, sharing the MPR121 touch bus. Mirrors the last-touched control (combo, function, value) on the faceplate. If you'd rather not add hardware, the [visualizer webapp](#visualizer-webapp) shows the same live telemetry on a screen you already have.

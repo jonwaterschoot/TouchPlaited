@@ -1,22 +1,24 @@
 # TouchPlaited web presence — GitHub Pages plan
 
-> **Status 2026-07-14: built.** Everything below is implemented and verified
-> locally (`npm run build && npm run build:site` in `visualizer/`, then serve
-> `_site/`). One deviation: the site builder lives at
-> `visualizer/tools/build-site.mjs` (not `doc/`), so `marked` resolves from
-> the visualizer's node_modules. Remaining manual step: **Settings → Pages →
-> Source: "GitHub Actions"**, then push to main.
+> **Status 2026-07-24: built and live.** Everything below is implemented and
+> deployed via `.github/workflows/pages.yml`. Two deviations from the
+> original plan: the site builder lives at `visualizer/tools/build-site.mjs`
+> (not `doc/`), so `marked` resolves from the visualizer's node_modules; and
+> a fourth page, `/codemap/` (`tools/codemap.html`, see
+> `doc/codemap_brief.md`), was added after this plan was written, following
+> the same "copied verbatim" pattern as `/editor/`.
 
-Three pages, one repo, one deploy, one theme:
+Four pages, one repo, one deploy, one theme:
 
 | URL (github.io/TouchPlaited…) | What | Source of truth |
 |---|---|---|
 | `/` | Landing page — styled HTML render of README.md | `README.md` + `doc/` template |
 | `/visualizer/` | Live-panel visualizer app | `visualizer/` (Vite build) |
 | `/editor/` | SEQ pattern editor | `tools/pattern_editor.html` (copied verbatim) |
+| `/codemap/` | Interactive hardware + memory atlas | `tools/codemap.html` (copied verbatim) |
 
-GitHub Pages serves exactly one site per repo, so "three apps" is really one
-static artifact with three directories. Everything is client-side (Web MIDI,
+GitHub Pages serves exactly one site per repo, so "four apps" is really one
+static artifact with four directories. Everything is client-side (Web MIDI,
 WebAudio), so plain static hosting works; Pages is HTTPS, which Web MIDI
 requires — the visualizer needs Chrome/Edge and grants SysEx per-origin, same
 as on localhost.
@@ -35,16 +37,19 @@ a one-time manual step):
    ```
    _site/
      index.html            ← from build-site.mjs
-     theme.css             ← doc/theme.css
-     img/…                 ← copied (README images)
-     visualizer/…          ← visualizer/dist
-     editor/index.html     ← tools/pattern_editor.html
+     manual.html            ← MANUAL.md, same template
+     theme.css              ← doc/theme.css
+     img/…                  ← copied (README/MANUAL images)
+     visualizer/…           ← visualizer/dist
+     editor/index.html      ← tools/pattern_editor.html
+     codemap/index.html     ← tools/codemap.html
      .nojekyll
    ```
 5. `upload-pages-artifact` + `deploy-pages`
 
 Trigger: push to `main` touching `visualizer/`, `tools/pattern_editor.html`,
-`doc/`, `README.md`, `img/`; plus `workflow_dispatch`.
+`tools/codemap.html`, `doc/`, `README.md`, `MANUAL.md`, `img/`; plus
+`workflow_dispatch`.
 
 One code change makes the visualizer path-independent: `base: './'` in
 `vite.config.ts` (relative asset URLs — no router, so this is safe, and dev
@@ -111,8 +116,8 @@ When docs outgrow one page: MkDocs (Material, `docs_dir: doc/docs`) takes
 over `/`, with the README landing content becoming its `index.md`. The same
 tokens go into an `extra_css` override so the theme carries over. The
 workflow gains a Python step and merges `mkdocs build` output into `_site/`
-**around** `visualizer/` and `editor/`, which keep their URLs. Nothing in
-this plan blocks that — only ownership of `/` moves.
+**around** `visualizer/`, `editor/` and `codemap/`, which keep their URLs.
+Nothing in this plan blocks that — only ownership of `/` moves.
 
 ## 5. Order of work
 

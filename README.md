@@ -1,200 +1,28 @@
 # TouchPlaited
 
-A Synthux Simple Touch firmware based on Mutable Instruments Plaits (Émilie Gillet, MIT License): a 7-voice touch synth plus a 16-step generative drum sequencer, playable at the same time (though limited by voice stealing).
+A Synthux Simple Touch firmware based on Mutable Instruments Plaits (Émilie Gillet, MIT License): a 7-voice touch synth plus a 16-step generative drum sequencer, playable at the same time (though limited by voice stealing). All 24 Plaits models are available (the 16 original + the 8 new ones).
 
 ![The visualizer webapp mirroring the panel live](img/TouchPlaited_dynamicvisualizer.png)
 
-Full controls reference: [MANUAL.md](MANUAL.md).
+**Full controls reference:** [MANUAL.md](MANUAL.md) — every knob, mode, gesture, MIDI mapping and clock-sync detail lives there. This file is just the front door.
 
 **On the web:** [visualizer](https://jonwaterschoot.github.io/TouchPlaited/visualizer/) · [pattern editor](https://jonwaterschoot.github.io/TouchPlaited/editor/) · [code map](https://jonwaterschoot.github.io/TouchPlaited/codemap/) · [manual](https://jonwaterschoot.github.io/TouchPlaited/manual.html) — hosted from this repo via GitHub Pages.
 
-This version is using all 24 models (the 16 original + the 8 new ones). There are three main playmodes. Basic Pitch, Arp/Mel, and Seq.
-
-- **Basic Pitch**: 1 model with the pads or a midi input.
-- **Arp/Mel**: an arpeggiator (with hold/latch) plus a layered 2-bar note recorder — the arp and the recorder each play their own independent sound
-- **Seq**: loads only drum and percussive sounds, can play preloaded patterns
-
-Using a fader to mix between the models AUX or OUT outputs. Adding a way to spread these over stereo.
-
-**MIDI in/out** on USB and on TRS (USART1, D13/D14 — for hardware-modded boards): notes on ch1 (pitched, chromatic) and ch10 (GM drums), CC20–31 for sound and sequencer functions, the pads/sequencer mirrored to MIDI out, and full clock sync — it follows an external MIDI clock (with start/stop) and sends its own when there isn't one. See *MIDI at a glance* below and the full mapping in [MANUAL.md](MANUAL.md#midi).
-
 Note: While playable and pretty stable; I am still working on this, so things might move around.
 
-## Cheat sheet
+## What it is
 
-> **Tip**: use the visualizer and connect midi to get feedback, hover the info screen and select "DYN".
+Three playmodes, picked with the right toggle (**SW2**):
 
-![hover to see the labels](img/TouchPlaited_dynamicvisualizer_hovernotconnected.png)
+- **Basic Pitch** (down) — one model, played with the pads or MIDI in.
+- **Arp/Mel** (center) — an arpeggiator (with hold/latch) plus a layered 2-bar note recorder — the arp and the recorder each play their own independent sound.
+- **Seq** (up) — a 16-step generative drum sequencer loaded with drum/percussive models, with preloaded patterns per genre.
 
-Hover the info screen, toggle **dyn** (glow + the on-panel OLED screen only) / **S#** (label numbers only) / **Aa** (full labels + text)
+All three can run at once — the drum sequencer and the melodic modes are independent and keep playing across mode switches. A fader (S37) mixes each sound's OUT/AUX outputs.
 
+**MIDI in/out** on USB and on TRS (USART1, D13/D14 — for hardware-modded boards): notes on ch1 (pitched, chromatic) and ch10 (GM drums), CC20–31 for sound and sequencer functions, the pads/sequencer mirrored to MIDI out, and full clock sync on both MIDI and CV (S43 in / S40 out) — it follows an external clock (with start/stop) and sends its own when there isn't one.
 
-**SW2 — playmode:** Down = Basic Pitch · Center = Arp/Mel · Up = Seq
-**SW1 — scale** minor / chromatic / major *(Basic Pitch)* · **arp state** hold / arp / rec *(Arp/Mel)* · **genre** IDM / techno / electro *(Seq)*
-
-### Knobs
-
-| Knob | Basic Pitch | Arp/Hold | Rec | Seq |
-|------|-------------|----------|-----|-----|
-| S30 | Drive | Drive | Drive (own value) | Drive |
-| S31 | Decay | Decay | Decay (shared with Arp) | Tempo |
-| S32 | Harmonics | Division | **Speed** — 1x…8x playback | Shuffle |
-| S33 | Timbre | Swing | **Shift** — moves the loop in time | Density |
-| S34 | Morph | Density (Euclid) | **Chance** — per-hit playback odds | Kick punch |
-| S35 | *(model select — needs P0 or P2)* | Order | **Order** — as recorded / shuffled | Pattern |
-| S36 | Volume (own) | Volume (own) | Volume (own) | Seq volume |
-| S37 | Model mix OUT ↔ AUX (own) | Model mix (own) | Model mix (own) | Tightness |
-
-- Basic Pitch, the arp, and Rec each have their **own** drive, blend, volume, FX send and octave — turning one never moves another's. Only decay (S31) and P0-held width are genuinely shared between Arp/Hold and Rec.
-- Morph does nothing on engines 2–4 and 19–23 — their real decay lives on morph, and the Decay knob drives it there (DX7 envelope time on Six-Op, damping/tail on 19–23). Seq *Tightness* compresses the tails of 19–23. On Six-Op the S37 blend/width fader is also inert (AUX = OUT).
-- Basic Pitch, the arp, and Rec each play **their own sound**, all starting on a random model at boot and never linked to each other — edit whichever is in view by holding **P0 + P1 ~1 s**: the knobs become drive / decay / harmonics / timbre / morph until you toggle back.
-
-### Pads
-
-| Pad | Basic Pitch | Arp/Mel | Seq |
-|-----|-------------|---------|-----|
-| P3–P9 | Play notes | Feed the arp *(Rec: play, and record once armed — see P2+P10 below)* | Kick · snare · cl. hat · op. hat · clap · tom · perc |
-| P10 / P11 | Octave − / + | Octave − / + *(own value per Arp/Hold vs Rec)* | — |
-| Hold P3–P9 2 s | — | — | Recording |
-
-### Shift layers — hold, then turn / tap
-
-| Hold | + | Does |
-|------|---|------|
-| P0 | S35 | Model select, bank 0 (engines 0–11) |
-| P2 | S35 | Model select, bank 1 (engines 12–23) |
-| P0 | S37 | Stereo width |
-| P0 | P10 / P11 | Root semitone − / + *(Basic Pitch only; in Arp/Mel Rec, P0+P10 tap is **Undo** instead)* |
-| P2 | pad (Arp/Mel Rec) | Tap = mute/unmute that layer · hold ~1.2 s = clear that layer · hold ≥2 pads = clear all |
-| P0 + P1 | hold 1 s | *(Arp/Mel)* toggle sound edit on whichever sound is in view (arp's or Rec's) |
-| P1 | S30 | **Reverb** — room ◄ off ► hall — Basic Pitch, arp, Rec and drums each have their own instance |
-| P1 | S35 | **Delay** — slapback ◄ off ► dotted 1/8 — same four independent instances |
-| P1 | P10 / P11 | *(Arp/Mel)* arp octave range 0–3 |
-| P2 | P10 | Arp transport run / stop *(any mode)* · **in Arp/Mel Rec: arm/disarm capture instead** (disarm doesn't stop playback, only new recording) |
-| P2 | P11 | Drum seq play / pause *(any mode)* |
-| P0 + P2 | hold 1 s / 2 s | Randomize tight / wide *(Arp/Mel: vary whichever sound is in view · Seq: vary kit / new kit)* · 3 s *(Basic Pitch)*: back to clean |
-
-- FX knobs are mirror knobs: center = off, wet grows outward. Basic Pitch, the arp, Rec, and the drum group each get their own fully independent reverb and delay — send level *and* character, not just a shared engine with separate levels.
-
-### Recording (Seq only — hold a drum pad 2 s)
-
-Knobs now edit **that slot only**: drive, decay, harmonics/timbre/morph, volume, blend — plus P0/P2 + S35 model, P0 + S37 width, P1 + S30/S35 FX send trims, P10/P11 drum pitch ∓ 1 semitone.
-
-**Save:** hold the same pad 1.2 s · **Cancel:** tap any other pad · **Copy:** source pad + other pad 1.2 s
-
-### MIDI
-
-- **Notes** — ch 1 in: pitched, chromatic · ch 10 in/out: GM drums · pads out on ch 1
-- **CC 20–26** harmonics · timbre · morph · decay · drive · LPG colour · volume
-- **CC 27–31** *(Seq)* tempo · shuffle · density · punch · tightness
-- **CC 85–88** reverb / delay, Basic Pitch / drums (value 64 = off, below/above = character A/B) — the arp's and Rec's own FX are device-only, same as their sound
-- **Clock** — follows external clock + Start/Stop when present; sends its own otherwise
-
-## Controls at a glance
-
-### Basic Pitch (SW2 Down)
-
-| Control | Function | MIDI CC |
-|---------|----------|---------|
-| S30 | Drive | 24 |
-| S31 | Decay | 23 |
-| S32 | Harmonics | 20 |
-| S33 | Timbre | 21 |
-| S34 | Morph (no effect on engines 2–4 and 19–23) | 22 |
-| S35 | — *(only active with P0/P2 held)* | — |
-| S36 | Output level | 26 |
-| S37 | Model mix — OUT↔AUX blend | — |
-| — | LPG colour (no knob) | 25 |
-| SW1 | Scale: minor (left) / chromatic (center) / major (right) | — |
-| P3–P9 | Play notes | notes in, ch 1 |
-| P10 / P11 | Octave down / up | — |
-| P0 + S35 | Model select, bank 0 (engines 0–11) | — |
-| P0 + S37 | Stereo width | — |
-| P0 + P10 / P11 | Root semitone down / up | — |
-| P0 + P2 hold 1 s / 2 s / 3 s | Randomize tight / randomize wide / back to clean | — |
-| P2 + S35 | Model select, bank 1 (engines 12–23) | — |
-| P2 (hold) + P10 | Arp + Rec loop run / stop | — |
-| P2 (hold) + P11 | Drum seq play / pause | Start/Continue/Stop |
-
-### Arp/Mel (SW2 Center)
-
-SW1 picks the sub-state: **Hold** (left) · **Arp** (center) · **Rec** (right) — change-latched, so it only applies when flicked inside the mode. Basic Pitch, the arp, and Rec each play their **own** sound (random at boot, never linked), and each has its own volume, drive, blend, FX send (send *and* character), and octave. S32–S35 switch to Rec-only functions (Speed/Shift/Chance/Order) while SW1 is in Rec.
-
-| Control | Function (Arp/Hold) | Function (Rec) | MIDI CC |
-|---------|----------------------|-----------------|---------|
-| S30 | Drive (live per trigger, own value) | Drive (own value) | 24 (Basic Pitch only) |
-| S31 | Decay (stamped per note into a Rec take) | same (shared knob) | — |
-| S32 | Division — 1/4 … 1/32 against the master tempo (center = 1/16) | **Speed** — 1x (left) to 8x (right) playback of committed layers | — |
-| S33 | Swing | **Shift** — moves committed layers in time (center = none) | — |
-| S34 | Density — Euclidean fill; lower half adds a 75% chance roll | **Chance** — per-hit playback probability | — |
-| S35 | Order — played / up / down / ping-pong / random | **Order** — left = as recorded, right = pitches shuffled | — |
-| S36 | Output level (own value) | Output level (own value) | 26 (Basic Pitch only) |
-| S37 | Blend (own value; hold P0: stereo width, shared) | Blend (own value) | — |
-| P3–P9 | Arp: feed the pool · Hold: latch, re-touch removes | Play, and record once armed (see P2+P10) into a 2-bar loop (5 layers) | notes in ch 1 play the arp/Rec sound |
-| P10 / P11 | Base octave − / + (own value per Arp/Hold vs Rec) | own value | — |
-| P1 + P10 / P11 | Octave range 0–3 | — | — |
-| P0 + P10 tap | Root semitone − / + (Basic Pitch only) | **Undo** — pop the last layer/take | — |
-| P2 + pad | — | Tap = mute/unmute that layer · hold ~1.2 s = clear it · hold ≥2 pads = clear all | — |
-| P0 + P1 hold 1 s | Sound edit toggle — knobs become drive / decay / harmonics / timbre / morph on whichever sound is in view | same, on Rec's own sound | — |
-| P0 / P2 + S35 | Model select on the in-view sound (bank 0 / 1) | same | — |
-| P0 + P2 hold 1 s / 2 s | Vary the in-view sound — tight / wide | same | — |
-| P2 (hold) + P10 | Arp transport run / stop (any mode) | **Arm / disarm capture** — disarm doesn't stop playback, only new recording | — |
-| P2 (hold) + P11 | Drum seq play / pause | same | Start/Continue/Stop |
-
-### Seq (SW2 Up)
-
-| Control | Function | MIDI CC |
-|---------|----------|---------|
-| S30 | Drive | 24 |
-| S31 | Tempo (60–180 BPM) | 27 (muted by ext. clock) |
-| S32 | Shuffle | 28 |
-| S33 | Density | 29 |
-| S34 | Kick punch | 30 |
-| S35 | Pattern select (within SW1 genre) | — |
-| S36 | Seq volume | — |
-| S37 | Tightness (decay of engines 19–23) | 31 |
-| P0 + S37 | Drum-group stereo width | — |
-| P3–P9 | Play drums: kick / snare / cl. hat / op. hat / clap / tom / perc | notes in/out, ch 10 (GM) |
-| Hold P3–P9 for 2 s | Enter Recording for that drum | — |
-| P0 + P2 hold 1 s / 2 s | Vary current kit / generate new kit | — |
-| P2 (hold) + P11 | Play / pause | Start/Continue/Stop |
-| SW1 | Genre: IDM (left) / techno (center) / electro (right) | — |
-
-### Recording (hold a drum pad 2 s in Seq)
-
-| Control | Function |
-|---------|----------|
-| S30 | Per-slot drive |
-| S31 | Per-slot decay |
-| S32 / S33 / S34 | Per-slot harmonics / timbre / morph |
-| S36 | Per-slot volume |
-| S37 | Per-slot blend |
-| P0 / P2 + S35 | Per-slot model select (bank 0 / bank 1) |
-| P0 + S37 | Per-slot stereo width |
-| P1 + S30 / P1 + S35 | Per-slot reverb / delay send trim |
-| P10 / P11 | Drum pitch −1 / +1 semitone |
-| Hold source pad 1.2 s | Confirm — save and exit |
-| Tap any other pad | Cancel — restore and exit |
-| Source pad + other pad 1.2 s | Copy slot to the other pad |
-
-(MIDI CCs keep addressing the global functions while recording — they never edit the slot being recorded.)
-
-### MIDI at a glance
-
-Works identically on **USB** and **TRS** (USART1: D13 TX / D14 RX, 31250 baud — hardware mod required; see MANUAL).
-
-| MIDI | Function |
-|------|----------|
-| Notes in, ch 1 | Pitched, chromatic (note number = pitch; velocity = level) — plays the current mode's sound |
-| Notes in, ch 10 | GM drums → the 7 kit slots (36 kick, 38 snare, 42/44 CHH, 46 OHH, 39 clap, 41–50 tom, 37… perc) |
-| CC 20–26 | Harmonics, timbre, morph, decay, drive, LPG colour, volume (pot pickup re-armed on every CC write) |
-| CC 27–31 | Seq tempo, shuffle, density, punch, tightness |
-| CC 120/123 | All sound off / all notes off |
-| Clock in (F8) + Start/Continue/Stop | Sequencer hard-syncs to external clock (tempo knob disabled); clock passes through to the output |
-| Clock out | Always on: internal 24 ppqn locked to the drums when no external clock; Start/Continue/Stop sent on local transport changes |
-| Notes out | Pads → ch 1 (heard pitch); seq steps + drum pads → ch 10 GM, velocity 100 |
-
-## Quick tutorial — your first five minutes
+## Quick start — your first five minutes
 
 Two toggles, eight knobs, twelve touch pads. **SW2** (right toggle) picks the playmode; **SW1** (left toggle) picks the scale — or the drum genre when sequencing.
 
@@ -213,7 +41,9 @@ Two toggles, eight knobs, twelve touch pads. **SW2** (right toggle) picks the pl
 6. **Fine-tune one drum.** In Seq mode, hold any musical pad for 2 s to enter **Recording** — the knobs now edit just that slot. Hold the same pad 1.2 s again to save.
 7. **Pause / resume the drums** from any mode: hold **P2**, then tap **P11**. Same for the arp and its loop: **P2**, then **P10**.
 
-See [MANUAL.md](MANUAL.md) for the full per-mode knob maps, recording mode, gestures, and LED codes.
+> **Tip:** connect the [visualizer](https://jonwaterschoot.github.io/TouchPlaited/visualizer/) over USB MIDI to see every control light up and name itself live while you play.
+
+See [MANUAL.md](MANUAL.md) for the full per-mode knob maps, recording mode, gestures, MIDI mapping, clock sync and LED codes.
 
 ## Installing
 
@@ -258,6 +88,43 @@ dfu-util -a 0 -s 0x90040000:leave -D TouchPlaited.bin
 ```
 
 `-D` downloads the file to the device, `-a 0` selects the flash interface, and `-s 0x90040000` is where to write it: the Seed's QSPI flash is memory-mapped at `0x90000000` and the bootloader reserves the first 256 KB (`0x40000`) for itself, so apps live at `0x90000000 + 0x40000`. The `:leave` suffix reboots into the app when the transfer finishes.
+
+## Where everything lives
+
+### Firmware source
+
+| Path | What's there |
+|------|---------------|
+| [`TouchPlaited.cpp`](TouchPlaited.cpp) | Main firmware entry point — mode/state machine, wires the pieces below together |
+| [`synth/`](synth/) | The Plaits voice pool and engine integration, drum sequencer, arp + note recorder, reverb/delay FX, and the QSPI settings journal (auto-save/restore) |
+| [`synth/patterns/`](synth/patterns/) | Drum sequencer patterns as headers, one folder per genre (`techno/`, `electro/`, `idm/`) |
+| [`touch/`](touch/) | Drivers for the pads, knobs and toggle switches on the touch controller |
+| [`midi/`](midi/) | USB + TRS MIDI I/O (notes, CCs, clock/transport) and the SysEx telemetry the visualizer listens to |
+| [`display/`](display/) | On-panel SSD1306 OLED driver and UI (mirrors what the visualizer shows) |
+| [`thirdparty/`](thirdparty/) | Vendored Plaits DSP source + the stmlib and libDaisy-fork submodule setup — see [thirdparty/README.md](thirdparty/README.md) |
+| [`lib/`](lib/) | The `libDaisy` submodule (Synthux Academy fork) |
+
+### Tools & web apps
+
+| Path | What's there |
+|------|---------------|
+| [`tools/pattern_editor.html`](tools/pattern_editor.html) | Browser-based drum pattern editor — see [Drum pattern editor](#drum-pattern-editor) below. Live at [/editor/](https://jonwaterschoot.github.io/TouchPlaited/editor/) |
+| [`tools/codemap.html`](tools/codemap.html) | Interactive hardware + memory atlas of the firmware. Live at [/codemap/](https://jonwaterschoot.github.io/TouchPlaited/codemap/) |
+| [`tools/gen_patterns.py`](tools/gen_patterns.py) | Build-time script that regenerates the drum pattern registry from the pattern headers |
+| [`visualizer/`](visualizer/) | The live-panel visualizer webapp (USB MIDI + SysEx telemetry) — see [visualizer/README.md](visualizer/README.md) and its [PLAN.md](visualizer/PLAN.md). Live at [/visualizer/](https://jonwaterschoot.github.io/TouchPlaited/visualizer/) |
+| [`doc/`](doc/) | GitHub Pages site scaffolding — template/theme used to render this README and MANUAL.md into the hosted site |
+
+### Docs
+
+| File | What it's for |
+|------|----------------|
+| `README.md` | This file — quick overview + project map |
+| [`MANUAL.md`](MANUAL.md) | The full controls reference: every mode, knob, gesture, MIDI mapping and the clock-sync spec |
+| [`ROADMAP.md`](ROADMAP.md) | Current TODO list / what's being worked on next |
+| `notes.md` | Running working log — design decisions and analysis as they happen |
+| [`notesarchive/`](notesarchive/) | Archived history once a notes.md/ROADMAP.md era is done — including the [original prompt/plan](notesarchive/Initial-Prompt-plan.md) and the [project's own story](notesarchive/readme.md) |
+
+Other top-level files: `Makefile` (build), `LICENSE` / `licenseinfo.md` (this project's MIT license plus third-party attributions), `img/` (screenshots and panel artwork used across the docs).
 
 ## Drum pattern editor
 
