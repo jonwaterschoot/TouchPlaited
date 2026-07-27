@@ -37,6 +37,36 @@ void OledScreen::Clear() {
     i2c1_bus_busy = false;
 }
 
+void OledScreen::ShowProgress(const char* label, uint8_t progress) {
+    i2c1_bus_busy = true;
+    _display.Fill(false);
+
+    // Label row: identical to ShowLine's.
+    char labelBuf[kBufLen];
+    size_t labelLen = std::min(strlen(label), kBufLen - 1);
+    std::memcpy(labelBuf, label, labelLen);
+    labelBuf[labelLen] = '\0';
+    for (char* p = labelBuf; *p; ++p)
+        *p = static_cast<char>(std::toupper(static_cast<unsigned char>(*p)));
+    _display.SetCursor(1, 0);
+    _display.WriteString(labelBuf, Font_6x8, true);
+
+    // Value row: an outlined bar, filled left-to-right by progress/127 —
+    // same geometry oled-mini.ts's showProgress() draws.
+    constexpr uint8_t kOutlineX1 = 1, kOutlineY1 = 16, kOutlineX2 = 126, kOutlineY2 = 27;
+    _display.DrawRect(kOutlineX1, kOutlineY1, kOutlineX2, kOutlineY2, true, false);
+    constexpr uint8_t kFillX1 = kOutlineX1 + 2, kFillY1 = kOutlineY1 + 2;
+    constexpr uint8_t kFillY2 = kOutlineY2 - 2;
+    constexpr uint8_t kFillMaxW = kOutlineX2 - 2 - kFillX1; // inner width at 100%
+    const uint8_t fillW = static_cast<uint8_t>((static_cast<uint32_t>(kFillMaxW) * (progress & 0x7F)) / 127u);
+    if (fillW > 0) {
+        _display.DrawRect(kFillX1, kFillY1, static_cast<uint8_t>(kFillX1 + fillW - 1), kFillY2, true, true);
+    }
+
+    _display.Update();
+    i2c1_bus_busy = false;
+}
+
 void OledScreen::ShowLine(const char* label, const char* value) {
     // Held for the whole draw+transfer (see i2c1_lock.h) — Pads::Process()
     // skips its I2C poll in AudioCallback while this is up, so the ~20ms

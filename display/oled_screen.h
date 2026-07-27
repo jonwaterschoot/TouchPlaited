@@ -16,10 +16,9 @@ namespace synthux {
 //
 // Two rows, mirroring visualizer/src/panel/oled-mini.ts: a small label
 // (Font_6x8, truncated to fit) and a value that never truncates — it steps
-// down through Font_11x18 -> Font_7x10 -> Font_6x8 until it fits, the same
-// shrink-to-fit the web emulator does, just picking between the three
-// fixed bitmap fonts real hardware actually has instead of an arbitrary
-// pixel size.
+// down through Font_11x18 -> Font_7x10 -> Font_6x8 until it fits, the exact
+// same fixed bitmap fonts and stepping rule oled-mini.ts blits (its font
+// data is ported verbatim from lib/libDaisy/src/util/oled_fonts.c).
 class OledScreen {
 public:
     OledScreen() {}
@@ -30,6 +29,11 @@ public:
     // Replaces the whole screen with one label + one value, like the
     // emulator's Oled.show() — there's no history on this screen either.
     void ShowLine(const char* label, const char* value);
+
+    // Label row as ShowLine(), value row replaced by a filled bar —
+    // progress/127 of the screen width — for a hold building toward a
+    // threshold. Mirrors oled-mini.ts's showProgress().
+    void ShowProgress(const char* label, uint8_t progress);
 
     void Clear();
 

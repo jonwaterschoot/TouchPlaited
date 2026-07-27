@@ -497,6 +497,11 @@ namespace {
 // paused) while still reading as prompt on a knob sweep. Tune down further
 // if it still feels laggy once measured on real hardware.
 constexpr uint32_t kMinRedrawIntervalMs = 80;
+// A hold's confirm text needs to actually read as a flash, not a blip — held
+// open well past the usual redraw throttle, in the same ballpark as the
+// LED's own confirm blinks (blink_confirm() etc., TouchPlaited.cpp: 3 blinks
+// at ~140ms each).
+constexpr uint32_t kConfirmFlashMs = 220;
 } // namespace
 
 void OledUi::Service(const TelemetryState& t, uint32_t now_ms, OledScreen& oled) {
@@ -513,6 +518,50 @@ void OledUi::Service(const TelemetryState& t, uint32_t now_ms, OledScreen& oled)
     // an unavoidable consequence of sampling slower than the input, not
     // something eagerly updating `last_` here would fix.
     if (now_ms < next_draw_ms_) return;
+
+    // Highest priority, above even a pad-down: a hold building toward a
+    // threshold (TouchPlaited.cpp's compute_hold_telemetry(), same
+    // precedence as the LED's own accelerating-blink family), shown as a
+    // bar instead of a blink rate. Continuous — redraws every allowed cycle
+    // while a hold is in progress, not just on change, so the bar visibly
+    // fills; the moment it clears, the normal priority chain below resumes
+    // from whatever `last_` it left behind.
+    if (t.hold_kind != 0) {
+        FixedCapStr<24> hold_label;
+        switch (t.hold_kind) {
+            case 1: set_label(hold_label, "P0+P2", (t.mode == 0) ? "Re-randomize" : "Vary sound"); break;
+            case 2: set_label(hold_label, "P3-P9", "Rec entry"); break;
+            case 3: set_label(hold_label, "P2+pad", "Clear layer"); break;
+            case 4: set_label(hold_label, "Rec", "Copy layer"); break;
+            default: hold_label.Clear(); hold_label.Append("Hold"); break;
+        }
+        // A threshold just fired (hold_stage advanced since the last drawn
+        // frame — same edge-detection `last_` already does for pads/switches)
+        // gets a text flash instead of the bar for one redraw, held open a
+        // little longer than the usual throttle so it actually reads as a
+        // flash rather than a blip; the bar (now sitting at 100% for this
+        // stage) resumes on the poll after that.
+        const bool just_confirmed = t.hold_stage != 0
+            && (t.hold_kind != last_.hold_kind || t.hold_stage != last_.hold_stage);
+        if (just_confirmed) {
+            FixedCapStr<24> confirm;
+            switch (t.hold_kind) {
+                case 1: confirm.Clear(); confirm.Append("STAGE "); confirm.AppendInt(t.hold_stage); break;
+                case 2: confirm.Clear(); confirm.Append("RECORDING"); break;
+                case 3: confirm.Clear();
+                        confirm.Append(t.hold_outcome == 2 ? "EMPTY" : "CLEARED"); break;
+                case 4: confirm.Clear(); confirm.Append("COPIED"); break;
+                default: confirm.Clear(); confirm.Append("OK"); break;
+            }
+            oled.ShowLine(hold_label.Cstr(), confirm.Cstr());
+            next_draw_ms_ = now_ms + kConfirmFlashMs;
+        } else {
+            oled.ShowProgress(hold_label.Cstr(), t.hold_progress);
+            next_draw_ms_ = now_ms + kMinRedrawIntervalMs;
+        }
+        last_ = t;
+        return;
+    }
 
     FixedCapStr<24> label;
     FixedCapStr<24> value;

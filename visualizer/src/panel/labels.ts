@@ -75,6 +75,33 @@ function blendInfo(model: number): { fn: string; dead: boolean } {
   return { fn: aux ? `Blend · OUT↔${aux}` : 'Blend', dead: false };
 }
 
+/** Combo + function for a hold's progress bar — ported 1:1 from
+ * display/oled_ui.cpp's OledUi::Service hold_kind switch, kept in the same
+ * wording (the mini screen uppercases everything anyway). */
+function holdLabel(kind: number, mode: number): string {
+  switch (kind) {
+    case 1: return `P0+P2 ${mode === 0 ? 'Re-randomize' : 'Vary sound'}`;
+    case 2: return 'P3-P9 Rec entry';
+    case 3: return 'P2+pad Clear layer';
+    case 4: return 'Rec Copy layer';
+    default: return 'Hold';
+  }
+}
+
+/** What flashes when hold_stage just rose — ported 1:1 from oled_ui.cpp's
+ * confirm switch. Kind 1 (P0+P2) names the stage reached, not "done": stage
+ * count varies with context (2 or 3) and every stage gets the same uniform
+ * treatment on the LED, so there's no single "final" wording to reach for. */
+function confirmText(kind: number, stage: number, outcome: number): string {
+  switch (kind) {
+    case 1: return `Stage ${stage}`;
+    case 2: return 'Recording';
+    case 3: return outcome === 2 ? 'Empty' : 'Cleared';
+    case 4: return 'Copied';
+    default: return 'OK';
+  }
+}
+
 /** `engine` (when set) is the model the label was resolved against — apply()
  * uses it for engine-aware value formatting and the dead-knob message. */
 function describeControl(
@@ -200,6 +227,8 @@ export class Labels {
   private heldPads: number[] = []; // press order, newest last
   private padBaseHtml = new Map<number, string>(); // for appending note info
   private pendingNote: { channel: number; note: number; at: number } | null = null;
+  private lastHoldKind = 0; // edge-detects a hold_stage rise into a confirm flash
+  private lastHoldStage = 0;
 
   constructor(
     private overlay: HTMLElement,
@@ -557,6 +586,26 @@ export class Labels {
             `<b>Arp/Mel</b> state → <span>${names[ev.sub] ?? ev.sub}</span>`);
         }
         this.renderStatus(s);
+        break;
+      }
+      case 'hold': {
+        // A hold building toward a threshold (P0+P2, rec entry, layer
+        // clear, layer copy) — the mini screen's one hardware-real bar,
+        // same precedence as the device LED. Deliberately mini-screen only:
+        // the log/wide screen are a web-only companion (see oled-wide.ts's
+        // header comment), and a bar filling every ~80ms would just spam it.
+        const confirmed = ev.holdKind !== 0 && ev.stage > 0
+          && (ev.holdKind !== this.lastHoldKind || ev.stage !== this.lastHoldStage);
+        if (confirmed) {
+          this.oledMini.confirmFlash(
+            holdLabel(ev.holdKind, s.mode), confirmText(ev.holdKind, ev.stage, ev.outcome));
+        } else if (ev.holdKind !== 0) {
+          this.oledMini.showProgress(holdLabel(ev.holdKind, s.mode), ev.progress);
+        } else {
+          this.oledMini.clearProgress();
+        }
+        this.lastHoldKind = ev.holdKind;
+        this.lastHoldStage = ev.stage;
         break;
       }
       case 'mode':

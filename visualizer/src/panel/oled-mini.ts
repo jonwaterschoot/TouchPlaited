@@ -4,32 +4,37 @@
 // screen, see oled-wide.ts) used to fill on its own.
 //
 // Two rows only — a small label row and a big value row, the same shape a
-// firmware menu on this exact panel would use (a 6×8 fixed-width font for
-// the label row, a much larger fixed-width font for the value, both common
-// bitmap fonts shipped for 128×32 SSD1306s). The row content is decided by
-// a plain char budget (LABEL_CHARS below) and a shrink-to-fit value width,
-// not CSS — a C port needs the same two numbers to pick between a
-// Font_6x8-equivalent and a larger digit font.
+// firmware menu on this exact panel would use. Both rows are drawn with the
+// firmware's actual bitmap fonts (oled-font-data.ts, ported verbatim from
+// lib/libDaisy/src/util/oled_fonts.c) using the exact same font-selection
+// rule as display/oled_screen.cpp:ShowLine() — Font_6x8 for the label row,
+// stepping Font_11x18 -> Font_7x10 -> Font_6x8 for the value row until the
+// string's char count fits. Char budgets (LABEL_CHARS, VALUE font/maxChars
+// table) mirror oled_screen.cpp exactly; a C-side change to that stepping
+// needs the same change made here.
 //
-// Rendered in two passes: text is laid out on a hidden 128×32 canvas (real
-// device resolution, for accurate char-budget measurement), then rasterized
-// pixel-by-pixel onto the visible canvas as individual inset squares — the
-// dot-matrix grid a real panel's discrete pixels show, not a smoothly
-// scaled-up vector. The visible screen is also letterboxed to the real 4:1
-// (128:32) aspect ratio inside whatever box the faceplate zone offers, so
-// the dots stay square instead of stretching to fill an arbitrary rect.
+// Text is laid out into a 128×32 boolean bit-grid — one bit per real device
+// pixel, set directly from the font's glyph data — then rasterized onto the
+// visible canvas as individual inset squares, the dot-matrix grid a real
+// panel's discrete pixels show. No text rendering pipeline (no anti-aliased
+// glyphs, no threshold) sits between the font data and the dots: what's lit
+// here is exactly what the hardware's WriteChar() would light.
 
 import type { Panel } from './panel';
 import { svgToOverlay } from './overlay-utils';
+import { FONT_6X8, FONT_7X10, FONT_11X18, glyphPixel, type BitmapFont } from './oled-font-data';
 
 const W = 128;
 const H = 32;
 const ASPECT = W / H;
-// Font_6x8-class bitmap font: 6px advance → 21 monospace chars across 128px.
-const LABEL_CHARS = 21;
-const FONT = 'ui-monospace, "Consolas", "Courier New", monospace';
+// Font_6x8 budget: 6px advance -> 21 monospace chars across 128px. Matches
+// kBufLen/LABEL_CHARS in oled_screen.cpp.
+const LABEL_CHARS = Math.floor(W / FONT_6X8.width);
 const COLOR = '#ffb238';
 const IDLE_MS = 2200; // reverts to the status row after this long untouched
+// Matches the firmware's kConfirmFlashMs (display/oled_ui.cpp) — held open
+// past the usual redraw cadence so a confirm actually reads as a flash.
+const CONFIRM_FLASH_MS = 220;
 
 // Visible canvas resolution tracks the actual displayed size (see place()):
 // each logical pixel becomes a CELL×CELL device-px square (minus GAP), CELL
@@ -38,26 +43,37 @@ const IDLE_MS = 2200; // reverts to the status row after this long untouched
 const MIN_CELL = 3;
 const MAX_CELL = 14;
 const GAP = 0.22; // fraction of each cell left as the dark gap between dots
-const LIT_THRESHOLD = 90; // red-channel cutoff (0-255) for "this dot is lit"
 
 function truncate(s: string, n: number): string {
   return s.length <= n ? s : s.slice(0, n);
+}
+
+/** Same stepping as oled_screen.cpp:ShowLine() — largest font whose char
+ * count fits, in char-count terms (not measured pixel width, matching the
+ * hardware exactly since these are fixed-advance bitmap fonts). */
+function pickValueFont(len: number): BitmapFont {
+  if (len <= Math.floor(W / FONT_11X18.width)) return FONT_11X18;
+  if (len <= Math.floor(W / FONT_7X10.width)) return FONT_7X10;
+  return FONT_6X8;
 }
 
 export class OledMini {
   private el: HTMLDivElement;
   private canvas: HTMLCanvasElement;
   private ctx: CanvasRenderingContext2D;
-  // Hidden 128×32 canvas used only for text layout/measurement — its pixels
-  // get thresholded into the dot grid, it's never shown directly.
-  private textCanvas: HTMLCanvasElement;
-  private textCtx: CanvasRenderingContext2D;
+  // 128×32 bit-grid, one boolean per real device pixel — the "screen" the
+  // hardware's WriteChar() would actually light.
+  private bits = new Uint8Array(W * H);
   private active = false; // showing the last action vs. the idle status row
   private label = '';
   private value = '';
   private shownAt = 0;
   private idleLabel = '';
   private idleValue = '';
+  private progressMode = false; // showing a hold's progress bar, not label/value
+  private progressLabel = '';
+  private progressPct = 0; // 0..1
+  private flashTimer: ReturnType<typeof setTimeout> | null = null; // confirm text owns the screen
   private cell = 4; // device px per logical pixel — set for real by place()
 
   constructor(private overlay: HTMLElement, private panel: Panel, private screen: {
@@ -71,10 +87,6 @@ export class OledMini {
     this.el.appendChild(this.canvas);
     overlay.appendChild(this.el);
     this.ctx = this.canvas.getContext('2d')!;
-    this.textCanvas = document.createElement('canvas');
-    this.textCanvas.width = W;
-    this.textCanvas.height = H;
-    this.textCtx = this.textCanvas.getContext('2d', { willReadFrequently: true })!;
     this.draw();
     this.place();
     window.addEventListener('resize', () => this.place());
@@ -92,6 +104,7 @@ export class OledMini {
     setInterval(() => {
       if (this.active && performance.now() - this.shownAt > IDLE_MS) {
         this.active = false;
+        this.progressMode = false;
         this.draw();
       }
     }, 300);
@@ -99,8 +112,14 @@ export class OledMini {
 
   /** The one thing currently happening — a knob turn, a pad hint, a switch
    * flip. Replaces whatever was showing; there's no history on this screen,
-   * only the live callouts used to work this way. */
+   * only the live callouts used to work this way. A hold in progress (or its
+   * confirm flash) owns the screen unconditionally on real hardware
+   * (OledUi::Service checks hold_kind before anything else and returns
+   * early) — mirrored here by simply ignoring show() while progressMode or
+   * a flash is active, rather than letting whichever call happens to land
+   * last win. */
   show(label: string, value: string) {
+    if (this.progressMode || this.flashTimer !== null) return;
     this.active = true;
     this.label = label;
     this.value = value;
@@ -110,10 +129,50 @@ export class OledMini {
 
   /** Value lands a frame after the label (model name after an S35 turn). */
   amendValue(value: string) {
-    if (!this.active) return;
+    if (!this.active || this.progressMode || this.flashTimer !== null) return;
     this.value = value;
     this.shownAt = performance.now();
     this.draw();
+  }
+
+  /** A hold building toward a threshold (display/oled_ui.cpp's hold_kind) —
+   * label row as show(), value row replaced by a filled bar. Fires on every
+   * STATE frame while the hold is live, same as a continuously-turning
+   * knob would, so the bar visibly fills. */
+  showProgress(label: string, pct: number) {
+    if (this.flashTimer !== null) return; // a confirm is still on screen
+    this.active = true;
+    this.progressMode = true;
+    this.progressLabel = label;
+    this.progressPct = pct;
+    this.shownAt = performance.now();
+    this.draw();
+  }
+
+  /** A threshold just fired (display/oled_ui.cpp's hold_stage edge) — label
+   * row as usual, value row replaced by confirm text for CONFIRM_FLASH_MS,
+   * matching the firmware's own held-open redraw throttle, then releases
+   * back to whatever showProgress()/show() calls land next. */
+  confirmFlash(label: string, text: string) {
+    this.active = true;
+    this.progressMode = false;
+    this.shownAt = performance.now();
+    this.layoutText(label, text);
+    this.rasterize();
+    if (this.flashTimer !== null) clearTimeout(this.flashTimer);
+    this.flashTimer = setTimeout(() => {
+      this.flashTimer = null;
+      this.shownAt = performance.now();
+      this.draw();
+    }, CONFIRM_FLASH_MS);
+  }
+
+  /** Releases the screen back to normal show()/setStatus() calls once
+   * hold_kind returns to 0 — doesn't redraw itself, same as the physical
+   * screen: it just holds the last-drawn frame until something else
+   * changes. */
+  clearProgress() {
+    this.progressMode = false;
   }
 
   /** Home-screen content: what shows when nothing's been touched recently. */
@@ -124,6 +183,11 @@ export class OledMini {
   }
 
   private draw() {
+    if (this.active && this.progressMode) {
+      this.layoutProgress(this.progressLabel, this.progressPct);
+      this.rasterize();
+      return;
+    }
     const label = this.active ? this.label : this.idleLabel;
     // A live action and the idle status never blend — a dead-knob line (no
     // %, just "no effect on …") shows on its own rather than borrowing the
@@ -133,41 +197,68 @@ export class OledMini {
     this.rasterize();
   }
 
-  /** Lay text out at true device resolution (128×32) so char budgets and
-   * the shrink-to-fit value measurement match real font metrics. */
-  private layoutText(label: string, value: string) {
-    const ctx = this.textCtx;
-    ctx.clearRect(0, 0, W, H);
-    ctx.fillStyle = '#000';
-    ctx.fillRect(0, 0, W, H);
-    ctx.fillStyle = COLOR;
-    ctx.textBaseline = 'top';
+  /** Blit `font`'s glyphs for `text` into the bit-grid starting at (x0, y0),
+   * exactly mirroring the firmware's WriteChar/WriteString (display.h). */
+  private blitText(font: BitmapFont, text: string, x0: number, y0: number) {
+    for (let i = 0; i < text.length; i++) {
+      const cx = x0 + i * font.width;
+      if (cx + font.width > W) break;
+      for (let row = 0; row < font.height; row++) {
+        const y = y0 + row;
+        if (y < 0 || y >= H) continue;
+        for (let col = 0; col < font.width; col++) {
+          if (glyphPixel(font, text[i], col, row)) this.bits[y * W + cx + col] = 1;
+        }
+      }
+    }
+  }
 
-    ctx.font = `8px ${FONT}`;
-    ctx.fillText(truncate(label.toUpperCase(), LABEL_CHARS), 1, 1);
+  /** Lay text into the 128×32 bit-grid using the firmware's exact font
+   * selection: Font_6x8 for the label row, Font_11x18 -> Font_7x10 ->
+   * Font_6x8 for the value row (oled_screen.cpp:ShowLine). */
+  private layoutText(label: string, value: string) {
+    this.bits.fill(0);
+    this.blitText(FONT_6X8, truncate(label.toUpperCase(), LABEL_CHARS), 1, 0);
 
     if (value) {
-      const px = this.fitFont(value, W - 2, 20, 9);
-      ctx.font = `bold ${px}px ${FONT}`;
-      ctx.fillText(value, 1, 32 - px - 2);
+      const font = pickValueFont(value.length);
+      const maxChars = Math.floor(W / font.width);
+      this.blitText(font, truncate(value, maxChars), 1, H - font.height);
     }
   }
 
-  /** Largest font size (px, stepping down) that fits `text` in `maxWidth` —
-   * the value row never truncates, it shrinks instead. */
-  private fitFont(text: string, maxWidth: number, maxPx: number, minPx: number): number {
-    const ctx = this.textCtx;
-    for (let px = maxPx; px > minPx; px--) {
-      ctx.font = `bold ${px}px ${FONT}`;
-      if (ctx.measureText(text).width <= maxWidth) return px;
-    }
-    return minPx;
+  private setBit(x: number, y: number) {
+    if (x >= 0 && x < W && y >= 0 && y < H) this.bits[y * W + x] = 1;
   }
 
-  /** Threshold the laid-out text into an on/off grid and paint each lit
-   * pixel as an inset square — the visible dot-matrix, gaps and all. */
+  private drawRectOutline(x1: number, y1: number, x2: number, y2: number) {
+    for (let x = x1; x <= x2; x++) { this.setBit(x, y1); this.setBit(x, y2); }
+    for (let y = y1; y <= y2; y++) { this.setBit(x1, y); this.setBit(x2, y); }
+  }
+
+  private drawRectFilled(x1: number, y1: number, x2: number, y2: number) {
+    for (let y = y1; y <= y2; y++)
+      for (let x = x1; x <= x2; x++) this.setBit(x, y);
+  }
+
+  /** Label row as layoutText(), value row replaced by an outlined bar filled
+   * left-to-right by `pct` — identical geometry to the firmware's
+   * OledScreen::ShowProgress() (display/oled_screen.cpp). */
+  private layoutProgress(label: string, pct: number) {
+    this.bits.fill(0);
+    this.blitText(FONT_6X8, truncate(label.toUpperCase(), LABEL_CHARS), 1, 0);
+
+    const OX1 = 1, OY1 = 16, OX2 = 126, OY2 = 27;
+    this.drawRectOutline(OX1, OY1, OX2, OY2);
+    const FX1 = OX1 + 2, FY1 = OY1 + 2, FY2 = OY2 - 2;
+    const maxW = OX2 - 2 - FX1; // inner width at 100%
+    const fillW = Math.max(0, Math.min(maxW, Math.round(maxW * pct)));
+    if (fillW > 0) this.drawRectFilled(FX1, FY1, FX1 + fillW - 1, FY2);
+  }
+
+  /** Paint each lit bit-grid pixel as an inset square — the visible
+   * dot-matrix, gaps and all. */
   private rasterize() {
-    const { data } = this.textCtx.getImageData(0, 0, W, H);
     const ctx = this.ctx;
     const cell = this.cell;
     ctx.fillStyle = '#000';
@@ -177,8 +268,7 @@ export class OledMini {
     const inset = (cell - dot) / 2;
     for (let y = 0; y < H; y++) {
       for (let x = 0; x < W; x++) {
-        const lit = data[(y * W + x) * 4] > LIT_THRESHOLD; // red channel
-        if (!lit) continue;
+        if (!this.bits[y * W + x]) continue;
         ctx.fillRect(x * cell + inset, y * cell + inset, dot, dot);
       }
     }
@@ -202,13 +292,27 @@ export class OledMini {
       h = boxH;
       w = h * ASPECT;
     }
+
+    // Snap to the exact CSS size that `cell` device-px-per-logical-pixel
+    // implies, rather than letterboxing to (w, h) and picking cell to fit.
+    // The canvas backing store is always a whole multiple of W×H device
+    // px, so if the element's CSS size doesn't land on precisely
+    // cell/dpr px, the browser has to rescale the already-rasterized dot
+    // grid — and nearest-neighbor scaling ("pixelated") on a non-integer
+    // ratio stretches some dots to one extra physical pixel and not
+    // others, which reads as uneven/blurry letterforms rather than a
+    // crisp panel. Snapping first guarantees a true 1:1 device-pixel
+    // mapping, so what's rasterized is exactly what's shown.
+    const dpr = window.devicePixelRatio || 1;
+    const cell = Math.min(MAX_CELL, Math.max(MIN_CELL, Math.round((w * dpr) / W)));
+    w = (W * cell) / dpr;
+    h = (H * cell) / dpr;
+
     this.el.style.left = `${(a.x + (boxW - w) / 2).toFixed(1)}px`;
     this.el.style.top = `${(a.y + (boxH - h) / 2).toFixed(1)}px`;
     this.el.style.width = `${w.toFixed(1)}px`;
     this.el.style.height = `${h.toFixed(1)}px`;
 
-    const dpr = window.devicePixelRatio || 1;
-    const cell = Math.min(MAX_CELL, Math.max(MIN_CELL, Math.round((w * dpr) / W)));
     if (cell !== this.cell || this.canvas.width !== W * cell) {
       this.cell = cell;
       this.canvas.width = W * cell;

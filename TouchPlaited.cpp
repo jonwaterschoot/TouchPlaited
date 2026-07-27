@@ -528,6 +528,12 @@ static int      rec_gate_rr = 0;
 // main loop also reads them (volatile) for the hold-countdown LED animation.
 static volatile uint32_t p2layer_hold[5]  = { 0, 0, 0, 0, 0 };
 static volatile bool     p2layer_fired[5] = { false, false, false, false, false };
+// Set alongside p2layer_fired[i], read by compute_hold_telemetry() for the
+// OLED/visualizer confirm flash: 0 none yet, 1 a layer (or all) actually
+// cleared, 2 the pad had nothing recorded (LED's LIMIT case) — the LED
+// itself already tells these apart (NUMBERED vs LIMIT blink); this is that
+// same distinction, carried to the screen instead of a blink rhythm.
+static volatile uint8_t  p2layer_outcome[5] = { 0, 0, 0, 0, 0 };
 
 // External MIDI clock ticks for the arp + loop clocks, counted here because
 // Sequencer consumes its own. Written from the MIDI handler (main loop, IRQs
@@ -558,6 +564,11 @@ static PadSlot          rec_backup;          // saved state, restored on cancel
 static int               entry_hold_pad    = -1;
 static volatile uint32_t entry_hold_count  = 0;
 static bool              entry_wait_clear  = false;
+// Set alongside rec_entry_flash (the LED's own confirm signal) at the exact
+// instant entry fires; entry_hold_count resets to 0 in that same ISR call,
+// so compute_hold_telemetry() can't catch the threshold-crossing frame by
+// polling the counter — it consumes and clears this flag instead.
+static volatile bool     entry_just_confirmed = false;
 
 // Secondary pad tracking for cancel / copy while in recording. copy_hold_anim
 // mirrors the copy hold progress (only while the source pad is also down) for
@@ -565,6 +576,10 @@ static bool              entry_wait_clear  = false;
 static int               cancel_pad     = -1;
 static uint32_t          cancel_count   = 0;
 static volatile uint32_t copy_hold_anim = 0;
+// Same idea as entry_just_confirmed above: copy_hold_anim/cancel_count both
+// reset to 0 in the same block that fires the copy, so this is the only
+// trace of the completion compute_hold_telemetry() can still see.
+static volatile bool     copy_just_confirmed = false;
 
 // Set on rec entry; the main loop plays a short LED burst before settling
 // into the recording heartbeat.
@@ -1009,6 +1024,20 @@ static const MidiHandlers kMidiHandlers = { on_midi_note_on, on_midi_note_off,
 static Telemetry telemetry;
 static OledUi oled_ui;
 
+// Defined below the P0+P2 hold state it reads (~line 1560) — forward
+// declared here so service_telemetry() can call it despite coming first in
+// the file. Mirrors the LED loop's own accelerating-blink precedence exactly
+// (highest first): P0+P2 hold, then rec entry, then layer clear, then layer
+// copy — so hold_kind/hold_progress never disagree with what the LED (and
+// the physical OLED, fed the same TelemetryState) are already showing.
+// `stage` counts confirms fired so far for the current hold (0 while still
+// building; increments the instant a threshold fires and stays there for as
+// long as the gesture stays held) — OledUi/the visualizer edge-detect it
+// against the previous frame to catch the confirm flash. `outcome` is only
+// meaningful for hold_kind 3 at the instant stage becomes 1: 1 success,
+// 2 empty (nothing was there to clear).
+static void compute_hold_telemetry(uint8_t& kind, uint8_t& progress, uint8_t& stage, uint8_t& outcome);
+
 static void service_telemetry() {
     TelemetryState t;
 
@@ -1099,6 +1128,7 @@ static void service_telemetry() {
     t.arp_flags = static_cast<uint8_t>(
         (arp_state == ArpState::HOLD ? 1 : arp_state == ArpState::REC ? 2 : 0)
         | (rec_armed ? 0x04 : 0x00));
+    compute_hold_telemetry(t.hold_kind, t.hold_progress, t.hold_stage, t.hold_outcome);
     for (int i = 0; i < kPadSlots; i++) {
         const PadSlot& s = drum_slots[i];
         t.kit[i][0] = static_cast<uint8_t>(s.engine) & 0x7F;
@@ -1470,6 +1500,7 @@ static void enter_rec_mode(int slot) {
     copy_hold_anim     = 0;
     rec_p1_last        = false;   // P1 already down at entry = fresh press edge
     rec_entry_flash    = true;    // main loop: entry burst before the heartbeat
+    entry_just_confirmed = true;  // service_telemetry: OLED/visualizer confirm flash
     rec_hit_flash      = false;
 
     // Arm knob pickups to the slot's actual values: each pot takes effect only
@@ -1555,6 +1586,99 @@ static void fire_hold_stage(int stage) {
         }
     }
     p0p2_stage_fired = static_cast<uint32_t>(stage);
+}
+
+// Same signal the LED loop (below) blinks from, reduced to a 0..127 fraction
+// plus a confirm edge for the OLED/visualizer progress bar instead of a
+// blink rate/rhythm — see the forward declaration above for why this lives
+// here and not there, and for what `stage`/`outcome` mean.
+static void compute_hold_telemetry(uint8_t& kind, uint8_t& progress, uint8_t& stage, uint8_t& outcome) {
+    kind     = 0;
+    progress = 0;
+    stage    = 0;
+    outcome  = 0;
+
+    // 1) P0+P2 hold (re-randomize in Seq, vary sound in Arp/Mel) — highest
+    // priority, matches the LED loop's own comment. p0p2_hold_count runs
+    // continuously across stages (fired1/2/3 latch which have already
+    // crossed; p0p2_all_done means the last applicable one has), so progress
+    // is rescaled to *each stage's own window* — every segment fills a full
+    // 0..127 and stage counts up once per threshold, instead of one bar
+    // stuck at a fraction of a denominator that isn't always reachable (a
+    // normal 2-stage hold never sees the 3rd-stage-only 750 ceiling).
+    if ((p0p2_hold_count > 0 || p0p2_all_done) && rec_mode == RecMode::IDLE) {
+        kind  = 1;
+        stage = static_cast<uint8_t>(
+            (p0p2_fired1 ? 1 : 0) + (p0p2_fired2 ? 1 : 0) + (p0p2_fired3 ? 1 : 0));
+        if (p0p2_all_done) {
+            progress = 127;
+            return;
+        }
+        const uint32_t lo = p0p2_fired2 ? 500u : (p0p2_fired1 ? 250u : 0u);
+        const uint32_t hi = p0p2_fired2 ? 750u : (p0p2_fired1 ? 500u : 250u);
+        const uint32_t count = p0p2_hold_count < hi ? p0p2_hold_count : hi;
+        progress = static_cast<uint8_t>(std::min<uint32_t>(127, (count - lo) * 127u / (hi - lo)));
+        return;
+    }
+
+    // 2) Recording entry (hold a drum pad kRecEntryHoldBlocks = 2s).
+    // entry_hold_count resets to 0 in the same ISR call that fires entry —
+    // the flag catches the frame the live counter can't.
+    if (entry_just_confirmed) {
+        entry_just_confirmed = false; // consumed — telemetry's own copy of the signal
+        kind = 2; stage = 1; progress = 127;
+        return;
+    }
+    if (rec_mode == RecMode::IDLE && entry_hold_count >= kRecEntryAnimStart) {
+        kind     = 2;
+        progress = static_cast<uint8_t>(
+            std::min<uint32_t>(127, entry_hold_count * 127u / kRecEntryHoldBlocks));
+        return;
+    }
+
+    // 3) P2+pad layer-clear hold (kLongHoldBlocks = 1.2s) — same max-across-
+    // pads rule the LED loop uses when more than one pad is mid-hold.
+    // p2layer_fired[i] (unlike entry/copy above) stays latched for as long
+    // as the pad stays held after firing, so no extra flag is needed here —
+    // p2layer_outcome[i] carries which of the LED's NUMBERED/LIMIT it was.
+    {
+        int fired_idx = -1, max_hold = -1;
+        for (int i = 0; i < 5; i++) {
+            if (p2layer_fired[i] && static_cast<int>(p2layer_hold[i]) > max_hold) {
+                fired_idx = i;
+                max_hold  = static_cast<int>(p2layer_hold[i]);
+            }
+        }
+        if (rec_mode == RecMode::IDLE && fired_idx >= 0) {
+            kind = 3; stage = 1; progress = 127; outcome = p2layer_outcome[fired_idx];
+            return;
+        }
+        uint32_t building = 0;
+        for (int i = 0; i < 5; i++) {
+            if (p2layer_hold[i] > 0 && !p2layer_fired[i] && p2layer_hold[i] > building)
+                building = p2layer_hold[i];
+        }
+        if (rec_mode == RecMode::IDLE && building >= kRecEntryAnimStart) {
+            kind     = 3;
+            progress = static_cast<uint8_t>(std::min<uint32_t>(127, building * 127u / kLongHoldBlocks));
+            return;
+        }
+    }
+
+    // 4) Layer-copy confirm hold (kLongHoldBlocks = 1.2s), only while a
+    // recording is actually in progress — matches the LED loop's own guard.
+    // copy_hold_anim resets to 0 in the same block that fires the copy, same
+    // reason kind 2 needs a flag instead of reading the counter directly.
+    if (rec_mode == RecMode::RECORDING && copy_just_confirmed) {
+        copy_just_confirmed = false;
+        kind = 4; stage = 1; progress = 127;
+        return;
+    }
+    if (rec_mode == RecMode::RECORDING && copy_hold_anim > 0) {
+        kind     = 4;
+        progress = static_cast<uint8_t>(
+            std::min<uint32_t>(127, copy_hold_anim * 127u / kLongHoldBlocks));
+    }
 }
 
 // ─── Switch tracking ──────────────────────────────────────────────────────────
@@ -2101,8 +2225,9 @@ void AudioCallback(AudioHandle::InputBuffer in, AudioHandle::OutputBuffer out, s
         for (int i = 0; i < 5; i++) {
             bool held = p2 && touch.pads().IsTouched(3 + i);
             if (!held) {
-                p2layer_hold[i]  = 0;
-                p2layer_fired[i] = false;
+                p2layer_hold[i]    = 0;
+                p2layer_fired[i]   = false;
+                p2layer_outcome[i] = 0;
                 continue;
             }
             if (p2layer_fired[i] || ++p2layer_hold[i] < kLongHoldBlocks) continue;
@@ -2112,14 +2237,19 @@ void AudioCallback(AudioHandle::InputBuffer in, AudioHandle::OutputBuffer out, s
             if (n_held >= 2) {
                 note_rec.ClearAll();
                 for (int j = 0; j < 5; j++)
-                    if (p2 && touch.pads().IsTouched(3 + j)) p2layer_fired[j] = true;
+                    if (p2 && touch.pads().IsTouched(3 + j)) {
+                        p2layer_fired[j]   = true;
+                        p2layer_outcome[j] = 1;
+                    }
                 led_event = LedEvent::CONFIRM;
             } else {
                 p2layer_fired[i] = true;
                 if (note_rec.ClearLayer(i)) {
+                    p2layer_outcome[i] = 1;
                     led_event      = LedEvent::NUMBERED;
                     led_event_data = i + 1;
                 } else {
+                    p2layer_outcome[i] = 2;
                     led_event = LedEvent::LIMIT;
                 }
             }
@@ -2214,6 +2344,7 @@ void AudioCallback(AudioHandle::InputBuffer in, AudioHandle::OutputBuffer out, s
                     pool.AuditionWithParams(root_note_f(), slot_params(cs));
                 }
                 led_event      = LedEvent::CONFIRM;
+                copy_just_confirmed = true; // service_telemetry: OLED/visualizer confirm flash
                 cancel_pad     = -1;  // reset so next secondary starts fresh
                 cancel_count   = 0;
                 copy_hold_anim = 0;

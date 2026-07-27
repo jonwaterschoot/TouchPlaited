@@ -34,6 +34,26 @@ struct TelemetryState {
     uint8_t  arp_flags;    // bits0-1 Arp/Mel sub-state (0 Arp, 1 Hold, 2 Rec —
                            // the change-latched state, NOT the live lever),
                            // bit2 Rec capture armed (P2+P10)
+    uint8_t  hold_kind;    // which build-toward-threshold hold is in progress,
+                           // 0 none, matches the LED's own accelerating-blink
+                           // family and precedence (display/oled_ui.cpp):
+                           // 1 P0+P2 (re-randomize/vary sound), 2 rec entry,
+                           // 3 layer clear, 4 layer copy
+    uint8_t  hold_progress; // 0..127, fraction of the way to hold_kind's next
+                            // threshold; 0 when hold_kind is 0. For hold_kind
+                            // 1 (P0+P2) this is relative to the CURRENT stage
+                            // only — each stage fills 0..127 on its own.
+    uint8_t  hold_stage;    // count of thresholds already confirmed for the
+                            // current hold: 0 while still building, then
+                            // increments the instant a threshold fires (1, 2,
+                            // 3 for P0+P2's stages; 0->1 for the single-stage
+                            // holds). Edge-detect against the previous frame
+                            // to catch the confirm — it stays at its fired
+                            // value for as long as the gesture stays held.
+    uint8_t  hold_outcome;  // only meaningful for hold_kind 3 (layer clear)
+                            // at the instant hold_stage becomes 1: 0 n/a,
+                            // 1 success (a layer/all layers cleared),
+                            // 2 empty (nothing was there to clear)
 };
 
 // Emits full-state SysEx frames over USB MIDI, rate-limited:

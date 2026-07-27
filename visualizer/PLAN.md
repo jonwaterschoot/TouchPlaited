@@ -64,7 +64,7 @@ F0 7D 54 50 <ver> <type> <payload…> F7        ("TP" = 0x54 0x50)
 
 | type | name        | payload                                                        | when |
 |------|-------------|----------------------------------------------------------------|------|
-| 0x01 | STATE       | pads lo7, pads hi5 · S30–S37 (8×7-bit) · swA, swB · LED (7-bit brightness) · model# · mode flags (bits0-1 mode, bit2 playing, bit3 Arp/Mel sound edit) · seq step · octave+3 · root semitone · rec slot (0x7F = idle) · NoteRec layers · NoteRec mute mask · clock src (0 int, 1 MIDI, 2 CV) · arp flags (bits0-1 latched Arp/Hold/Rec sub-state, bit2 Rec armed) | 30 Hz while anything changed, 2 Hz keep-alive |
+| 0x01 | STATE       | pads lo7, pads hi5 · S30–S37 (8×7-bit) · swA, swB · LED (7-bit brightness) · model# · mode flags (bits0-1 mode, bit2 playing, bit3 Arp/Mel sound edit) · seq step · octave+3 · root semitone · rec slot (0x7F = idle) · NoteRec layers · NoteRec mute mask · clock src (0 int, 1 MIDI, 2 CV) · arp flags (bits0-1 latched Arp/Hold/Rec sub-state, bit2 Rec armed) · hold kind (0 none, 1 P0+P2, 2 rec entry, 3 layer clear, 4 layer copy) · hold progress (7-bit, fraction toward that hold's threshold, per-stage for kind 1) · hold stage (confirms fired so far — edge-detect a rise for the confirm flash) · hold outcome (kind 3 only: 0 n/a, 1 success, 2 empty) | 30 Hz while anything changed, 2 Hz keep-alive |
 | 0x02 | EVENT       | event id + arg (pad down/up, patch blink start, mode change)   | on occurrence |
 | 0x03 | HELLO/CAPS  | firmware version, feature bits                                 | on host request `0x7E` |
 | 0x04 | FX          | drive · reverb · delay · nTrims (trims reserved)               | ≤10 Hz on change |

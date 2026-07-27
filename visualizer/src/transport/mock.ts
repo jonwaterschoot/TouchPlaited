@@ -132,5 +132,30 @@ export class MockTransport implements Transport {
       s.setRecLayers(layers, u > 3.4 && layers >= 2 ? 0b00010 : 0);
       s.setClockSrc(u > 5.6 ? 2 : 0);
     }
+
+    // Held-combo progress bar demo (independent of the phases above — its
+    // own 4s sub-cycle, rotating through all four hold kinds across the
+    // full loop): fills, confirms, then a gap before the next kind. Kind 1
+    // (P0+P2) gets two stages, each with its own confirm — the others are
+    // single-stage. Kind 3 (layer clear) alternates success/empty outcomes
+    // across loop iterations so both confirm texts get exercised.
+    const cyc = t % 4;
+    const kind = 1 + (Math.floor(t / 4) % 4);
+    if (kind === 1) {
+      const segDur = 1.5, rampDur = 1.3;
+      const seg = Math.floor(cyc / segDur); // 0 or 1
+      const segT = cyc - seg * segDur;
+      if (cyc >= 3) s.setHold(0, 0, 0, 0);
+      else if (segT < rampDur) s.setHold(1, Math.min(127, Math.round((segT / rampDur) * 127)), seg, 0);
+      else s.setHold(1, 127, seg + 1, 0); // just confirmed stage seg+1
+    } else {
+      const rampDur = 2.8;
+      if (cyc >= 3) s.setHold(0, 0, 0, 0);
+      else if (cyc < rampDur) s.setHold(kind, Math.min(127, Math.round((cyc / rampDur) * 127)), 0, 0);
+      else {
+        const outcome = kind === 3 ? (Math.floor(t / 8) % 2 === 0 ? 1 : 2) : 0;
+        s.setHold(kind, 127, 1, outcome);
+      }
+    }
   }
 }

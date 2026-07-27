@@ -77,12 +77,97 @@ full write-up". Outstanding follow-ups moved to Priority 3 below.
 - [ ] **Chiptune engine (7) — bring into manual selection** (decided 2026-07-24, resolves the old "Open decisions" item — the roadmap text there was stale: it's not just excluded from the random pools, `process_model_select` skips it out of the P0/P2+S35 quantizer bank entirely — `TouchPlaited.cpp:1337-1339` maps bank-0 index 7 straight to engine 8). Fix: stop the skip so it's reachable at position 7. Map its knobs to the standard layout, same convention as every other engine — S30 drive, S31 decay, S32 harmonics (chord select), S33 timbre (arpeggiator pattern/range), S34 morph (waveform shape). Caveat found while scoping: `ChiptuneEngine::Render` (`thirdparty/plaits/dsp/engine2/chiptune_engine.cc`) always takes the "clocked" single-arp-note path here — the host always patches the trigger (`plaits_voice.cpp`: `trigger_patched = true`) — and the engine never calls `set_envelope_shape`, so `already_enveloped` stays true and S31 Decay currently has no audible effect there; decide during implementation whether Decay should gate the arp note's length, or whether the (currently unreachable) chord-pluck path should be exposed instead. Still stays out of the random pools — self-running, no gate response.
 
  ## OLED screen
-— done, see Housekeeping (upstream driver PR still open) and `notesarchive/notes_archive_2026-07.md` → "SSD1306 128×32 OLED". 
+— done, see Housekeeping (upstream driver PR still open) and `notesarchive/notes_archive_2026-07.md` → "SSD1306 128×32 OLED".
 
-Next-round idea: 
-- show a held touch combo (e.g. P0+S35, P1+S30) with the function it performed and create a progress bar when it is usefull while it's building toward its threshold (bank pickup, rec entry, re-randomize hold, etc.) instead of just the settled result — same idea as the LED countdown blinks, on the screen.
+**Parity with the visualizer — status (2026-07-24):**
 
-- [ ] Manually check on hardware: Go over each mode and track which oled displayed text needs other info, etc. link to visualizer should be 1 to 1
+- Text content (label/value strings): `display/oled_ui.cpp`'s `describe_control()`/
+  `describe_pad()` is a line-by-line port of `visualizer/src/panel/labels.ts`'s
+  `describeControl()`/`describePad()`, operating on the same `TelemetryState`
+  wire fields the visualizer decodes — verified by inspection, not just belief.
+  Three **deliberate** differences, documented in `display/oled_ui.h` and
+  `oled_ui.cpp` at the point each happens — not bugs, don't "fix" without
+  deciding the UX first:
+  - Rec drum-slot editing uses flatter "Slot X" labels vs. the web's full
+    per-knob nesting (128×32 char budget).
+  - The dead-knob message is "no effect" instead of "no effect on \<model>".
+  - **Hardware has no idle/status fallback** — it holds the last-touched
+    control indefinitely once the screen has shown anything. The visualizer's
+    `oled-mini.ts` reverts to a status row (model/mode/transport) after
+    `IDLE_MS` (2.2s) of no input. This is the one open behavioral gap: either
+    port the no-fallback behavior into the visualizer, or accept the
+    visualizer as intentionally friendlier here — pick one and note it.
+- Rendering (fonts/pixels): fixed 2026-07-24 — `oled-mini.ts` now blits the
+  actual firmware bitmap fonts (`visualizer/src/panel/oled-font-data.ts`,
+  ported from `lib/libDaisy/src/util/oled_fonts.c`) with the same discrete
+  Font_11x18 → Font_7x10 → Font_6x8 stepping `display/oled_screen.cpp`'s
+  `ShowLine()` uses, instead of a system font rasterized then thresholded.
+  Small text was illegible before this — see
+  `notesarchive/notes_archive_2026-07.md` → "SSD1306 128×32 OLED" for the
+  bring-up bugs that motivated the overhaul.
+
+- [ ] **Manually check on real hardware** once it's in hand — code-level parity
+  above is as far as inspection can verify; this is what's left to confirm
+  against an actual panel. Go mode by mode, trigger each row below, and
+  compare the physical screen to the visualizer's OLED side by side:
+  - [ ] Seq: idle (hardware: last-touched only), knob turn (incl. tempo as
+    BPM, ext-clock "ext"), pad = drum note, SW1 (IDM/Techno/Electro), model
+    select (P0/P2+S35), rec-slot editing (flatter labels)
+  - [ ] Arp/Mel: knob turn (incl. dead-knob "no effect"), pad = pitched note,
+    SW1 (Hold/Arp/Rec), Rec sub-mode knobs (Speed/Shift/Chance/Order), layer
+    record/mute messages, model select
+  - [ ] Pitch: knob turn (engine-specific labels via `kEngineKnobs`), pad =
+    pitched note, SW1 (Minor/Chromatic/Major), model select
+  - [ ] Cross-mode: SW2 flip, P1+FX layer (reverb/delay, drums vs. pitched
+    wording), P0+S37 stereo width, external clock (MIDI vs. CV wording)
+  - [ ] Held-combo progress bar + confirm flash (added 2026-07-24, needs the
+    same real-hardware check as everything above): hold P0+P2 (Seq:
+    re-randomize; Arp/Mel: vary sound — 2 stages, or 3 in Pitch mode, each
+    with its own "Stage N" flash), hold a drum pad P3–P9 (rec entry →
+    "Recording"), P2+drum-pad hold in Rec (layer clear → "Cleared"/"Empty"),
+    and the copy-confirm hold while recording ("Copied") — bar should track
+    the LED's blink rate, confirm flash should land the same instant the LED
+    flashes/switches pattern.
+
+**Held-combo progress bar — implemented 2026-07-24, confirm flash added same
+day.** `TelemetryState` gained `hold_kind`/`hold_progress`/`hold_stage`/
+`hold_outcome` (`midi/telemetry.h`, SysEx STATE payload bytes 23-26,
+`visualizer/PLAN.md` §2 + `protocol.ts` updated in lockstep).
+`TouchPlaited.cpp`'s `compute_hold_telemetry()` mirrors the LED loop's own
+precedence exactly (P0+P2 hold > rec entry > layer clear > layer copy) so the
+number on the wire never disagrees with what the LED is already blinking.
+`OledScreen::ShowProgress()` / `oled-mini.ts`'s `showProgress()` draw the same
+outlined-then-filled bar geometry on both sides, and a hold owns the screen
+unconditionally while active (`OledUi::Service` returns early on `hold_kind
+!= 0`; `oled-mini.ts`'s `show()` no-ops while `progressMode` is set) — no
+knob/pad callout can steal the bar mid-hold on either side.
+
+Each threshold crossing gets a distinct confirm: `hold_stage` counts
+confirms fired so far for the current hold (0 while building, then
+increments and stays there for as long as the gesture stays held) — both
+sides edge-detect a rise against the previous frame and swap the bar for
+text (`ShowLine`/`confirmFlash()`, held open ~220ms — `kConfirmFlashMs` /
+`CONFIRM_FLASH_MS`) before releasing back to the bar or the normal chain.
+P0+P2 is genuinely multi-stage (2 segments normally, 3 in Pitch mode) — its
+progress is rescaled *per stage* so every segment fills its own 0..100%
+independently, fixing a real bug where it used to stall around 67% in the
+common 2-stage case (was scaled against the 3-stage-only 750-block ceiling).
+Each stage flashes "Stage N"; the other three gestures are single-stage
+("Recording", "Copied", "Cleared"/"Empty"). Layer clear's `hold_outcome`
+distinguishes a real clear from a no-op (holding a pad with nothing
+recorded) — the LED already tells these apart (NUMBERED vs LIMIT blink) so
+showing "Empty" as if it were a success would have been actively
+misleading. `entry_just_confirmed`/`copy_just_confirmed`/`p2layer_outcome[]`
+(`TouchPlaited.cpp`) exist because rec-entry and layer-copy reset their hold
+counters in the same ISR call that fires them — a level-polling read would
+never observe the exact completion frame without a latched flag.
+
+Deliberately **not covered**: the rec-pad confirm hold (`rec_hold_count`) and
+the P0+P1 sound-edit toggle (`se_hold_count`) — unlike the four gestures
+above, neither has an existing LED build-up animation to key off (both fire
+a single confirm blink with no preceding countdown), so there's no
+established "this is what building-up looks like" to extend. Give them one
+first if they're worth a bar too.
 
 
 ## Parking Lot - performance 

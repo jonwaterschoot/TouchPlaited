@@ -42,6 +42,16 @@ export interface DeviceState {
   arpSub: number;         // Arp/Mel sub-state: 0 Arp, 1 Hold, 2 Rec — the
                           // device's change-latched state, NOT the SW1 lever
   recArmed: boolean;      // Rec capture armed (P2+P10)
+  holdKind: number;       // 0 none, 1 P0+P2, 2 rec entry, 3 layer clear,
+                          // 4 layer copy — a hold building toward a
+                          // threshold; same precedence as the device LED
+  holdProgress: number;   // 0..1, fraction of the way to holdKind's threshold
+  holdStage: number;      // confirms fired so far for the current hold — 0
+                          // while building; edge-detect a rise to catch a
+                          // confirm (1/2/3 for holdKind 1's stages, 0->1 for
+                          // the single-stage holds)
+  holdOutcome: number;    // holdKind 3 only, at the instant holdStage hits 1:
+                          // 0 n/a, 1 success, 2 empty (nothing to clear)
 }
 
 export type StateEvent =
@@ -62,6 +72,7 @@ export type StateEvent =
   | { kind: 'recLayers'; layers: number; mute: number; prevLayers: number; prevMute: number }
   | { kind: 'clockSrc'; v: number }
   | { kind: 'arpSub'; sub: number; armed: boolean; prevSub: number; prevArmed: boolean }
+  | { kind: 'hold'; holdKind: number; progress: number; stage: number; outcome: number }
   | { kind: 'connected'; v: boolean }
   | { kind: 'note'; channel: number; note: number; on: boolean } // transient, not stored
   | { kind: 'sync' }; // emitted after a bulk update; views should repaint all
@@ -91,6 +102,10 @@ function initialState(): DeviceState {
     clockSrc: 0,
     arpSub: 0,
     recArmed: false,
+    holdKind: 0,
+    holdProgress: 0,
+    holdStage: 0,
+    holdOutcome: 0,
   };
 }
 
@@ -225,6 +240,22 @@ export class DeviceStore {
     this.state.arpSub = sub;
     this.state.recArmed = armed;
     this.emit({ kind: 'arpSub', sub, armed, prevSub, prevArmed });
+  }
+
+  /** A hold building toward a threshold (P0+P2, rec entry, layer clear,
+   * layer copy) — progress arrives as a raw 7-bit value, normalized to 0..1
+   * like every other control. Fires on every STATE frame while a hold is
+   * live so the bar visibly fills, not just on holdKind/stage changing —
+   * listeners edge-detect a stage rise themselves to catch the confirm. */
+  setHold(holdKind: number, progress7: number, stage: number, outcome: number) {
+    const progress = progress7 / 127;
+    if (holdKind === this.state.holdKind && progress === this.state.holdProgress
+        && stage === this.state.holdStage && outcome === this.state.holdOutcome) return;
+    this.state.holdKind = holdKind;
+    this.state.holdProgress = progress;
+    this.state.holdStage = stage;
+    this.state.holdOutcome = outcome;
+    this.emit({ kind: 'hold', holdKind, progress, stage, outcome });
   }
 
   /** Replace the kit snapshot; the 2 s KIT heartbeat re-sends unchanged kits,
