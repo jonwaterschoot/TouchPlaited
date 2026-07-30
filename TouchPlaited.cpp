@@ -370,7 +370,7 @@ static void mutate_drum_soft() {
 // ─── Playmode ─────────────────────────────────────────────────────────────────
 // Switch3: 0=CENTER, 1=UP, 2=DOWN
 // A() = SW2 (right, _switch_7_8): Init(D7, D6) → D7=Down(pos1), D6=Up(pos2)
-// B() = SW1 (left, _switch_9_10): Init(D9, D8) → D9=left-flick(pos1), D8=right-flick(pos2)
+// B() = SW1 (left, _switch_9_10): Init(D9, D8) → D9=right-flick(pos1), D8=left-flick(pos2)
 enum class PlayMode { BASIC_PITCH, ARP_MEL };
 static volatile PlayMode current_mode = PlayMode::BASIC_PITCH;
 

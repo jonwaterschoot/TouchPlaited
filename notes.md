@@ -137,7 +137,7 @@ Stages are cumulative: 2s passes through 1s first.
 **SW1 (left switch) — Scale / Genre**
 - PCB labels: S10 / S9; Daisy pins: D9 / D8
 - Code: `touch.switches().B()` → `_switch_9_10`
-- Positions: center=Chromatic/Techno, left=Major/Electro, right=Minor/Ambient
+- Positions: center=Chromatic/Techno, left=Minor/IDM-Ambient, right=Major/Electro
 
 **SW2 (right switch) — Playmode**
 - PCB labels: S7 / S8; Daisy pins: D7 / D6 — polarity inverted vs. label
