@@ -47,20 +47,36 @@ See [MANUAL.md](MANUAL.md) for the full per-mode knob maps, recording mode, gest
 
 ## Installing
 
-The firmware runs from QSPI flash (`APP_TYPE = BOOT_QSPI` — it's too big for Daisy's internal SRAM), so the **Daisy bootloader must be on the Seed first**. That's a one-time step per device.
+The firmware runs from QSPI flash (`APP_TYPE = BOOT_QSPI` — it's too big for Daisy's internal SRAM), so the **Daisy bootloader must be on the Seed first**. That's a one-time step per device. Every step below has a no-terminal path (Web Programmer — needs a Chromium-based browser: Chrome, Edge, Brave, Opera; it uses WebUSB, which Firefox and Safari don't support) and a command-line path (`dfu-util`) — pick whichever you're comfortable with; they do the same thing.
 
-### Option A — easy install (release .bin + Web Programmer)
+### Step 1 — install the Daisy bootloader (once per device)
 
-1. Download `TouchPlaited.bin` from the [releases page](../../releases).
-2. **Once per device:** install the Daisy bootloader. Connect the Seed over USB, put it in DFU mode (hold **BOOT**, tap **RESET**, release BOOT), open the [Daisy Web Programmer](https://flash.daisy.audio/) and flash the bootloader.
-3. **Enter the Daisy bootloader:** tap **RESET** (or power up), then press **BOOT** while the LED is doing its slow "breathing" pulse. The bootloader only waits about 2 seconds before launching the app — pressing BOOT during that window makes it wait indefinitely, so you can take your time.
-4. Upload `TouchPlaited.bin` with the Web Programmer.
+Connect the Seed over USB and put it in **DFU mode**: hold **BOOT**, tap **RESET**, release **BOOT**.
 
-> **Two different button dances.** Hold-BOOT-tap-RESET enters the chip's built-in *DFU mode* — used only for installing the bootloader itself (step 2). Tap-RESET-then-BOOT enters the *Daisy bootloader* — used every time you flash the app (step 3).
+- **Web Programmer (no terminal needed):** open the [Daisy Web Programmer](https://flash.daisy.audio/) and flash the bootloader.
+- **Command line (`dfu-util`):** no need to clone the repo or install a toolchain — just grab the bootloader binary and flash it:
+  ```bash
+  curl -LO https://raw.githubusercontent.com/Synthux-Academy/libDaisy/62ab175533ce254cb353b60d8651310744b26a40/core/dsy_bootloader_v6_2-intdfu-2000ms.bin
+  dfu-util -a 0 -s 0x08000000:leave -D dsy_bootloader_v6_2-intdfu-2000ms.bin -d ,0483:df11
+  ```
+  (If you've already cloned this repo with submodules — see [Option B](#option-b--build-from-source-with-make) below — you can run `cd lib/libDaisy && make program-boot` instead.)
+
+### Step 2 — flash the app (every time you update)
+
+**Enter the Daisy bootloader:** tap **RESET** (or power up), then press **BOOT** while the LED is doing its slow "breathing" pulse. The bootloader only waits about 2 seconds before launching the app — pressing BOOT during that window makes it wait indefinitely, so you can take your time.
+
+- **Web Programmer:** download `TouchPlaited.bin` from the [releases page](../../releases) and upload it with the [Web Programmer](https://flash.daisy.audio/).
+- **Command line:**
+  ```bash
+  dfu-util -a 0 -s 0x90040000:leave -D TouchPlaited.bin
+  ```
+  `-D` downloads the file to the device, `-a 0` selects the flash interface, and `-s 0x90040000` is where to write it: the Seed's QSPI flash is memory-mapped at `0x90000000` and the bootloader reserves the first 256 KB (`0x40000`) for itself, so apps live at `0x90000000 + 0x40000`. The `:leave` suffix reboots into the app when the transfer finishes.
+
+> **Two different button dances.** Hold-BOOT-tap-RESET enters the chip's built-in *DFU mode* — used only for installing the bootloader itself (step 1). Tap-RESET-then-BOOT enters the *Daisy bootloader* — used every time you flash the app (step 2).
 
 ### Option B — build from source with make
 
-Requires the ARM GNU toolchain (`arm-none-eabi-gcc`), `make`, and Python 3 (the build runs `tools/gen_patterns.py` to register the drum patterns).
+Want to compile the firmware yourself instead of using the release `.bin`? Requires the ARM GNU toolchain (`arm-none-eabi-gcc`), `make`, and Python 3 (the build runs `tools/gen_patterns.py` to register the drum patterns).
 
 ```bash
 git clone https://github.com/jonwaterschoot/TouchPlaited.git
@@ -80,14 +96,6 @@ make program-dfu
 ```
 
 The build output is `build/TouchPlaited.bin`. See [thirdparty/README.md](thirdparty/README.md) for the full setup details.
-
-If you prefer flashing a `.bin` from the command line instead of the Web Programmer (with the Seed in the Daisy bootloader, as in Option A step 3):
-
-```bash
-dfu-util -a 0 -s 0x90040000:leave -D TouchPlaited.bin
-```
-
-`-D` downloads the file to the device, `-a 0` selects the flash interface, and `-s 0x90040000` is where to write it: the Seed's QSPI flash is memory-mapped at `0x90000000` and the bootloader reserves the first 256 KB (`0x40000`) for itself, so apps live at `0x90000000 + 0x40000`. The `:leave` suffix reboots into the app when the transfer finishes.
 
 ## Where everything lives
 
