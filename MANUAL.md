@@ -543,6 +543,7 @@ TouchPlaited always puts a clock on its outputs, and follows one when you give i
 
 | Pattern | Meaning |
 |---------|---------|
+| Slow blink (~300ms on/off) | Booting — device is loading (see *OLED screen* under [Hardware mods](#hardware-mods)); ends with one quick flash once ready, then normal operation |
 | 1 blink | Mode / scale / arp-state position 1 (SW2 Down or SW1 right flick); also: Rec undo landed |
 | 2 blinks | Mode / scale / arp-state position 2 (SW2 Center or SW1 center); also: transport paused (P2+P10/P11), sound edit left |
 | 3 blinks | Mode / scale / arp-state position 3 (SW2 Up or SW1 left flick); also: Seq resumed |
@@ -609,3 +610,5 @@ Optional physical mods for anyone modding their own Simple Touch. None of these 
 **2. CV clock jacks.** S43 (clock in) and S40 (clock out) — see *Clock sync* above — use Daisy Seed pins **A11** and **D25** on this build. Those were just the first free pins taken in order, not a deliberate choice, so if you're wiring your own jacks, check what's actually free/convenient on your board rather than assuming those two.
 
 **3. OLED screen.** Optional I2C 128×32 add-on (SSD1306) on **D11/D12**, sharing the MPR121 touch bus. Mirrors the last-touched control (combo, function, value) on the faceplate. If you'd rather not add hardware, the [visualizer webapp](#visualizer-webapp) shows the same live telemetry on a screen you already have.
+
+On power-up it runs a one-time boot animation before handing off to that normal display: "TouchPlaited" materializes letter by letter (*Plaited* emphasized one font size up), holds, then disintegrates into scattering particles, then settles into a status line reporting whether SettingsJournal found and restored a prior session or this is a fresh/reset unit — see [`display/oled_boot.cpp`](display/oled_boot.cpp) / [`oled_boot.h`](display/oled_boot.h). The user LED slow-blinks for the duration (see *LED blink codes* above) and flashes once when it's done, so a unit with no screen attached still shows boot progress and a ready signal.

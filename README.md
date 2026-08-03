@@ -108,7 +108,7 @@ The build output is `build/TouchPlaited.bin`. See [thirdparty/README.md](thirdpa
 | [`synth/patterns/`](synth/patterns/) | Drum sequencer patterns as headers, one folder per genre (`techno/`, `electro/`, `idm/`) |
 | [`touch/`](touch/) | Drivers for the pads, knobs and toggle switches on the touch controller |
 | [`midi/`](midi/) | USB + TRS MIDI I/O (notes, CCs, clock/transport) and the SysEx telemetry the visualizer listens to |
-| [`display/`](display/) | On-panel SSD1306 OLED driver and UI (mirrors what the visualizer shows) |
+| [`display/`](display/) | On-panel SSD1306 OLED driver and UI (mirrors what the visualizer shows), plus the one-time power-on boot animation |
 | [`thirdparty/`](thirdparty/) | Vendored Plaits DSP source + the stmlib and libDaisy-fork submodule setup — see [thirdparty/README.md](thirdparty/README.md) |
 | [`lib/`](lib/) | The `libDaisy` submodule (Synthux Academy fork) |
 
