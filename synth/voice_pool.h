@@ -46,6 +46,13 @@ public:
     // many *sounding* voices on expensive engines at once — watch the meter.
     static constexpr int kVoices = 6;
 
+    // Max simultaneously-held Basic Pitch notes. Gate-held voices are never
+    // touched by ShedVoice(), so an uncapped 5th held note on an expensive
+    // Plaits engine can push a block over the CPU budget with no way to
+    // recover — crackle for as long as the note stays down, not a clean
+    // steal. 4 is the confirmed-stable ceiling; see cap_bp_voices().
+    static constexpr int kBPMaxHeld = 4;
+
     void Init() {
         for (int i = 0; i < kVoices; i++) {
             voices[i].Init();
@@ -122,6 +129,7 @@ public:
     // Re-applies all cached globals first: the voice may have been a locked
     // drum-seq voice that missed every global setter since its trigger.
     void NoteOn(int slot, float note) {
+        cap_bp_voices();
         int idx = find_free_or_steal();
         voices[idx].SetEngine(g_engine);
         voices[idx].SetHarmonics(g_harm);
@@ -156,6 +164,7 @@ public:
     void NoteOnWithParams(int slot, float note, const VoiceParams& p,
                           VoiceGroup grp = VoiceGroup::kBP) {
         bool lock_params = grp == VoiceGroup::kDrum;
+        if (grp == VoiceGroup::kBP) cap_bp_voices();
         int idx = find_free_or_steal();
         voices[idx].SetEngine(p.engine);
         voices[idx].SetHarmonics(p.harmonics);
@@ -448,6 +457,25 @@ private:
     // Per-group FX send levels (see SetSeqReverbSend etc.). 0 = dry.
     float rev_send_seq = 0.0f, rev_send_pitched = 0.0f, rev_send_arp = 0.0f, rev_send_rec = 0.0f;
     float dly_send_seq = 0.0f, dly_send_pitched = 0.0f, dly_send_arp = 0.0f, dly_send_rec = 0.0f;
+
+    // Releases the oldest held Basic Pitch voice when a new one would push
+    // the held count past kBPMaxHeld — same effect as that voice getting a
+    // NoteOff early. Called before find_free_or_steal() so the incoming note
+    // never counts as the release candidate.
+    void cap_bp_voices() {
+        int oldest = -1;
+        int count  = 0;
+        for (int i = 0; i < kVoices; i++) {
+            if (gate_held[i] && voice_group[i] == VoiceGroup::kBP) {
+                count++;
+                if (oldest < 0 || timestamp[i] < timestamp[oldest]) oldest = i;
+            }
+        }
+        if (count >= kBPMaxHeld && oldest >= 0) {
+            voices[oldest].Trigger(false);
+            gate_held[oldest] = false;
+        }
+    }
 
     int find_free_or_steal() {
         // Prefer a genuinely free voice (not the active audition slot).

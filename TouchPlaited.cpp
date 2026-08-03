@@ -118,6 +118,21 @@ static int fx_decode(float v, float* wet) {
     return 0;
 }
 
+// Volume fader taper: knob is stored/persisted linear (UI, snapshots, dq8
+// all expect 0..1), but a linear pot makes a quiet mix-under-drums level
+// (a few % gain) sit in an unusably tiny sliver of travel. This maps knob
+// linearly to dB instead — 0 = -kVolTaperRangeDb, 1 = unity — the way a real
+// fader tapers, so the quiet end gets proportionally far more of the travel:
+// knob 0.25 ≈ -37.5 dB (1.3%), 0.5 ≈ -25 dB (5.6%), 0.75 ≈ -12.5 dB (23.7%).
+// Only applied where the value is handed to the DSP (pool.Set*Volume) — the
+// stored *_vol_lk stays linear so LEDs/snapshots are unaffected.
+static constexpr float kVolTaperRangeDb = 50.f;
+static float vol_taper(float knob) {
+    if (knob <= 0.f) return 0.f;
+    float db = kVolTaperRangeDb * (knob - 1.f);
+    return powf(10.f, db * (1.f / 20.f));
+}
+
 // Unified long-hold threshold for recording confirm / copy in every mode.
 // 1200 ms: long enough that a deliberate drum-pad hold reads as intent, not
 // an accident.
@@ -2075,10 +2090,10 @@ void AudioCallback(AudioHandle::InputBuffer in, AudioHandle::OutputBuffer out, s
             if (blend_pu.update(v37)) active_blend_lk() = v37;
         }
     }
-    pool.SetSeqVolume(seq_vol_lk);
-    pool.SetPitchedVolume(pitched_vol_lk);
-    pool.SetArpVolume(arp_vol_lk);
-    pool.SetRecVolume(rec_vol_lk);
+    pool.SetSeqVolume(vol_taper(seq_vol_lk));
+    pool.SetPitchedVolume(vol_taper(pitched_vol_lk));
+    pool.SetArpVolume(vol_taper(arp_vol_lk));
+    pool.SetRecVolume(vol_taper(rec_vol_lk));
     pool.SetSeqWidth(seq_width_lk);
     pool.SetPitchedWidth(pitched_width_lk);
 
