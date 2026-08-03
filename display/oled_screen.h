@@ -37,6 +37,17 @@ public:
 
     void Clear();
 
+    // Frame-level primitives for the one-shot boot animation
+    // (display/oled_boot.cpp) — the only other caller; everything above
+    // this replaces the whole screen in a single call, so these are the
+    // only way anything outside this file gets pixel-level control.
+    // BeginFrame/SetPixel only touch the local buffer (no I2C traffic);
+    // EndFrame is the one that actually transfers it, so it's the only one
+    // that needs the i2c1_bus_busy bracket the other Show*() methods use.
+    void BeginFrame();
+    void SetPixel(uint8_t x, uint8_t y, bool on);
+    void EndFrame();
+
 private:
     NOCOPY(OledScreen)
 

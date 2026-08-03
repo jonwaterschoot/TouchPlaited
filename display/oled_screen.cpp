@@ -67,6 +67,20 @@ void OledScreen::ShowProgress(const char* label, uint8_t progress) {
     i2c1_bus_busy = false;
 }
 
+void OledScreen::BeginFrame() {
+    _display.Fill(false);
+}
+
+void OledScreen::SetPixel(uint8_t x, uint8_t y, bool on) {
+    _display.DrawPixel(x, y, on);
+}
+
+void OledScreen::EndFrame() {
+    i2c1_bus_busy = true;
+    _display.Update();
+    i2c1_bus_busy = false;
+}
+
 void OledScreen::ShowLine(const char* label, const char* value) {
     // Held for the whole draw+transfer (see i2c1_lock.h) — Pads::Process()
     // skips its I2C poll in AudioCallback while this is up, so the ~20ms

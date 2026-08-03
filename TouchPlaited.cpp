@@ -3,6 +3,7 @@
 #include "touch/touch.h"
 #include "display/oled_screen.h"
 #include "display/oled_ui.h"
+#include "display/oled_boot.h"
 #include "synth/voice_pool.h"
 #include "synth/sequencer.h"
 #include "synth/arp.h"
@@ -1690,6 +1691,20 @@ static int last_sw2 = -1;
 static constexpr size_t kBlockSize = 192;
 static constexpr size_t kChunkSize = 24;
 
+// Boot fade-in: ramps the master output up from silence over the first
+// kBootFadeMs after hw.StartAudio() starts, so whatever fader position /
+// engine state block 0 happens to land on (pots at boot are read live —
+// see the fader-arm block below) doesn't slam straight into the DAC as a
+// hard-edged onset, which is what a "click right after boot" usually is in
+// the digital domain. (A pop from the codec's own power-up sequencing, if
+// any remains once this is in, is a separate hardware concern this can't
+// reach.) Reaches 1.0 and stays there for the rest of the unit's life —
+// the branch below costs nothing once boot_fade_gain has saturated.
+static constexpr float kBootFadeMs           = 60.f;
+static constexpr float kSampleRateHz         = 48000.f; // fixed via SAI_48KHZ, see main()
+static constexpr float kBootFadeIncPerSample = 1.f / (kBootFadeMs * 0.001f * kSampleRateHz);
+static float boot_fade_gain = 0.f;
+
 void AudioCallback(AudioHandle::InputBuffer in, AudioHandle::OutputBuffer out, size_t size) {
     uint32_t blk_start = System::GetTick();
     cpu_meter.OnBlockStart();
@@ -2735,13 +2750,20 @@ void AudioCallback(AudioHandle::InputBuffer in, AudioHandle::OutputBuffer out, s
     fx_drum.ProcessDelay(dly_l[3], dly_r[3], left, right, size);
     fx_drum.ProcessReverb(rev_l[3], rev_r[3], left, right, size);
 
-    // Output: soft-clip via x/(1+|x|). Levels are per-group in VoicePool
-    // (SetSeqVolume / SetPitchedVolume) — no master scale here.
+    // Output: soft-clip via x/(1+|x|), then the boot fade-in gain declared
+    // above — 0 for the first block, linearly up to 1 over kBootFadeMs, a
+    // no-op multiply for the rest of the unit's life after that. Levels are
+    // otherwise per-group in VoicePool (SetSeqVolume / SetPitchedVolume) —
+    // no other master scale here.
     for (size_t i = 0; i < size; i++) {
         float L = left[i];
         float R = right[i];
-        out[0][i] = L / (1.0f + fabsf(L));
-        out[1][i] = R / (1.0f + fabsf(R));
+        if (boot_fade_gain < 1.f) {
+            boot_fade_gain += kBootFadeIncPerSample;
+            if (boot_fade_gain > 1.f) boot_fade_gain = 1.f;
+        }
+        out[0][i] = (L / (1.0f + fabsf(L))) * boot_fade_gain;
+        out[1][i] = (R / (1.0f + fabsf(R))) * boot_fade_gain;
     }
     last_block_load = static_cast<float>(System::GetTick() - blk_start) * blk_ticks_inv;
     cpu_meter.OnBlockEnd();
@@ -2960,7 +2982,11 @@ int main() {
     }
 
     touch.Init(hw);
-    oled.Init(hw); // service_telemetry() below drives it once the loop starts
+    oled.Init(hw);
+    // Boot animation + settings-restored status line, blocking — safe here
+    // since neither the audio ISR nor OledUi's redraw throttle are running
+    // yet. service_telemetry() takes over the screen once the loop starts.
+    OledBoot::Run(oled, System::GetNow(), settings_restored, set_led);
     // S40 clock-out jack (D25): plain push-pull GPIO, pulsed from the audio ISR.
     cv_clock_out.Init(daisy::seed::D25, GPIO::Mode::OUTPUT);
     cv_clock_out.Write(false);
