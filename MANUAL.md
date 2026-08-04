@@ -68,11 +68,11 @@ SW1 picks the sub-state — **Hold** (left) · **Arp** (center) · **Rec** (righ
 
 | Control | Function | MIDI CC |
 |---------|----------|---------|
-| S30 | Drive | 24 |
+| S30 | Drive — also rides the kick's punch (extra timbre push on trigger) | 24 |
 | S31 | Tempo (60–180 BPM) | 27 (muted by ext. clock) |
 | S32 | Shuffle | 28 |
-| S33 | Density | 29 |
-| S34 | Kick punch | 30 |
+| S33 | Density (1 strong … 4 full) | 29 |
+| S34 | Chance — scales each step's own authored chance; center = as authored | 30 |
 | S35 | Pattern select (within SW1 genre) | — |
 | S36 | Seq volume | — |
 | S37 | Tightness (decay of engines 19–23) | 31 |
@@ -131,7 +131,7 @@ MIDI CCs keep addressing the *global* functions while recording — they never e
 
 Switching SW2 always takes effect immediately. Each mode remembers its last state — switching back returns to the same sounds that were last set, not a fresh randomize.
 
-**The drum sequencer is independent of the switch position.** It auto-starts on the first Seq entry (including booting with SW2 Up) and keeps playing when you flick to Basic Pitch or Arp/Mel — drums and synth playing together. **P2 + P11** (P2 first) pauses/resumes it from any mode. While the seq plays behind a pitched mode, all its settings (tempo, shuffle, density, punch, tightness, drive, genre) stay locked at their last Seq-mode values, so every knob is free for the active mode. A fresh drum kit is generated only on first use or via P0+P2 stage 2 in Seq mode.
+**The drum sequencer is independent of the switch position.** It auto-starts on the first Seq entry (including booting with SW2 Up) and keeps playing when you flick to Basic Pitch or Arp/Mel — drums and synth playing together. **P2 + P11** (P2 first) pauses/resumes it from any mode. While the seq plays behind a pitched mode, all its settings (tempo, shuffle, density, chance, tightness, drive, genre) stay locked at their last Seq-mode values, so every knob is free for the active mode. A fresh drum kit is generated only on first use or via P0+P2 stage 2 in Seq mode.
 
 **The arp and its Rec loop are just as independent.** A latched (Hold) arp and a recorded loop keep playing when you flick SW2 to another mode, with their settings locked at the last Arp/Mel values. **P2 + P10** (P2 first) stops/starts them together from any mode — the melodic mirror of P2+P11. Both follow the master tempo: the seq tempo (S31 in Seq, CC27, or an external clock — MIDI or CV); when the drum seq is running the arp aligns to its grid.
 
@@ -293,11 +293,11 @@ These knob assignments apply only while SW2 is Up. If the seq keeps playing in a
 
 | Knob | Function | MIDI CC |
 |------|----------|---------|
-| S30 | Drive — overall soft-clip saturation (per-slot drive settable in Recording as a percentage of overall) | 24 |
+| S30 | Drive — overall soft-clip saturation (per-slot drive settable in Recording as a percentage of overall); also pushes the kick's punch (extra timbre boost on trigger) | 24 |
 | S31 | Tempo — 60–180 BPM | 27 (muted while an external clock — MIDI or CV — is present) |
 | S32 | Shuffle — swing delay on odd 16th steps (0 = straight, max = ~50%) | 28 |
-| S33 | Density — how many pattern steps fire (1 = strong hits only … 4 = everything including ghosts) | 29 |
-| S34 | Kick punch — boosts kick timbre on each trigger | 30 |
+| S33 | Density — how many pattern steps fire: 1 strong (weight-4 hits only) · 2 main (weight 3–4) · 3 ghosts (weight 2–4) · 4 full (everything); never goes silent | 29 |
+| S34 | Chance — scales every step's own authored chance nibble up or down. Center (50%) plays patterns exactly as authored; left of center pushes probabilistic steps toward always firing; right of center makes them sparser, down to silent at full right. Steps authored "always" (no chance roll, e.g. a four-on-the-floor kick) are never affected | 30 |
 | S35 | Pattern select — steps through the patterns of the current SW1 genre (knob range splits evenly across that genre's pattern count; custom patterns can be drawn with `tools/pattern_editor.html` and added via a firmware rebuild — see the README) | — |
 | S36 | Seq volume - drum group level, independent of the pitched modes; picked up on re-entry | — |
 | S37 | Tightness — compresses the tail of all morph-decay engines (19–23); lower = shorter decay. Hold P0: drum-group stereo width (0 = mono) | 31 |
@@ -350,7 +350,7 @@ All six timbral knobs are per-slot and require pickup before changing the slot.
 
 The tempo (S31's idle role) stays frozen at its entry value while recording and is pickup-protected afterwards.
 
-While the sequencer runs it fires the slot being edited every other step (8th notes), so you hear changes in rhythmic context without it dominating the mix. While the sequencer is paused the slot re-auditions at a steady pulse every 0.5 s from the moment you enter, playing at the slot's stored volume. Paused-seq drum auditions go through the drum group's level, width and FX sends and carry the full seq-trigger shaping (punch, tightness, overall drive × slot ratio), so what you hear while tweaking is exactly what the pattern will play.
+While the sequencer runs it fires the slot being edited every other step (8th notes), so you hear changes in rhythmic context without it dominating the mix. While the sequencer is paused the slot re-auditions at a steady pulse every 0.5 s from the moment you enter, playing at the slot's stored volume. Paused-seq drum auditions go through the drum group's level, width and FX sends and carry the full seq-trigger shaping (kick punch riding drive, tightness, overall drive × slot ratio), so what you hear while tweaking is exactly what the pattern will play.
 
 ### Drum pitch
 
@@ -498,7 +498,7 @@ CCs control *functions*, not knobs — so a CC always does the same thing no mat
 | 27 | Seq tempo (ignored while an external clock — MIDI or CV — is running) | S31 (Seq) |
 | 28 | Seq shuffle | S32 (Seq) |
 | 29 | Seq density | S33 (Seq) |
-| 30 | Seq kick punch | S34 (Seq) |
+| 30 | Seq chance | S34 (Seq) |
 | 31 | Seq tightness | S37 (Seq) |
 | 85 | Reverb — Basic Pitch | P1+S30 (Basic Pitch) |
 | 86 | Reverb — drums | P1+S30 (Seq) |

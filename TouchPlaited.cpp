@@ -74,17 +74,19 @@ static bool seq_entered_once = false;   // first SW2-Up entry auto-starts the se
 // Seq settings, stored separately from the pots. They only follow a pot after
 // it picks up (crosses the stored value) inside Seq mode — so using the same
 // pot in another mode, or re-entering Seq, never jumps a setting.
-// Defaults match the Sequencer class defaults (120 BPM, no shuffle, density 2).
-static float seq_tempo_lk = 0.5f;
-static float seq_shuf_lk  = 0.0f;
-static float seq_dens_lk  = 0.5f;
-static float seq_punch_lk = 0.0f;
-static float seq_tight_lk = 0.5f;
-static float seq_drive_lk = 0.0f;
-static float seq_var_lk   = 0.0f;   // S35 in Seq = pattern variant within genre
-static int   seq_genre_lk = 0;      // SW1 in Seq = genre; change-latched (see SW1 handler)
-static float seq_vol_lk   = 1.0f;   // S36 in Seq = drum group volume
-static float seq_width_lk = 0.0f;   // P0+S37 in Seq = drum-group stereo width (0 = mono)
+// Defaults match the Sequencer class defaults (120 BPM, no shuffle, density
+// 2, chance 0.5 = pattern's own chance nibbles untouched).
+static float seq_tempo_lk  = 0.5f;
+static float seq_shuf_lk   = 0.0f;
+static float seq_dens_lk   = 0.5f;
+static float seq_chance_lk = 0.5f;  // S34 in Seq — see Sequencer::SetChance
+static float seq_tight_lk  = 0.5f;
+static float seq_drive_lk  = 0.0f;
+static float seq_var_lk    = 0.0f;   // S35 in Seq = pattern variant within genre
+static int   seq_genre_lk  = 1;      // SW1 in Seq = genre (0 IDM 1 Techno 2 Electro);
+                                      // starts at Techno; change-latched (see SW1 handler)
+static float seq_vol_lk    = 1.0f;   // S36 in Seq = drum group volume
+static float seq_width_lk  = 0.0f;   // P0+S37 in Seq = drum-group stereo width (0 = mono)
 
 // Pitched-mode fader state. Volume (S36) and blend (S37) go through pickup:
 // S37 doubles as the width control while P0 is held, and recording borrows
@@ -363,13 +365,18 @@ static void generate_drum_random() {
 }
 
 // Render params for drum slot i exactly as a seq trigger shapes them (tail→
-// morph via tightness, kick punch, overall drive × slot ratio). Shared by
-// triggers and rec-mode auditions, so tweaking a drum against the paused seq
-// sounds the same as it will when the pattern runs.
+// morph via tightness, kick punch riding drive, overall drive × slot ratio).
+// Shared by triggers and rec-mode auditions, so tweaking a drum against the
+// paused seq sounds the same as it will when the pattern runs.
+//
+// Kick punch used to be its own S34 knob; that knob is now Chance (a
+// sequencer-wide control, see Sequencer::SetChance) and punch instead rides
+// S30 Drive — turning the kick up pushes both together, so there's no
+// dedicated knob to go dead on models that don't need it (2026-08-04).
 static VoiceParams drum_params(int i) {
     const PadSlot& s = drum_slots[i];
     VoiceParams p = slot_params(s, seq_tight_lk);
-    if (i == 0) p.timbre = p.timbre + seq_punch_lk * (1.0f - p.timbre);
+    if (i == 0) p.timbre = p.timbre + seq_drive_lk * (1.0f - p.timbre);
     p.drive = clampf(seq_drive_lk * s.drive);
     return p;
 }
@@ -566,6 +573,16 @@ static volatile uint8_t  p2layer_outcome[5] = { 0, 0, 0, 0, 0 };
 // off), consumed once per block in AudioCallback.
 static volatile uint32_t arp_ext_ticks = 0;
 
+// Switch3 raw (0 center, 1 up, 2 down) → panel position (0 left, 1 center,
+// 2 right). Anything that has to agree with what the panel/OLED prints must
+// go through this — the Seq genre indexes the pattern registry, whose order
+// is panel order. Scale and the Arp sub-state deliberately keep consuming the
+// raw value: their tables are written against up/down/center directly.
+static int sw1_panel_pos(int sw_raw) {
+    static const uint8_t kMap[3] = { 1, 2, 0 };
+    return kMap[(sw_raw >= 0 && sw_raw <= 2) ? sw_raw : 0];
+}
+
 // SW1 (B()): pos1=left-flick=3 blinks, center=2, pos2=right-flick=1 blink
 static int sw1_blink_count(int sw) {
     return (sw == 2) ? 1 : (sw == 0) ? 2 : 3;
@@ -619,7 +636,8 @@ static volatile bool rec_hit_flash = false;
 // Knob pickup — the pot takes effect once it reaches or crosses the stored
 // value. Inclusive comparison + a near-window, so targets at the pot extremes
 // (0.0 / 1.0) are reachable — a strict crossing test can never fire there,
-// which is how S30/S34 went dead after seq re-entry with drive/punch at zero.
+// which is how S30/S34 went dead after seq re-entry with drive/chance at
+// their rails.
 // Rail targets additionally catch on deliberate movement (~3%, like the width
 // MoveCatch): a pot can sit fractionally under its rail forever, which left
 // knobs armed to 1.0 feeling dead — the arp Density/Order defaults were
@@ -750,7 +768,7 @@ static void rearm_seq_pickups() {
     seq_pu31.arm_to(seq_tempo_lk, kn.s31().Value());
     seq_pu32.arm_to(seq_shuf_lk,  kn.s32().Value());
     seq_pu33.arm_to(seq_dens_lk,  kn.s33().Value());
-    seq_pu34.arm_to(seq_punch_lk, kn.s34().Value());
+    seq_pu34.arm_to(seq_chance_lk, kn.s34().Value());
     seq_pu35.arm_to(seq_var_lk,   kn.s35().Value());
     seq_pu36.arm_to(seq_vol_lk,   kn.s36().Value());
     seq_pu37.arm_to(seq_tight_lk, kn.s37().Value());
@@ -933,7 +951,8 @@ static void on_midi_cc(uint8_t /*ch*/, uint8_t cc, uint8_t val) {
                  seq.SetShuffle(v);                                          break;
         case 29: seq_dens_lk = v;  seq_pu33.arm_to(v, kn.s33().Value());
                  seq.SetDensity(v);                                          break;
-        case 30: seq_punch_lk = v; seq_pu34.arm_to(v, kn.s34().Value());     break;
+        case 30: seq_chance_lk = v; seq_pu34.arm_to(v, kn.s34().Value());
+                 seq.SetChance(v);                                          break;
         case 31: seq_tight_lk = v; seq_pu37.arm_to(v, kn.s37().Value());     break;
         // FX mirror values, same center-off encoding as the P1 knob layer
         // (64 ≈ off; below = character A, above = character B, wet grows
@@ -1098,13 +1117,11 @@ static void service_telemetry() {
     }
 
     // Switch3 raw (0 center, 1 up, 2 down) → panel positions. SW1 (switches
-    // B): down=Minor is panel-left; up=Major panel-right. SW2 (switches A):
-    // up=Seq is panel-top.
-    static const uint8_t kSw1Map[3] = { 1, 2, 0 };
+    // B): down=Minor is panel-left; up=Major panel-right — shared with the
+    // Seq genre latch via sw1_panel_pos. SW2 (switches A): up=Seq is panel-top.
     static const uint8_t kSw2Map[3] = { 1, 0, 2 };
-    int sw1_raw = touch.switches().B();
     int sw2_raw = touch.switches().A();
-    t.sw1 = kSw1Map[(sw1_raw >= 0 && sw1_raw <= 2) ? sw1_raw : 0];
+    t.sw1 = static_cast<uint8_t>(sw1_panel_pos(touch.switches().B()));
     t.sw2 = kSw2Map[(sw2_raw >= 0 && sw2_raw <= 2) ? sw2_raw : 0];
 
     t.led      = led_lit ? 127 : 0;
@@ -1817,7 +1834,10 @@ void AudioCallback(AudioHandle::InputBuffer in, AudioHandle::OutputBuffer out, s
     int sw1 = touch.switches().B();
     if (sw1 != last_sw1) {
         if (last_sw1 >= 0) {
-            if (seq_mode_on)                              seq_genre_lk = sw1;
+            // Genre is panel-ordered (see sw1_panel_pos): left=IDM,
+            // center=Techno, right=Electro, matching kSw1Seq and the
+            // pattern registry. Scale/Arp below stay on the raw value.
+            if (seq_mode_on)                              seq_genre_lk = sw1_panel_pos(sw1);
             else if (current_mode == PlayMode::ARP_MEL)   apply_arp_sw1(sw1);
             else                                          scale_lk     = sw1;
             led_event      = LedEvent::NUMBERED;
@@ -1867,7 +1887,7 @@ void AudioCallback(AudioHandle::InputBuffer in, AudioHandle::OutputBuffer out, s
                     seq_tempo_lk = k.s31().Value();  seq_pu31.force_catch(seq_tempo_lk);
                     seq_shuf_lk  = k.s32().Value();  seq_pu32.force_catch(seq_shuf_lk);
                     seq_dens_lk  = k.s33().Value();  seq_pu33.force_catch(seq_dens_lk);
-                    seq_punch_lk = k.s34().Value();  seq_pu34.force_catch(seq_punch_lk);
+                    seq_chance_lk = k.s34().Value(); seq_pu34.force_catch(seq_chance_lk);
                     seq_pu35.arm_to(seq_var_lk, k.s35().Value());  // variant stays 0 until S35 crosses it
                     seq_vol_lk   = k.s36().Value();  seq_pu36.force_catch(seq_vol_lk);
                     seq_tight_lk = k.s37().Value();  seq_pu37.force_catch(seq_tight_lk);
@@ -2003,14 +2023,15 @@ void AudioCallback(AudioHandle::InputBuffer in, AudioHandle::OutputBuffer out, s
     // (rec mode borrows S30/S32/S33/S34/S37 for slot editing). Every pot goes
     // through pickup, so a pot used by another mode doesn't jump the setting
     // until it crosses the stored value.
-    // Seq layout: S30=drive, S31=tempo, S32=shuffle, S33=density, S34=punch,
+    // Seq layout: S30=drive (also rides the kick's punch — drum_params()),
+    // S31=tempo, S32=shuffle, S33=density, S34=chance,
     // S35=pattern variant (within the SW1 genre), S37=tightness.
     if (seq_mode_on && rec_mode == RecMode::IDLE) {
         if (!p1_fx && seq_pu30.update(drive))            seq_drive_lk = drive;
         if (seq_pu31.update(k.s31().Value()))  seq_tempo_lk = k.s31().Value();
         if (seq_pu32.update(k.s32().Value()))  seq_shuf_lk  = k.s32().Value();
         if (seq_pu33.update(k.s33().Value()))  seq_dens_lk  = k.s33().Value();
-        if (seq_pu34.update(k.s34().Value()))  seq_punch_lk = k.s34().Value();
+        if (seq_pu34.update(k.s34().Value()))  seq_chance_lk = k.s34().Value();
         if (!p1_fx && seq_pu35.update(k.s35().Value()))  seq_var_lk   = k.s35().Value();
         if (seq_pu36.update(k.s36().Value()))  seq_vol_lk   = k.s36().Value();
         if (touch.pads().IsTouched(0)) {
@@ -2024,6 +2045,7 @@ void AudioCallback(AudioHandle::InputBuffer in, AudioHandle::OutputBuffer out, s
         seq.SetTempo(seq_tempo_lk);
         seq.SetShuffle(seq_shuf_lk);
         seq.SetDensity(seq_dens_lk);
+        seq.SetChance(seq_chance_lk);
         seq.SetVariant(seq_var_lk);
     }
     // Arp/Mel knob layer — S30 drive, S31 decay, S32 division, S33 swing,
@@ -2450,15 +2472,15 @@ void AudioCallback(AudioHandle::InputBuffer in, AudioHandle::OutputBuffer out, s
         if (rec_k34.update(v34)) { slot.morph     = v34; changed = true; }
         if (changed) {
             // Drum audition updates carry the same shaping as drum_params
-            // (tightness on the tail, punch on the kick) — otherwise the
-            // sound jumps on the next retrigger.
+            // (tightness on the tail, punch on the kick riding drive) —
+            // otherwise the sound jumps on the next retrigger.
             float upd_morph = slot.morph;
             if (decay_via_morph(slot.engine))
                 upd_morph = is_drum_mode ? slot.decay * (0.2f + seq_tight_lk * 0.8f)
                                          : slot.decay;
             float upd_timbre = slot.timbre;
             if (is_drum_mode && rec_slot == 0)
-                upd_timbre = slot.timbre + seq_punch_lk * (1.0f - slot.timbre);
+                upd_timbre = slot.timbre + seq_drive_lk * (1.0f - slot.timbre);
             pool.UpdateAuditionParams(slot.harmonics, upd_timbre, upd_morph, slot.decay);
         }
         // Fixed-rate pulse — NOT keyed on `changed`: that flag is level (pickup
@@ -2815,7 +2837,7 @@ struct __attribute__((packed)) SlotPersist {
 };
 
 struct __attribute__((packed)) PersistState {
-    uint8_t seq_tempo, seq_shuf, seq_dens, seq_punch, seq_tight, seq_drive,
+    uint8_t seq_tempo, seq_shuf, seq_dens, seq_chance, seq_tight, seq_drive,
             seq_var, seq_vol, seq_width, seq_genre;
     uint8_t pitched_vol, pitched_blend, pitched_width;
     uint8_t fx_rev_seq, fx_rev_pitched, fx_rev_arp, fx_rev_rec;
@@ -2865,7 +2887,7 @@ static void restore_slot(PadSlot& d, const SlotPersist& s) {
 
 static void capture_state(PersistState& st) {
     st.seq_tempo = q8(seq_tempo_lk); st.seq_shuf  = q8(seq_shuf_lk);
-    st.seq_dens  = q8(seq_dens_lk);  st.seq_punch = q8(seq_punch_lk);
+    st.seq_dens  = q8(seq_dens_lk);  st.seq_chance = q8(seq_chance_lk);
     st.seq_tight = q8(seq_tight_lk); st.seq_drive = q8(seq_drive_lk);
     st.seq_var   = q8(seq_var_lk);   st.seq_vol   = q8(seq_vol_lk);
     st.seq_width = q8(seq_width_lk);
@@ -2908,11 +2930,11 @@ static void capture_state(PersistState& st) {
 
 static void apply_state(const PersistState& st) {
     seq_tempo_lk = dq8(st.seq_tempo); seq_shuf_lk  = dq8(st.seq_shuf);
-    seq_dens_lk  = dq8(st.seq_dens);  seq_punch_lk = dq8(st.seq_punch);
+    seq_dens_lk  = dq8(st.seq_dens);  seq_chance_lk = dq8(st.seq_chance);
     seq_tight_lk = dq8(st.seq_tight); seq_drive_lk = dq8(st.seq_drive);
     seq_var_lk   = dq8(st.seq_var);   seq_vol_lk   = dq8(st.seq_vol);
     seq_width_lk = dq8(st.seq_width);
-    seq_genre_lk = (st.seq_genre <= 2) ? st.seq_genre : 0;
+    seq_genre_lk = (st.seq_genre <= 2) ? st.seq_genre : 1;  // fallback: Techno
     pitched_vol_lk   = dq8(st.pitched_vol);
     pitched_blend_lk = dq8(st.pitched_blend);
     pitched_width_lk = dq8(st.pitched_width);

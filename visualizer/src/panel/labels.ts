@@ -16,7 +16,7 @@ import type { DeviceStore, StateEvent, DeviceState } from '../core/state';
 import {
   CONTROLS, PADS, SW1_POSITIONS, SW2_POSITIONS, MODE_NAMES, modelName,
   DRUM_NOTES, noteName, fxValueLabel, engineKnobLabel, formatKnobValue,
-  ENGINE_KNOBS, pitchedNote, arpOrderName,
+  ENGINE_KNOBS, pitchedNote, arpOrderName, patternValue, densityValue,
 } from '../core/controls-meta';
 import type { KnobParam } from '../core/controls-meta';
 
@@ -456,6 +456,14 @@ export class Labels {
           // s.model may be one frame stale mid-turn; the model event that
           // follows rewrites this line (see the 'model' case).
           value = `${modelName(s.model)} #${s.model}`;
+        } else if (meta.name === 'S35' && s.mode === 0 && s.recSlot === null
+                   && !s.pads[0] && !s.pads[2]) {
+          // Bare S35 in Seq is the pattern variant — name it and show its
+          // position in the genre, not a meaningless %.
+          value = patternValue(s.swA, ev.v);
+        } else if (meta.name === 'S33' && s.mode === 0 && s.recSlot === null) {
+          // Seq Density: name the stage instead of a raw %.
+          value = densityValue(ev.v);
         } else {
           value = `${Math.round(ev.v * 100)}%`;
         }
@@ -670,6 +678,10 @@ export class Labels {
         // the fallback tempo, not what's playing.
         value = s.clockSrc !== 0
           ? 'ext' : `${Math.round(60 + s.controls[1] * 120)} BPM`;
+      } else if (s.mode === 0 && s.recSlot === null && i === 5) {
+        value = patternValue(s.swA, s.controls[5]);
+      } else if (s.mode === 0 && s.recSlot === null && i === 3) {
+        value = densityValue(s.controls[3]);
       } else {
         value = `${Math.round(s.controls[i] * 100)}%`;
       }

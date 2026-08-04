@@ -2,6 +2,10 @@
 // visualizer overlay today and by the future manual / virtual-device modes.
 // Sources: README.md panel drawing and MANUAL.md tables.
 
+import {
+  GENRE_NAMES, GENRE_PATTERN_COUNT, GENRE_PATTERN_IDX, SEQ_PATTERN_NAMES,
+} from './patterns-gen';
+
 export interface ControlMeta {
   svgId: string;
   name: string;      // silk-screen designator, e.g. "S31"
@@ -17,7 +21,7 @@ export const CONTROLS: ControlMeta[] = [
   { svgId: 'knob-s31', name: 'S31', main: 'Decay', seq: 'Tempo', arp: 'Decay' },
   { svgId: 'knob-s32', name: 'S32', main: 'Harmonics', seq: 'Swing', arp: 'Division' },
   { svgId: 'knob-s33', name: 'S33', main: 'Timbre', seq: 'Density', arp: 'Swing' },
-  { svgId: 'knob-s34', name: 'S34', main: 'Morph', seq: 'Punch', arp: 'Density' },
+  { svgId: 'knob-s34', name: 'S34', main: 'Morph', seq: 'Chance', arp: 'Density' },
   { svgId: 'knob-s35', name: 'S35', main: 'Model sel', seq: 'Pattern', arp: 'Order', fx: 'Delay' },
   { svgId: 'fader-s36', name: 'S36', main: 'Volume', seq: 'Volume', arp: 'Volume' },
   { svgId: 'fader-s37', name: 'S37', main: 'Blend', seq: 'Tightness', arp: 'Blend' },
@@ -158,6 +162,31 @@ export function arpOrderName(v: number): string {
   return ARP_ORDERS[Math.min(4, Math.max(0, Math.floor(v * 5)))];
 }
 
+/** Seq S35 (Pattern): name of the selected pattern + its position within the
+ * current genre, e.g. "fourfloor 1/6" — mirrors Sequencer::pattern_index()'s
+ * quantization (synth/sequencer.h) so the displayed slot always matches what
+ * actually plays. genre is SW1 (0 IDM 1 Techno 2 Electro). */
+export function patternValue(genre: number, v: number): string {
+  const g = genre >= 0 && genre < GENRE_NAMES.length ? genre : 0;
+  const n = GENRE_PATTERN_COUNT[g];
+  const vi = Math.min(n - 1, Math.floor(v * n));
+  const idx = GENRE_PATTERN_IDX[g][vi];
+  return `${SEQ_PATTERN_NAMES[idx]} ${vi + 1}/${n}`;
+}
+
+/** Seq S33 (Density) stage words — index 0 = stage 1. Mirrors the same four
+ * words in display/oled_ui.cpp's kDensityWords. */
+export const DENSITY_WORDS = ['strong', 'main', 'ghosts', 'full'];
+
+/** Seq S33 (Density): stage number + what it lets through, e.g. "4 full" —
+ * mirrors Sequencer::SetDensity's quantization (synth/sequencer.h) exactly,
+ * so the displayed stage always matches what's actually playing. */
+export function densityValue(v: number): string {
+  let d = 1 + Math.floor(v * 3 + 0.5);
+  d = Math.min(4, Math.max(1, d));
+  return `${d} ${DENSITY_WORDS[d - 1]}`;
+}
+
 export type KnobParam = 'harmonics' | 'timbre' | 'morph' | 'decay';
 
 /** Engine-aware value rendering: quantized selectors show the selected item
@@ -273,7 +302,7 @@ export const CCS: CcMeta[] = [
   { cc: 27, name: 'Seq tempo', shadows: 'S31 Seq' },
   { cc: 28, name: 'Seq shuffle', shadows: 'S32 Seq' },
   { cc: 29, name: 'Seq density', shadows: 'S33 Seq' },
-  { cc: 30, name: 'Kick punch', shadows: 'S34 Seq' },
+  { cc: 30, name: 'Seq chance', shadows: 'S34 Seq' },
   { cc: 31, name: 'Seq tightness', shadows: 'S37 Seq' },
   { cc: 85, name: 'Reverb (pitched)', shadows: 'P1+S30', fxKind: 'reverb' },
   { cc: 86, name: 'Reverb (drums)', shadows: 'P1+S30 Seq', fxKind: 'reverb' },

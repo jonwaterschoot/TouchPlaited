@@ -11,6 +11,7 @@
 // version's "·", "→", "↔", "−" become "-", "->", "<>", "-".
 
 #include "oled_ui.h"
+#include "../synth/patterns_gen.h"
 #include <cstring>
 #include <algorithm>
 
@@ -35,7 +36,7 @@ const ControlMeta kControls[8] = {
     { "S31", "Decay",     "Tempo",     "Decay",      nullptr  },
     { "S32", "Harmonics", "Swing",     "Division",   nullptr  },
     { "S33", "Timbre",    "Density",   "Swing",      nullptr  },
-    { "S34", "Morph",     "Punch",     "Density",    nullptr  },
+    { "S34", "Morph",     "Chance",    "Density",    nullptr  },
     { "S35", "Model sel", "Pattern",   "Order",      "Delay"  },
     { "S36", "Volume",    "Volume",    "Volume",     nullptr  },
     { "S37", "Blend",     "Tightness", "Blend",      nullptr  },
@@ -159,6 +160,41 @@ void pct_value(FixedCapStr<N>& out, float v01) {
     out.Clear();
     out.AppendInt(static_cast<int>(v01 * 100.f + 0.5f));
     out.Append("%");
+}
+
+// Seq S35 (Pattern): name of the selected pattern + its position within the
+// current genre, e.g. "fourfloor 1/6" — mirrors Sequencer::pattern_index()'s
+// quantization (synth/sequencer.h) so the displayed slot always matches what
+// actually plays.
+template <size_t N>
+void pattern_value(FixedCapStr<N>& out, int genre, float v01) {
+    if (genre < 0 || genre >= kNumGenres) genre = 0;
+    int n  = kGenrePatternCount[genre];
+    int vi = static_cast<int>(v01 * static_cast<float>(n));
+    if (vi >= n) vi = n - 1;
+    int idx = kGenrePatternIdx[genre][vi];
+    out.Clear();
+    out.Append(kSeqPatternNames[idx]);
+    out.Append(" ");
+    out.AppendInt(vi + 1);
+    out.Append("/");
+    out.AppendInt(n);
+}
+
+const char* const kDensityWords[4] = { "strong", "main", "ghosts", "full" };
+
+// Seq S33 (Density): stage number + what it lets through, e.g. "4 full" —
+// mirrors Sequencer::SetDensity's quantization (synth/sequencer.h) exactly,
+// so the displayed stage always matches what's actually playing.
+template <size_t N>
+void density_value(FixedCapStr<N>& out, float v01) {
+    int d = 1 + static_cast<int>(v01 * 3.f + 0.5f);
+    if (d < 1) d = 1;
+    if (d > 4) d = 4;
+    out.Clear();
+    out.AppendInt(d);
+    out.Append(" ");
+    out.Append(kDensityWords[d - 1]);
 }
 
 // formatKnobValue() port: quantized selectors show the selected item
@@ -431,6 +467,11 @@ void describe_control(int i, const TelemetryState& t,
         value.Append(" BPM");
         return;
     }
+    // Seq density: name the stage instead of a raw % (see density_value()).
+    if (mode == 0 && !rec_active && i == 3) {
+        density_value(value, v);
+        return;
+    }
     if (std::strcmp(meta.name, "S35") == 0) {
         if (mode == 1 && arp_sub == 2 && !snd_edit && !p0 && !p2) {
             value.Clear();
@@ -444,6 +485,10 @@ void describe_control(int i, const TelemetryState& t,
         }
         if (mode != 0) {
             model_value(value, t.model);
+            return;
+        }
+        if (!p0 && !p2 && !rec_active) {
+            pattern_value(value, t.sw1, v);
             return;
         }
     }

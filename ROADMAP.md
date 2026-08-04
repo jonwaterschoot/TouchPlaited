@@ -47,22 +47,13 @@ full write-up". Outstanding follow-ups moved to Priority 3 below.
 
 ## Priority 2 — Seq patterns: authoring & a less-repetitive feel
 
-- [ ] **Manually author more patterns with `tools/pattern_editor.html`.** S35
-      already selects a variant within the SW1 genre (`Sequencer::SetVariant`,
-      `synth/sequencer.h`); the bottleneck is content, not plumbing. Current
-      patterns on disk (`synth/patterns/<genre>/`), track progress here:
-      - Electro (6): `00_classic`, `01_brute`, `02_offbeat`, `03_claptrap`,
-        `04_sizzle`, `05_burst`
-      - Techno (4): `00_fourfloor`, `01_rolling`, `03_minmal`,
-        `04_tropicalsunset` (`03`/`04` added 2026-07-27, alongside groove
-        reworks of `00`/`01`)
-      - IDM (3): `00_glitch`, `01_fullrandom`, `02_stomp` — thinnest genre
-        now that Techno's caught up
-      - [ ] Add more IDM variants
-      - [ ] Add more Techno variants
-      - [ ] Add more Electro variants
-      - [ ] Re-run `tools/gen_patterns.py` after each addition, hardware-test
-            the new variant via S35 sweep
+**Manually author more patterns with `tools/pattern_editor.html`** — done,
+2026-08-04. All three genres now have a healthy variant count (Electro 6,
+Techno 6, IDM 6); S35 selects among them (`Sequencer::SetVariant`,
+`synth/sequencer.h`). Re-run `tools/gen_patterns.py` and hardware-test via
+S35 sweep before shipping new additions, same as always — just no longer
+tracked as an open item.
+
 - [ ] **Idea to track/iterate — a less repetitive feel, and freeing up S34.**
       The original point of per-track pattern variants was to break up
       repetition; good use of the existing per-step **chance** feature can
@@ -166,6 +157,29 @@ scoped yet — pick apart into concrete items before starting):**
 Before touching any of this: re-read the whole OLED screen section top to
 bottom first, plus the archived write-up it points to — the real-hardware
 checklist and the per-mode list above already overlap with parts of it.
+
+
+### OLED info:
+
+#### Playmode Basic Pitch:
+
+- **more info** when touching pads the screen is using the hardware action displaying; showing small text at the top left, with for e.g. touch `P3 PLAY NOTE` and in large text below that the (last played) note
+  - can we after a x amount of idle time go back to showing the current loaded model
+- **list combo options** when touching the modifier P0, P1, P2:
+  - can we show the possible combo's e.g.
+    + S35 load models part 1 (or similar)
+    + P2 hold for random
+
+  - the problem here would be how to list all possible combo's when not able to fit in one screen. (scroll is probably the smartest choice here.?) 
+
+**issue / question** P0 + P10 / P11	Root semitone down / up does not allow going "below" C, so we could allow shifting either direction, and just rotate back to the notes while staying in an octave-less state or leave as is, and extra mention in the manual?
+
+- **Long-press stages** The item from the checklist above, additional info on what touch and hold does, we could e.g. use a smaller loading bar, that makes room for additional text
+  - after the third stage ran, the load bar should dissapear, now it remains until something else happens.
+
+- **pickup** when moving knobs and they're not yet at the pickup to actually trigger the new value we should display that instead of just showing the value without seeing if it's actively changing or waiting for the pickup point to be reached
+
+
 
 ## Parking Lot - performance 
 
