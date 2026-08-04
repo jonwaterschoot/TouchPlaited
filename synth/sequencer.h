@@ -16,13 +16,15 @@
 // A step is audible when (weight + density) >= kThreshold (5). Density is
 // clamped to 1–4 (SetDensity) — S33's travel never reaches a fully silent
 // state:
-//   density 1 → only weight=4 (strong) steps fire      — display: "1 strong"
-//   density 2 → weight 3–4 fire (main pattern)          — display: "2 main"
-//   density 3 → weight 2–4 fire (ghosts audible)         — display: "3 ghosts"
-//   density 4 → weight 1–4 fire (everything)             — display: "4 full"
+//   density 1 → only weight=4 (strong) steps fire   — display: "layer 4"
+//   density 2 → weight 3–4 fire (main pattern)       — display: "layers 3-4"
+//   density 3 → weight 2–4 fire (ghosts audible)      — display: "layers 2-4"
+//   density 4 → weight 1–4 fire (everything)          — display: "layers 1-4"
 // (display/oled_ui.cpp's density_value() and the visualizer's
 // densityValue() must stay in lockstep with SetDensity's quantization and
-// these four words.)
+// these four strings. They name the layers rather than the feel — "strong"
+// and "ghosts" described how it sounds, not what the knob just did — and are
+// all ≤11 chars so the OLED's value row keeps one font across the sweep.)
 //
 // S34 (chance) rolls a step's own authored chance nibble (above) by default
 // — SetChance(0.5), the pickup default, reproduces that exactly. Below 0.5
@@ -31,6 +33,10 @@
 // kChanceExtraMax x at full right). Steps authored "always" (c=0, e.g. a
 // four-on-the-floor kick) are never touched by this knob — it only adds or
 // removes chance on steps the pattern already marked as probabilistic.
+// It is displayed as a zone, never a percentage ("always fire" / "fuller
+// 60%" / "as authored" / "sparse 2.4x" — chance_value() in
+// display/oled_ui.cpp, chanceValue() in the visualizer): a raw knob % read
+// as "100% = always plays" when full right is in fact the sparsest setting.
 //
 // Track order: 0=Kick 1=Snare 2=CHH 3=OHH 4=Clap 5=Tom 6=Perc
 //   (matches pad_slots[0..6])
@@ -229,6 +235,16 @@ public:
 
     // True on the block where a 16th step fired (regardless of density mask).
     bool StepFired() const { return step_fired_; }
+
+    // Which slot within the current genre is actually playing (0-based) —
+    // published in telemetry so both screens can name the pattern without
+    // re-deriving it from S35's pot position, which sits behind a pickup and
+    // so can be parked anywhere.
+    int VariantSlot() const {
+        const int n  = kGenrePatternCount[genre_];
+        const int vi = static_cast<int>(variant_ * static_cast<float>(n));
+        return vi >= n ? n - 1 : vi;
+    }
 
 private:
     bool     active_       = false;

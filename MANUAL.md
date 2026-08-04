@@ -24,7 +24,7 @@
 | P0 + S35 | Model select, bank 0 (engines 0–11) | — |
 | P0 + S37 | Stereo width | — |
 | P0 + P10 / P11 | Root semitone down / up | — |
-| P0 + P2 hold 1 s / 2 s / 3 s | Randomize tight / randomize wide / back to clean | — |
+| P0 + P2 hold 2 s / 4 s / 6 s | Randomize tight / randomize wide / back to clean | — |
 | **Hold P2 (shift)** | | |
 | P2 + S35 | Model select, bank 1 (engines 12–23) | — |
 | P2 (hold) + P10 | Melodic transport — arp + Rec loop run / stop | — |
@@ -55,7 +55,7 @@ SW1 picks the sub-state — **Hold** (left) · **Arp** (center) · **Rec** (righ
 | P0 + S35 | Model select, bank 0 — on the arp's sound (Arp/Hold) or Rec's own sound (Rec) | | — |
 | P0 + S37 | Stereo width | | — |
 | P0 + P1 hold 1 s | **Sound edit** toggle — knobs become S30 drive · S31 decay · S32 harmonics · S33 timbre · S34 morph on whichever sound is in view (arp's own in Arp/Hold, Rec's own in Rec); functions freeze until toggled back | | — |
-| P0 + P2 hold 1 s / 2 s | Vary the in-view sound — tight / wide | | — |
+| P0 + P2 hold 2 s / 4 s | Vary the in-view sound — tight / wide | | — |
 | **Hold P1 / P2 (shift)** | | | |
 | P1 + P10 / P11 | Octave range − / + (0–3 extra octaves the arp climbs) | | — |
 | P1 + S30 / P1 + S35 | Reverb / delay send — **own send per sub-state** | | — |
@@ -71,8 +71,8 @@ SW1 picks the sub-state — **Hold** (left) · **Arp** (center) · **Rec** (righ
 | S30 | Drive — also rides the kick's punch (extra timbre push on trigger) | 24 |
 | S31 | Tempo (60–180 BPM) | 27 (muted by ext. clock) |
 | S32 | Shuffle | 28 |
-| S33 | Density (1 strong … 4 full) | 29 |
-| S34 | Chance — scales each step's own authored chance; center = as authored | 30 |
+| S33 | Pattern density (layer 4 … layers 1-4) | 29 |
+| S34 | Step chance — scales each step's own authored chance; center = as authored | 30 |
 | S35 | Pattern select (within SW1 genre) | — |
 | S36 | Seq volume | — |
 | S37 | Tightness (decay of engines 19–23) | 31 |
@@ -81,7 +81,7 @@ SW1 picks the sub-state — **Hold** (left) · **Arp** (center) · **Rec** (righ
 | P1 + S35 | Delay (drum group) — center = off; slapback ◄ · ► dotted 1/8 | — |
 | P3–P9 | Play drums: kick / snare / cl. hat / op. hat / clap / tom / perc | notes in/out, ch 10 (GM) |
 | Hold P3–P9 for 2 s | Enter Recording for that drum | — |
-| P0 + P2 hold 1 s / 2 s | Vary current kit / generate new kit | — |
+| P0 + P2 hold 2 s / 4 s | Vary current kit / generate new kit | — |
 | P2 (hold) + P11 | Play / pause | Start/Continue/Stop |
 | SW1 | Genre: IDM (left) / techno (center) / electro (right) | — |
 
@@ -206,7 +206,7 @@ P3–P9 map to slots 0–6. In Seq mode these are fixed drum roles:
 
 All knobs apply globally and in real time to every voice.
 
-After a P0+P2 randomize (see *Re-randomize gestures*), each pad plays its own frozen snapshot instead. To return to live knob control: hold P0+P2 for 3 s (stage 3 — clean), move any timbral knob (S31/S32/S33/S34), or pick a model with P0/P2+S35.
+After a P0+P2 randomize (see *Re-randomize gestures*), each pad plays its own frozen snapshot instead. To return to live knob control: hold P0+P2 for 6 s (stage 3 — clean), move any timbral knob (S31/S32/S33/S34), or pick a model with P0/P2+S35.
 
 | Knob | Function | MIDI CC |
 |------|----------|---------|
@@ -247,6 +247,8 @@ All arp knobs go through pickup on mode entry, so pots that served another mode 
 
 **Arming** — Rec's pads always sound so you can audition its own (independent, possibly unfamiliar) model before committing anything. **P2+P10, only while SW1 is in Rec, arms or disarms capture** instead of its usual transport meaning: arming makes sure the clock is running (3 blinks) and disarming stops new capture and commits the open take, but does **not** stop playback — already-committed layers keep looping while you're punched out, so you can listen back before punching in again (2 blinks). P2+P10 keeps its normal transport meaning everywhere else (Arp, Hold, and every other playmode).
 
+Because arming and running are independent, the screen names the *combination* rather than the flag you just moved — `REC + PLAY` (looping and capturing), `PLAY NO REC` (looping, punched out), `REC STOPPED` (transport stopped, nothing sounding). Outside Rec the same combo reads `ARP PLAY` / `ARP STOPPED`, or `MEL PLAY` / `MEL STOPPED` when you hit it from Seq or Basic Pitch. The idle status row shows the same wording, so what a press told you and what the screen settles back to always agree.
+
 **Rec-only knobs** (S32–S35 while SW1 is in Rec — replace Division/Swing/Density/Order; S31 decay stays the shared arp knob above, S30 drive switches to Rec's own independent value):
 
 | Knob | Function |
@@ -281,7 +283,7 @@ To shape whichever sound is currently in view (the arp's in Arp/Hold, Rec's whil
 |---------|--------|
 | **P0 + P1 hold ~1 s** | Toggle **sound edit**: the knobs become S30 drive · S31 decay · S32 harmonics · S33 timbre · S34 morph on that sound (the Basic Pitch layout), and the Arp/Hold or Rec functions freeze. Entry = 3 rapid blinks + an audition; with the arp/loop running every trigger is live feedback. Toggle again (2 blinks), flick SW1, or leave and re-enter the mode to get the normal knobs back — every hand-off is pickup-protected |
 | P0 / P2 + S35 | Model select on the in-view sound (bank 0 / bank 1) — works without leaving play |
-| P0 + P2 hold 1 s / 2 s | Vary the in-view sound around where it is — tight (±0.10) / wide (±0.25); the engine stays |
+| P0 + P2 hold 2 s / 4 s | Vary the in-view sound around where it is — tight (±0.10) / wide (±0.25); the engine stays |
 
 ### Seq (SW2 Up)
 
@@ -296,8 +298,8 @@ These knob assignments apply only while SW2 is Up. If the seq keeps playing in a
 | S30 | Drive — overall soft-clip saturation (per-slot drive settable in Recording as a percentage of overall); also pushes the kick's punch (extra timbre boost on trigger) | 24 |
 | S31 | Tempo — 60–180 BPM | 27 (muted while an external clock — MIDI or CV — is present) |
 | S32 | Shuffle — swing delay on odd 16th steps (0 = straight, max = ~50%) | 28 |
-| S33 | Density — how many pattern steps fire: 1 strong (weight-4 hits only) · 2 main (weight 3–4) · 3 ghosts (weight 2–4) · 4 full (everything); never goes silent | 29 |
-| S34 | Chance — scales every step's own authored chance nibble up or down. Center (50%) plays patterns exactly as authored; left of center pushes probabilistic steps toward always firing; right of center makes them sparser, down to silent at full right. Steps authored "always" (no chance roll, e.g. a four-on-the-floor kick) are never affected | 30 |
+| S33 | **Pattern density** — which weight layers fire, four stages: `layer 4` (weight-4 hits only) · `layers 3-4` (the main pattern) · `layers 2-4` (ghosts audible) · `layers 1-4` (everything); never goes silent | 29 |
+| S34 | **Step chance** — scales every step's own authored chance nibble up or down. The screen names the zone rather than showing a percentage, because a raw % reads backwards here (full right is the *sparsest* setting, not "always plays"): `always fire` at full left · `fuller 60%` approaching center · `as authored` at center, which plays patterns exactly as written · `sparse 2.4x` to the right, up to 3× the authored miss rate. Steps authored "always" (no chance roll, e.g. a four-on-the-floor kick) are never affected | 30 |
 | S35 | Pattern select — steps through the patterns of the current SW1 genre (knob range splits evenly across that genre's pattern count; custom patterns can be drawn with `tools/pattern_editor.html` and added via a firmware rebuild — see the README) | — |
 | S36 | Seq volume - drum group level, independent of the pitched modes; picked up on re-entry | — |
 | S37 | Tightness — compresses the tail of all morph-decay engines (19–23); lower = shorter decay. Hold P0: drum-group stereo width (0 = mono) | 31 |
@@ -328,7 +330,7 @@ Recording lets you edit a single slot's parameters while hearing it in real time
 
 ### Entering recording
 
-**Seq mode only:** hold a musical pad (P3–P9) for **2 s**. The LED shows where you are in the hold: from ~0.2 s in it blinks with steadily accelerating speed, ending very fast as the 2 s mark lands. Release at any point before that to abort. When the threshold is reached the LED plays a short rapid burst — you're in. (In Arp/Mel holding a pad is the playing gesture, so per-slot recording retired from the pitched modes with the old Random mode — the arp's sound is edited with P0+P1 sound edit instead.)
+**Seq mode only:** hold a musical pad (P3–P9) for **2 s**. The LED shows where you are in the hold: from ~0.2 s in it gives three slow pulses while the screen names what the hold will do, then blinks with steadily accelerating speed, ending very fast as the 2 s mark lands. Release at any point before that to abort. When the threshold is reached the LED plays a short rapid burst — you're in. (In Arp/Mel holding a pad is the playing gesture, so per-slot recording retired from the pitched modes with the old Random mode — the arp's sound is edited with P0+P1 sound edit instead.)
 
 While in Recording mode the LED shows a **fast double blink on every audible hit** of the slot being edited (each forced seq step while playing, each 0.5 s audition while paused) — locked to the audio and clearly distinct from the sequencer's single beat flash. Keeping the pad held past the 2 s entry does nothing further; confirm requires releasing first.
 
@@ -363,8 +365,8 @@ While the sequencer runs it fires the slot being edited every other step (8th no
 
 | Gesture | Result |
 |---------|--------|
-| Hold the *source pad* alone for **1.2 s** | **Confirm** — saves edits, exits recording (3 rapid blinks). Keeping the pad held after the save is ignored — it can't re-enter recording or copy; release everything and start a fresh 2 s hold to edit again |
-| Tap any *other* pad (0.05–1.2 s) then release | **Cancel** — restores original slot, exits recording |
+| Hold the *source pad* alone for **1.2 s** | **Confirm** — saves edits, exits recording (3 rapid blinks). The screen shows `HOLD P5 TO SAVE` with a filling bar while you hold, then flashes `SAVED`. Keeping the pad held after the save is ignored — it can't re-enter recording or copy; release everything and start a fresh 2 s hold to edit again |
+| Tap any *other* pad (0.05–1.2 s) then release | **Cancel** — restores original slot, exits recording; the screen flashes `CANCELLED` |
 | Hold *source pad* + hold *another pad* for **1.2 s** | **Copy** — the accelerating countdown animation restarts while both pads are down, then the clone lands with an affirmation on both channels: the copied sound plays on the target and the LED gives 3 rapid blinks; repeat to copy to more pads |
 
 ---
@@ -391,11 +393,11 @@ Hold both pads together. Two stages fire in sequence; releasing before a stage c
 
 | Hold time | Stage | Result |
 |-----------|-------|--------|
-| 1 s | 1 — Soft tight | All pads get new random params — same engine, tight spread (±0.25) around current knob positions. Scale pitches preserved. |
-| 2 s | 2 — Soft wide | All pads get new random params — same engine, wider spread (±0.45). Scale pitches preserved. |
-| 3 s | 3 — Clean | Back to the original sound: snapshots are dropped and all pads follow the live knobs again. |
+| 2 s | 1 — Soft tight | All pads get new random params — same engine, tight spread (±0.25) around current knob positions. Scale pitches preserved. |
+| 4 s | 2 — Soft wide | All pads get new random params — same engine, wider spread (±0.45). Scale pitches preserved. |
+| 6 s | 3 — Clean | Back to the original sound: snapshots are dropped and all pads follow the live knobs again. |
 
-The LED lights while held and shows a brief flash at each stage.
+Each stage opens with three slow LED pulses while the screen names what that stage will do, then the blink accelerates as the stage's progress bar fills; a brief flash marks the stage firing.
 
 After stage 1 or 2 the pads play frozen snapshots. To return to live knob control: hold on to stage 3, move any timbral knob (S31/S32/S33/S34), or pick a model with P0/P2+S35.
 
@@ -405,10 +407,10 @@ Hold both pads together. Two stages fire in sequence; releasing before a stage c
 
 | Hold time | Stage | Result |
 |-----------|-------|--------|
-| 1 s | 1 — Tight | Harmonics / timbre / morph nudged ±0.10 around the current sound |
-| 2 s | 2 — Wide | Harmonics / timbre / morph thrown ±0.25 |
+| 2 s | 1 — Tight | Harmonics / timbre / morph nudged ±0.10 around the current sound |
+| 4 s | 2 — Wide | Harmonics / timbre / morph thrown ±0.25 |
 
-The LED lights while held and shows a brief flash at each stage, with an audition of the new sound.
+Each stage opens with three slow LED pulses while the screen names what that stage will do, then the blink accelerates as the stage's progress bar fills; a brief flash and an audition of the new sound mark the stage firing.
 
 ### In Seq mode — drum re-randomize
 
@@ -609,6 +611,6 @@ Optional physical mods for anyone modding their own Simple Touch. None of these 
 
 **2. CV clock jacks.** S43 (clock in) and S40 (clock out) — see *Clock sync* above — use Daisy Seed pins **A11** and **D25** on this build. Those were just the first free pins taken in order, not a deliberate choice, so if you're wiring your own jacks, check what's actually free/convenient on your board rather than assuming those two.
 
-**3. OLED screen.** Optional I2C 128×32 add-on (SSD1306) on **D11/D12**, sharing the MPR121 touch bus. Mirrors the last-touched control (combo, function, value) on the faceplate. If you'd rather not add hardware, the [visualizer webapp](#visualizer-webapp) shows the same live telemetry on a screen you already have.
+**3. OLED screen.** Optional I2C 128×32 add-on (SSD1306) on **D11/D12**, sharing the MPR121 touch bus. Mirrors the last-touched control (combo, function, value) on the faceplate. After ~2 s untouched it falls back to a per-mode status row — Seq shows genre and transport, Rec shows which pad you're editing and what's loaded in it, Arp/Mel and Basic Pitch show the sub-state and the loaded model. Hold a combo with a build-up (see *Re-randomize gestures* and *Recording*) and the screen shows a progress bar with a note saying what crossing the next threshold does, then flashes what changed. If you'd rather not add hardware, the [visualizer webapp](#visualizer-webapp) shows the same live telemetry on a screen you already have.
 
 On power-up it runs a one-time boot animation before handing off to that normal display: "TouchPlaited" materializes letter by letter (*Plaited* emphasized one font size up), holds, then disintegrates into scattering particles, then settles into a status line reporting whether SettingsJournal found and restored a prior session or this is a fresh/reset unit — see [`display/oled_boot.cpp`](display/oled_boot.cpp) / [`oled_boot.h`](display/oled_boot.h). The user LED slow-blinks for the duration (see *LED blink codes* above) and flashes once when it's done, so a unit with no screen attached still shows boot progress and a ready signal.

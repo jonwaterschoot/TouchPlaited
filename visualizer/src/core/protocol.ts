@@ -3,10 +3,10 @@
 //
 //   F0 7D 54 50 <ver> <type> <payload…> F7      "TP" = 0x54 0x50, mfr 0x7D
 //
-// STATE (0x01) payload, 27 bytes, all 7-bit (bytes 16-17 appended in fw v2,
+// STATE (0x01) payload, 28 bytes, all 7-bit (bytes 16-17 appended in fw v2,
 // byte 18 in fw v3, bytes 19-20 in fw v4, bytes 21-22 in fw v5, bytes 23-24
-// in fw v6, bytes 25-26 in fw v7; decode guards on length so older frames
-// still parse):
+// in fw v6, bytes 25-26 in fw v7, byte 27 in fw v8; decode guards on length
+// so older frames still parse):
 //   0    pads P0..P6 bitmask (bit0 = P0)
 //   1    pads P7..P11 bitmask (bit0 = P7)
 //   2-9  S30..S37, 0..127
@@ -25,9 +25,11 @@
 //   21   master clock source: 0 internal, 1 MIDI, 2 CV
 //   22   bits0-1 Arp/Mel sub-state (0 Arp, 1 Hold, 2 Rec — change-latched on
 //        the device, so it can disagree with the live SW1 lever), bit2 Rec
-//        capture armed (P2+P10)
+//        capture armed (P2+P10), bit3 melodic transport running (P2+P10's
+//        other meaning, outside Rec — independent of armed: a punched-out
+//        Rec keeps looping)
 //   23   hold kind: 0 none, 1 P0+P2 (re-randomize/vary sound), 2 rec entry,
-//        3 layer clear, 4 layer copy — a hold building toward a threshold,
+//        3 layer clear, 4 layer copy, 5 rec save — a hold toward a threshold,
 //        same precedence as the device LED's accelerating-blink family
 //   24   hold progress, 0..127, fraction toward that threshold (for kind 1,
 //        relative to the CURRENT stage only — each stage fills on its own)
@@ -36,6 +38,8 @@
 //        holds) — edge-detect against the previous frame to catch a confirm
 //   26   hold outcome, kind 3 only, at the instant stage becomes 1: 0 n/a,
 //        1 success, 2 empty (nothing was there to clear)
+//   27   Seq pattern slot actually playing within the current genre, 0-based
+//        (S35 is behind a pickup, so its pot position is not a stand-in)
 //
 // FX (0x04) payload: drive, reverb, delay, nTrims, trims…   (all 0..127)
 // KIT (0x05) payload: nSlots, then per slot 6 bytes: engine, harmonics,
@@ -118,13 +122,18 @@ export function applySysex(data: Uint8Array, store: DeviceStore): boolean {
       }
       if (p.length >= 23) {
         store.setClockSrc(p[21]);
-        store.setArpSub(p[22] & 0x03, (p[22] & 0x04) !== 0);
+        // bit3 (melodic transport) only exists from fw v8 — before that the
+        // bit was always 0, which would read as "stopped" rather than
+        // "unknown", so keep the pre-v8 default of running.
+        store.setArpSub(p[22] & 0x03, (p[22] & 0x04) !== 0,
+                        p.length >= 28 ? (p[22] & 0x08) !== 0 : true);
       }
       if (p.length >= 25) {
         const stage = p.length >= 27 ? p[25] : 0;
         const outcome = p.length >= 27 ? p[26] : 0;
         store.setHold(p[23], p[24], stage, outcome);
       }
+      if (p.length >= 28) store.setSeqPattern(p[27]);
       return true;
     }
     case FrameType.EVENT: {

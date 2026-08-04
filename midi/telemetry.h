@@ -33,7 +33,14 @@ struct TelemetryState {
     uint8_t  clock_src;    // master clock: 0 internal, 1 MIDI, 2 CV
     uint8_t  arp_flags;    // bits0-1 Arp/Mel sub-state (0 Arp, 1 Hold, 2 Rec —
                            // the change-latched state, NOT the live lever),
-                           // bit2 Rec capture armed (P2+P10)
+                           // bit2 Rec capture armed (P2+P10), bit3 melodic
+                           // transport running (arp_run_on — P2+P10's other
+                           // meaning, outside Rec). Armed and running are
+                           // independent: a punched-out Rec keeps looping.
+    uint8_t  seq_pattern;  // slot within the current genre that's actually
+                           // playing, 0-based (Sequencer::VariantSlot) — S35
+                           // sits behind a pickup, so its pot position is not
+                           // a safe stand-in for what's on the drums
     uint8_t  hold_kind;    // which build-toward-threshold hold is in progress,
                            // 0 none, matches the LED's own accelerating-blink
                            // family and precedence (display/oled_ui.cpp):

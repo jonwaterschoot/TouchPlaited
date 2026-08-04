@@ -73,6 +73,7 @@ export class OledMini {
   private progressMode = false; // showing a hold's progress bar, not label/value
   private progressLabel = '';
   private progressPct = 0; // 0..1
+  private progressNote = ''; // what crossing the next threshold does
   private flashTimer: ReturnType<typeof setTimeout> | null = null; // confirm text owns the screen
   private cell = 4; // device px per logical pixel — set for real by place()
 
@@ -139,12 +140,13 @@ export class OledMini {
    * label row as show(), value row replaced by a filled bar. Fires on every
    * STATE frame while the hold is live, same as a continuously-turning
    * knob would, so the bar visibly fills. */
-  showProgress(label: string, pct: number) {
+  showProgress(label: string, pct: number, note = '') {
     if (this.flashTimer !== null) return; // a confirm is still on screen
     this.active = true;
     this.progressMode = true;
     this.progressLabel = label;
     this.progressPct = pct;
+    this.progressNote = note;
     this.shownAt = performance.now();
     this.draw();
   }
@@ -167,12 +169,15 @@ export class OledMini {
     }, CONFIRM_FLASH_MS);
   }
 
-  /** Releases the screen back to normal show()/setStatus() calls once
-   * hold_kind returns to 0 — doesn't redraw itself, same as the physical
-   * screen: it just holds the last-drawn frame until something else
-   * changes. */
+  /** Releases the screen once hold_kind returns to 0, and hands it straight
+   * back to the status row — matching OledUi::Service, which forces that
+   * redraw on the same edge so a finished bar can't sit frozen on the panel
+   * (a hold's end changes nothing else the priority chain watches). */
   clearProgress() {
+    if (!this.progressMode) return;
     this.progressMode = false;
+    this.active = false;
+    if (this.flashTimer === null) this.draw();
   }
 
   /** Home-screen content: what shows when nothing's been touched recently. */
@@ -184,7 +189,7 @@ export class OledMini {
 
   private draw() {
     if (this.active && this.progressMode) {
-      this.layoutProgress(this.progressLabel, this.progressPct);
+      this.layoutProgress(this.progressLabel, this.progressPct, this.progressNote);
       this.rasterize();
       return;
     }
@@ -241,19 +246,23 @@ export class OledMini {
       for (let x = x1; x <= x2; x++) this.setBit(x, y);
   }
 
-  /** Label row as layoutText(), value row replaced by an outlined bar filled
-   * left-to-right by `pct` — identical geometry to the firmware's
+  /** Label row as layoutText(), middle row an outlined bar filled
+   * left-to-right by `pct`, bottom row a Font_6x8 note saying what crossing
+   * the threshold does — identical geometry to the firmware's
    * OledScreen::ShowProgress() (display/oled_screen.cpp). */
-  private layoutProgress(label: string, pct: number) {
+  private layoutProgress(label: string, pct: number, note: string) {
     this.bits.fill(0);
     this.blitText(FONT_6X8, truncate(label.toUpperCase(), LABEL_CHARS), 1, 0);
 
-    const OX1 = 1, OY1 = 16, OX2 = 126, OY2 = 27;
+    const OX1 = 1, OY1 = 12, OX2 = 126, OY2 = 21;
     this.drawRectOutline(OX1, OY1, OX2, OY2);
     const FX1 = OX1 + 2, FY1 = OY1 + 2, FY2 = OY2 - 2;
     const maxW = OX2 - 2 - FX1; // inner width at 100%
     const fillW = Math.max(0, Math.min(maxW, Math.round(maxW * pct)));
     if (fillW > 0) this.drawRectFilled(FX1, FY1, FX1 + fillW - 1, FY2);
+
+    if (note)
+      this.blitText(FONT_6X8, truncate(note.toUpperCase(), LABEL_CHARS), 1, H - FONT_6X8.height);
   }
 
   /** Paint each lit bit-grid pixel as an inset square — the visible

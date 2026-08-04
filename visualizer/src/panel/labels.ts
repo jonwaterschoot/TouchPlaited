@@ -16,7 +16,8 @@ import type { DeviceStore, StateEvent, DeviceState } from '../core/state';
 import {
   CONTROLS, PADS, SW1_POSITIONS, SW2_POSITIONS, MODE_NAMES, modelName,
   DRUM_NOTES, noteName, fxValueLabel, engineKnobLabel, formatKnobValue,
-  ENGINE_KNOBS, pitchedNote, arpOrderName, patternValue, densityValue,
+  ENGINE_KNOBS, pitchedNote, arpOrderName, patternValue, patternSlotValue,
+  densityValue, chanceValue,
 } from '../core/controls-meta';
 import type { KnobParam } from '../core/controls-meta';
 
@@ -78,27 +79,65 @@ function blendInfo(model: number): { fn: string; dead: boolean } {
 /** Combo + function for a hold's progress bar — ported 1:1 from
  * display/oled_ui.cpp's OledUi::Service hold_kind switch, kept in the same
  * wording (the mini screen uppercases everything anyway). */
-function holdLabel(kind: number, mode: number): string {
+/** The state P2+P10 just landed in, named as one thing instead of as whichever
+ * single flag moved — ported 1:1 from melodic_state() in
+ * display/oled_ui.cpp. Transport and capture-arm are independent, so neither
+ * flag on its own describes what the device is doing. */
+function melodicState(mode: number, arpSub: number, running: boolean, armed: boolean): string {
+  if (mode !== 1) return running ? 'Mel play' : 'Mel stopped';
+  if (arpSub === 2) {
+    if (!running) return 'Rec stopped';
+    return armed ? 'Rec + play' : 'Play no rec';
+  }
+  return running ? 'Arp play' : 'Arp stopped';
+}
+
+function holdLabel(kind: number, mode: number, recSlot: number | null): string {
   switch (kind) {
     case 1: return `P0+P2 ${mode === 0 ? 'Re-randomize' : 'Vary sound'}`;
     case 2: return 'P3-P9 Rec entry';
     case 3: return 'P2+pad Clear layer';
     case 4: return 'Rec Copy layer';
+    case 5: return `Hold ${recSlot === null ? 'pad' : `P${recSlot + 3}`} to save`;
+    case 6: return 'Rec Exit';
     default: return 'Hold';
   }
 }
 
 /** What flashes when hold_stage just rose — ported 1:1 from oled_ui.cpp's
- * confirm switch. Kind 1 (P0+P2) names the stage reached, not "done": stage
- * count varies with context (2 or 3) and every stage gets the same uniform
- * treatment on the LED, so there's no single "final" wording to reach for. */
-function confirmText(kind: number, stage: number, outcome: number): string {
+ * confirm_text(). Names the change rather than the stage number it used to
+ * print: "Stage 2" said a threshold was crossed but not which of the three
+ * per-mode meanings it had. */
+function confirmText(kind: number, mode: number, stage: number, outcome: number): string {
   switch (kind) {
-    case 1: return `Stage ${stage}`;
+    case 1:
+      if (mode === 0) return stage >= 2 ? 'New kit' : 'Kit varied';
+      if (stage >= 3) return 'Live knobs';
+      return stage >= 2 ? 'Varied more' : 'Varied';
     case 2: return 'Recording';
     case 3: return outcome === 2 ? 'Empty' : 'Cleared';
     case 4: return 'Copied';
+    case 5: return 'Saved';
+    case 6: return 'Cancelled';
     default: return 'OK';
+  }
+}
+
+/** What crossing the *next* threshold will do — the note row under the bar,
+ * ported 1:1 from oled_ui.cpp's hold_note(). `done` is how many thresholds
+ * have already fired. */
+function holdNote(kind: number, mode: number, done: number): string {
+  switch (kind) {
+    case 1:
+      if (mode === 0) return done === 0 ? '1s vary kit' : '2s new kit';
+      if (done === 0) return '1s vary sound';
+      if (done === 1) return '2s vary more';
+      return '3s back to live knobs';
+    case 2: return '2s enter rec mode';
+    case 3: return 'clear this layer';
+    case 4: return 'copy slot to pad';
+    case 5: return 'keep these edits';
+    default: return '';
   }
 }
 
@@ -464,6 +503,9 @@ export class Labels {
         } else if (meta.name === 'S33' && s.mode === 0 && s.recSlot === null) {
           // Seq Density: name the stage instead of a raw %.
           value = densityValue(ev.v);
+        } else if (meta.name === 'S34' && s.mode === 0 && s.recSlot === null) {
+          // Seq Chance: name the zone — a raw % reads backwards here.
+          value = chanceValue(ev.v);
         } else {
           value = `${Math.round(ev.v * 100)}%`;
         }
@@ -583,15 +625,25 @@ export class Labels {
       case 'arpSub': {
         // Arm/disarm is its own gesture (P2+P10); a sub-state move is the
         // latched SW1 change — log whichever actually happened.
+        const melState = melodicState(s.mode, ev.sub, ev.running, ev.armed);
         if (ev.armed !== ev.prevArmed) {
           this.addLog('rec-arm', ev.armed
             ? `<b>Rec</b> <span>armed</span> — pads record`
             : `<b>Rec</b> <span>disarmed</span> — playback continues`);
+          this.oledMini.show('P2+P10 Rec capture', melState);
         }
         if (ev.sub !== ev.prevSub) {
           const names = ['Arp', 'Hold', 'Rec'];
           this.addLog('arp-sub',
             `<b>Arp/Mel</b> state → <span>${names[ev.sub] ?? ev.sub}</span>`);
+        }
+        // Melodic transport — P2+P10's meaning outside Rec. It gates whether
+        // the arp and the Rec loop sound at all, and used to pass with no
+        // message anywhere.
+        if (ev.running !== ev.prevRunning) {
+          this.addLog('mel-transport',
+            `<b>P2+P10</b> melodic transport <span>${ev.running ? 'play' : 'stop'}</span>`);
+          this.oledMini.show('P2+P10 Transport', melState);
         }
         this.renderStatus(s);
         break;
@@ -606,9 +658,11 @@ export class Labels {
           && (ev.holdKind !== this.lastHoldKind || ev.stage !== this.lastHoldStage);
         if (confirmed) {
           this.oledMini.confirmFlash(
-            holdLabel(ev.holdKind, s.mode), confirmText(ev.holdKind, ev.stage, ev.outcome));
+            holdLabel(ev.holdKind, s.mode, s.recSlot),
+            confirmText(ev.holdKind, s.mode, ev.stage, ev.outcome));
         } else if (ev.holdKind !== 0) {
-          this.oledMini.showProgress(holdLabel(ev.holdKind, s.mode), ev.progress);
+          this.oledMini.showProgress(holdLabel(ev.holdKind, s.mode, s.recSlot), ev.progress,
+                                     holdNote(ev.holdKind, s.mode, ev.stage));
         } else {
           this.oledMini.clearProgress();
         }
@@ -682,6 +736,8 @@ export class Labels {
         value = patternValue(s.swA, s.controls[5]);
       } else if (s.mode === 0 && s.recSlot === null && i === 3) {
         value = densityValue(s.controls[3]);
+      } else if (s.mode === 0 && s.recSlot === null && i === 4) {
+        value = chanceValue(s.controls[4]);
       } else {
         value = `${Math.round(s.controls[i] * 100)}%`;
       }
@@ -866,12 +922,39 @@ export class Labels {
     if (!s.connected) parts.push('<i>not connected</i>');
     this.status.innerHTML = parts.join(' · ');
     this.oledWide.setStatus(parts.join(' · '));
-    // Mini screen's home row: model + mode (truncates), and whatever's most
-    // "alive" right now — the seq step if one's playing, else transport.
-    this.oledMini.setStatus(
-      `${modelName(s.model)} ${modeName}`,
-      s.seqStep !== null ? `${s.seqStep + 1}` : s.playing ? 'PLAY' : 'STOP',
-    );
+    // Mini screen's home row: a 1:1 mirror of the firmware's status_row()
+    // (display/oled_ui.cpp) — per-mode, and deliberately free of seq_step,
+    // which changes every block and so can never be redrawn fast enough to
+    // be true on the real panel.
+    if (s.mode === 0 && s.recSlot !== null) {
+      const role = PADS[s.recSlot + 3]?.seqRole;
+      this.oledMini.setStatus(
+        `Rec P${s.recSlot + 3}${role ? ` ${role}` : ''}`,
+        modelName(s.kit?.[s.recSlot]?.engine ?? s.model),
+      );
+    } else if (s.mode === 0) {
+      // Transport rides the label row so the value row can name the pattern
+      // that's actually playing (s.seqPattern, the device's own slot — S35's
+      // pot is behind a pickup and can be parked anywhere).
+      const genre = ['IDM', 'Techno', 'Electro'][s.swA] ?? '?';
+      const ext = s.clockSrc === 1 ? ' ext' : s.clockSrc === 2 ? ' cv' : '';
+      this.oledMini.setStatus(
+        `${s.playing ? 'Seq' : 'Seq stop'} ${genre}${ext}`,
+        patternSlotValue(s.swA, s.seqPattern));
+    } else if (s.mode === 1) {
+      const sub = ['Arp', 'Hold', 'Rec'][s.arpSub] ?? 'Arp';
+      // In Rec, which state you're in matters more than the model — armed and
+      // running are independent (a punched-out loop keeps playing). In
+      // Arp/Hold the model is more useful, except while stopped, the one
+      // state where the mode looks broken rather than quiet.
+      const value = s.arpSub === 2 || !s.arpRunning
+        ? melodicState(s.mode, s.arpSub, s.arpRunning, s.recArmed)
+        : modelName(s.model);
+      this.oledMini.setStatus(`Arp/Mel ${sub}${s.sndEdit ? ' edit' : ''}`, value);
+    } else {
+      const scale = ['Minor', 'Chromatic', 'Major'][s.swA] ?? '?';
+      this.oledMini.setStatus(`Pitch ${scale}`, modelName(s.model));
+    }
   }
 
   /** Light up a control on the drawing for a while (Infinity = held pad).

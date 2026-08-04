@@ -32,8 +32,10 @@ public:
 
     // Label row as ShowLine(), value row replaced by a filled bar —
     // progress/127 of the screen width — for a hold building toward a
-    // threshold. Mirrors oled-mini.ts's showProgress().
-    void ShowProgress(const char* label, uint8_t progress);
+    // threshold, plus a small note row under it saying what crossing that
+    // threshold will do (`note` may be null/empty for just the bar).
+    // Mirrors oled-mini.ts's showProgress().
+    void ShowProgress(const char* label, uint8_t progress, const char* note);
 
     void Clear();
 

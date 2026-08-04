@@ -35,8 +35,8 @@ const ControlMeta kControls[8] = {
     { "S30", "Drive",     "Drive",     "Drive",      "Reverb" },
     { "S31", "Decay",     "Tempo",     "Decay",      nullptr  },
     { "S32", "Harmonics", "Swing",     "Division",   nullptr  },
-    { "S33", "Timbre",    "Density",   "Swing",      nullptr  },
-    { "S34", "Morph",     "Chance",    "Density",    nullptr  },
+    { "S33", "Timbre",    "Pattern density", "Swing", nullptr  },
+    { "S34", "Morph",     "Step chance",     "Density", nullptr },
     { "S35", "Model sel", "Pattern",   "Order",      "Delay"  },
     { "S36", "Volume",    "Volume",    "Volume",     nullptr  },
     { "S37", "Blend",     "Tightness", "Blend",      nullptr  },
@@ -181,10 +181,32 @@ void pattern_value(FixedCapStr<N>& out, int genre, float v01) {
     out.AppendInt(n);
 }
 
-const char* const kDensityWords[4] = { "strong", "main", "ghosts", "full" };
+// Seq S33 (Density): which weight layers survive at each stage. Named after
+// the layers themselves rather than a mood word ("strong"/"ghosts" said how
+// it sounds, not what the knob did). All four are <= 11 chars so the value
+// row keeps one font across the whole sweep instead of resizing mid-turn.
+// Same as pattern_value(), but from an already-resolved slot index (the
+// sequencer's own `VariantSlot`, published as t.seq_pattern) rather than a
+// knob position — what the status row needs, since S35's pot is behind a
+// pickup and may not be where the playing pattern is.
+template <size_t N>
+void pattern_slot_value(FixedCapStr<N>& out, int genre, int slot) {
+    if (genre < 0 || genre >= kNumGenres) genre = 0;
+    const int n = kGenrePatternCount[genre];
+    if (slot < 0 || slot >= n) slot = 0;
+    out.Clear();
+    out.Append(kSeqPatternNames[kGenrePatternIdx[genre][slot]]);
+    out.Append(" ");
+    out.AppendInt(slot + 1);
+    out.Append("/");
+    out.AppendInt(n);
+}
 
-// Seq S33 (Density): stage number + what it lets through, e.g. "4 full" —
-// mirrors Sequencer::SetDensity's quantization (synth/sequencer.h) exactly,
+const char* const kDensityWords[4] = {
+    "layer 4", "layers 3-4", "layers 2-4", "layers 1-4",
+};
+
+// Mirrors Sequencer::SetDensity's quantization (synth/sequencer.h) exactly,
 // so the displayed stage always matches what's actually playing.
 template <size_t N>
 void density_value(FixedCapStr<N>& out, float v01) {
@@ -192,9 +214,34 @@ void density_value(FixedCapStr<N>& out, float v01) {
     if (d < 1) d = 1;
     if (d > 4) d = 4;
     out.Clear();
-    out.AppendInt(d);
-    out.Append(" ");
     out.Append(kDensityWords[d - 1]);
+}
+
+// Seq S34 (Chance): a three-zone control, not a percentage. Printing the raw
+// knob % read as "100% = always plays" when full right is in fact the
+// *sparsest* setting — so name the zone instead. Mirrors eval_step()'s curve
+// in synth/sequencer.h (miss rate x1 at centre, up to kChanceExtraMax = 3 at
+// full right); all outputs are <= 11 chars, one font across the sweep.
+template <size_t N>
+void chance_value(FixedCapStr<N>& out, float v01) {
+    constexpr float kDead = 0.02f;
+    out.Clear();
+    if (v01 <= kDead)         { out.Append("always fire"); return; }
+    if (v01 <= 0.5f + kDead && v01 >= 0.5f - kDead) { out.Append("as authored"); return; }
+    if (v01 < 0.5f) {
+        // How far the authored miss rate has been pulled toward "always".
+        out.Append("fuller ");
+        out.AppendInt(static_cast<int>((0.5f - v01) * 200.f + 0.5f));
+        out.Append("%");
+        return;
+    }
+    // 1.0x .. 3.0x the authored miss rate, one decimal.
+    const int tenths = static_cast<int>((1.f + (v01 - 0.5f) * 4.f) * 10.f + 0.5f);
+    out.Append("sparse ");
+    out.AppendInt(tenths / 10);
+    out.Append(".");
+    out.AppendInt(tenths % 10);
+    out.Append("x");
 }
 
 // formatKnobValue() port: quantized selectors show the selected item
@@ -467,9 +514,14 @@ void describe_control(int i, const TelemetryState& t,
         value.Append(" BPM");
         return;
     }
-    // Seq density: name the stage instead of a raw % (see density_value()).
+    // Seq density / chance: name the stage or the zone instead of a raw %
+    // (see density_value() / chance_value()).
     if (mode == 0 && !rec_active && i == 3) {
         density_value(value, v);
+        return;
+    }
+    if (mode == 0 && !rec_active && i == 4) {
+        chance_value(value, v);
         return;
     }
     if (std::strcmp(meta.name, "S35") == 0) {
@@ -526,6 +578,146 @@ void describe_pad(int i, const TelemetryState& t,
     }
 }
 
+// The state P2+P10 just landed in, named as one thing instead of as whichever
+// single flag moved. The combo means different things per sub-state
+// (transport everywhere, capture arm while SW1 is in Rec) and the two are
+// independent — "Armed" on its own never said whether anything was even
+// looping, and "Play" never said whether it was capturing. All <= 11 chars,
+// so the value row keeps one font across every case.
+const char* melodic_state(int mode, int arp_sub, bool running, bool armed) {
+    if (mode != 1)    return running ? "Mel play" : "Mel stopped";
+    if (arp_sub == 2) {
+        if (!running) return "Rec stopped";
+        return armed ? "Rec + play" : "Play no rec";
+    }
+    // Hold is the same arpeggiator with latched input, so it shares Arp's
+    // wording — the label row is what distinguishes the two.
+    return running ? "Arp play" : "Arp stopped";
+}
+
+// ── Idle status row ─────────────────────────────────────────────────────────
+// The home screen: what shows when nothing has been touched for a while, and
+// the thing a finished hold hands the screen back to. Deliberately built only
+// from slow-moving fields — the row this replaces was dropped because it
+// included seq_step, which changes every block and so never redrew in time to
+// be right. Everything here changes at most a few times a second.
+void status_row(const TelemetryState& t, FixedCapStr<24>& label, FixedCapStr<24>& value) {
+    label.Clear();
+    value.Clear();
+
+    // Seq recording: which pad is being edited, and what's loaded in it.
+    if (t.mode == 0 && t.rec_slot < 7) {
+        const int slot = t.rec_slot;
+        label.Append("Rec P");
+        label.AppendInt(slot + 3);
+        if (kPads[slot + 3].seq_role) {
+            label.Append(" ");
+            label.Append(kPads[slot + 3].seq_role);
+        }
+        value.Append(model_name(t.kit[slot][0]));
+        return;
+    }
+    if (t.mode == 0) {
+        // Transport rides the label row so the value row can name the
+        // pattern that's playing — the more useful of the two at a glance,
+        // and t.seq_pattern is the sequencer's own slot, not S35's pot
+        // (which sits behind a pickup and can be parked anywhere).
+        label.Append(t.playing ? "Seq " : "Seq stop ");
+        label.Append((t.sw1 <= 2) ? kSw1Seq[t.sw1] : "?");
+        if (t.clock_src != 0) label.Append(t.clock_src == 1 ? " ext" : " cv");
+        pattern_slot_value(value, t.sw1, t.seq_pattern);
+        return;
+    }
+    if (t.mode == 1) {
+        const int  sub     = t.arp_flags & 0x03; // 0 Arp, 1 Hold, 2 Rec
+        const bool armed   = (t.arp_flags & 0x04) != 0;
+        const bool running = (t.arp_flags & 0x08) != 0;
+        label.Append("Arp/Mel ");
+        label.Append(sub == 1 ? "Hold" : sub == 2 ? "Rec" : "Arp");
+        if (t.snd_edit) label.Append(" edit");
+        // In Rec, which state you're in matters more than the model: armed
+        // and running are independent (a punched-out loop keeps playing), and
+        // nothing on the panel distinguished them before. In Arp/Hold the
+        // model is the more useful thing — except while stopped, which is the
+        // one state where the mode looks broken rather than quiet.
+        if (sub == 2 || !running) {
+            value.Append(melodic_state(t.mode, sub, running, armed));
+            return;
+        }
+        value.Append(model_name(t.model));
+        return;
+    }
+    label.Append("Pitch ");
+    label.Append((t.sw1 <= 2) ? kSw1Pitch[t.sw1] : "?");
+    value.Append(model_name(t.model));
+}
+
+// ── Hold text ───────────────────────────────────────────────────────────────
+
+template <size_t N>
+void hold_label(FixedCapStr<N>& out, uint8_t kind, int mode, uint8_t rec_slot) {
+    switch (kind) {
+        case 1: set_label(out, "P0+P2", (mode == 0) ? "Re-randomize" : "Vary sound"); return;
+        case 2: set_label(out, "P3-P9", "Rec entry");    return;
+        case 3: set_label(out, "P2+pad", "Clear layer"); return;
+        case 4: set_label(out, "Rec", "Copy layer");     return;
+        case 5:
+            // Name the pad being held, as asked for on hardware — "hold P5
+            // to save" is the whole instruction, and the slot is right there
+            // in the telemetry.
+            out.Clear();
+            out.Append("Hold ");
+            if (rec_slot < 7) { out.Append("P"); out.AppendInt(rec_slot + 3); }
+            else              { out.Append("pad"); }
+            out.Append(" to save");
+            return;
+        case 6: set_label(out, "Rec", "Exit");           return;
+        default: out.Clear(); out.Append("Hold");        return;
+    }
+}
+
+// What crossing the *next* threshold will do — the note row under the bar
+// (OledScreen::ShowProgress). A bar on its own says something is coming
+// without ever saying what, and P0+P2's stages differ per playmode (see the
+// hold block in TouchPlaited.cpp): Seq varies the current kit then replaces
+// it, the pitched modes vary the sound twice, and Basic Pitch alone has a 3rd
+// stage that drops the snapshots. `done` is how many have fired already.
+const char* hold_note(uint8_t kind, int mode, uint8_t done) {
+    switch (kind) {
+        case 1:
+            if (mode == 0) return (done == 0) ? "1s vary kit" : "2s new kit";
+            if (done == 0) return "1s vary sound";
+            if (done == 1) return (mode == 2) ? "2s vary more" : "2s vary more";
+            return "3s back to live knobs";
+        case 2: return "2s enter rec mode";
+        case 3: return "clear this layer";
+        case 4: return "copy slot to pad";
+        case 5: return "keep these edits";
+        default: return "";
+    }
+}
+
+// What flashes the instant a threshold fires. Names the change rather than
+// the stage number it used to print — "Stage 2" told you a threshold was
+// crossed but not which of the three per-mode meanings it had.
+template <size_t N>
+void confirm_text(FixedCapStr<N>& out, uint8_t kind, int mode, uint8_t stage, uint8_t outcome) {
+    out.Clear();
+    switch (kind) {
+        case 1:
+            if (mode == 0)          out.Append(stage >= 2 ? "New kit" : "Kit varied");
+            else if (stage >= 3)    out.Append("Live knobs");
+            else                    out.Append(stage >= 2 ? "Varied more" : "Varied");
+            return;
+        case 2: out.Append("Recording"); return;
+        case 3: out.Append(outcome == 2 ? "Empty" : "Cleared"); return;
+        case 4: out.Append("Copied"); return;
+        case 5: out.Append("Saved"); return;
+        case 6: out.Append("Cancelled"); return;
+        default: out.Append("OK"); return;
+    }
+}
+
 } // namespace
 
 // ── OledUi ────────────────────────────────────────────────────────────────
@@ -547,12 +739,20 @@ constexpr uint32_t kMinRedrawIntervalMs = 80;
 // LED's own confirm blinks (blink_confirm() etc., TouchPlaited.cpp: 3 blinks
 // at ~140ms each).
 constexpr uint32_t kConfirmFlashMs = 220;
+// How long the last touched control stays on screen before the status row
+// takes over. Matches IDLE_MS in visualizer/src/panel/oled-mini.ts.
+constexpr uint32_t kIdleMs = 2200;
 } // namespace
 
 void OledUi::Service(const TelemetryState& t, uint32_t now_ms, OledScreen& oled) {
     if (!has_last_) {
-        last_     = t;
-        has_last_ = true;
+        last_       = t;
+        has_last_   = true;
+        // Start the idle clock here, not at 0: the screen already holds
+        // OledBoot's restored/fresh status line when the main loop takes
+        // over, and an idle timeout measured from reset would be long
+        // expired, wiping it the moment this first runs.
+        idle_at_ms_ = now_ms;
     }
 
     // `last_` intentionally stays at its last-drawn value while throttled —
@@ -572,41 +772,40 @@ void OledUi::Service(const TelemetryState& t, uint32_t now_ms, OledScreen& oled)
     // fills; the moment it clears, the normal priority chain below resumes
     // from whatever `last_` it left behind.
     if (t.hold_kind != 0) {
-        FixedCapStr<24> hold_label;
-        switch (t.hold_kind) {
-            case 1: set_label(hold_label, "P0+P2", (t.mode == 0) ? "Re-randomize" : "Vary sound"); break;
-            case 2: set_label(hold_label, "P3-P9", "Rec entry"); break;
-            case 3: set_label(hold_label, "P2+pad", "Clear layer"); break;
-            case 4: set_label(hold_label, "Rec", "Copy layer"); break;
-            default: hold_label.Clear(); hold_label.Append("Hold"); break;
-        }
+        FixedCapStr<24> hl;
+        hold_label(hl, t.hold_kind, t.mode, t.rec_slot);
         // A threshold just fired (hold_stage advanced since the last drawn
         // frame — same edge-detection `last_` already does for pads/switches)
-        // gets a text flash instead of the bar for one redraw, held open a
-        // little longer than the usual throttle so it actually reads as a
-        // flash rather than a blip; the bar (now sitting at 100% for this
-        // stage) resumes on the poll after that.
+        // gets a text flash instead of the bar, held open a little longer
+        // than the usual throttle so it actually reads as a flash rather than
+        // a blip. The firmware latches the confirm for kConfirmLatchMs
+        // (TouchPlaited.cpp) precisely so this poll can't fall in a throttled
+        // window and miss the edge; that latch is deliberately shorter than
+        // the flash, so the bar can't reappear behind it either.
         const bool just_confirmed = t.hold_stage != 0
             && (t.hold_kind != last_.hold_kind || t.hold_stage != last_.hold_stage);
         if (just_confirmed) {
             FixedCapStr<24> confirm;
-            switch (t.hold_kind) {
-                case 1: confirm.Clear(); confirm.Append("STAGE "); confirm.AppendInt(t.hold_stage); break;
-                case 2: confirm.Clear(); confirm.Append("RECORDING"); break;
-                case 3: confirm.Clear();
-                        confirm.Append(t.hold_outcome == 2 ? "EMPTY" : "CLEARED"); break;
-                case 4: confirm.Clear(); confirm.Append("COPIED"); break;
-                default: confirm.Clear(); confirm.Append("OK"); break;
-            }
-            oled.ShowLine(hold_label.Cstr(), confirm.Cstr());
+            confirm_text(confirm, t.hold_kind, t.mode, t.hold_stage, t.hold_outcome);
+            oled.ShowLine(hl.Cstr(), confirm.Cstr());
             next_draw_ms_ = now_ms + kConfirmFlashMs;
         } else {
-            oled.ShowProgress(hold_label.Cstr(), t.hold_progress);
+            oled.ShowProgress(hl.Cstr(), t.hold_progress,
+                              hold_note(t.hold_kind, t.mode, t.hold_stage));
             next_draw_ms_ = now_ms + kMinRedrawIntervalMs;
         }
-        last_ = t;
+        last_         = t;
+        idle_at_ms_   = now_ms;
+        showing_status_ = false;
         return;
     }
+
+    // A hold that just ended leaves its bar (or confirm flash) frozen on
+    // screen: hold_kind drops to 0, nothing else in the chain below has
+    // changed, and so nothing would redraw. Hand the screen back to the
+    // status row instead — this is the second half of the "bar sticks at
+    // ~98% after rec entry" bug, the first being the dropped confirm.
+    const bool hold_ended = (last_.hold_kind != 0);
 
     FixedCapStr<24> label;
     FixedCapStr<24> value;
@@ -614,8 +813,8 @@ void OledUi::Service(const TelemetryState& t, uint32_t now_ms, OledScreen& oled)
 
     // Priority mirrors labels.ts: an explicit pad-down is the most specific
     // signal, then a switch flip, then a model change, then a knob move.
-    // No idle fallback — the screen just holds whatever was last touched
-    // (see the class comment in oled_ui.h for why).
+    // Whatever wins owns the screen until the idle timeout below hands it
+    // back to the status row.
     const uint16_t new_touches = t.pads & ~last_.pads;
     if (new_touches != 0) {
         int i = 0;
@@ -634,6 +833,22 @@ void OledUi::Service(const TelemetryState& t, uint32_t now_ms, OledScreen& oled)
         label.Append("Model");
         model_value(value, t.model);
         draw = true;
+    } else if (((t.arp_flags ^ last_.arp_flags) & 0x0C) != 0) {
+        // Melodic transport / Rec arm (both P2+P10, depending on sub-state).
+        // Neither is a pad-down we can catch — P2+P10 is a combo whose pads
+        // are usually already held — and they used to pass with no message
+        // at all, which is the one gesture that silently changes whether
+        // anything sounds.
+        const bool running = (t.arp_flags & 0x08) != 0;
+        const bool armed   = (t.arp_flags & 0x04) != 0;
+        // Label names which of the combo's two meanings fired; the value is
+        // the state that leaves you in, not the flag that moved (see
+        // melodic_state()).
+        set_label(label, "P2+P10",
+                  (((t.arp_flags ^ last_.arp_flags) & 0x08) != 0) ? "Transport"
+                                                                  : "Rec capture");
+        value.Append(melodic_state(t.mode, t.arp_flags & 0x03, running, armed));
+        draw = true;
     } else {
         // First changed control wins; if two moved in the same throttle
         // window the other one's change gets folded into `last_` unseen
@@ -650,7 +865,28 @@ void OledUi::Service(const TelemetryState& t, uint32_t now_ms, OledScreen& oled)
 
     if (draw) {
         oled.ShowLine(label.Cstr(), value.Cstr());
-        next_draw_ms_ = now_ms + kMinRedrawIntervalMs;
+        next_draw_ms_   = now_ms + kMinRedrawIntervalMs;
+        idle_at_ms_     = now_ms;
+        showing_status_ = false;
+        last_ = t;
+        return;
+    }
+
+    // Nothing was touched. Fall back to the status row once the last callout
+    // has had its time on screen — and keep it current afterwards, since the
+    // things it reports (transport, model, edited slot) can change while no
+    // control is being moved.
+    FixedCapStr<24> sl, sv;
+    status_row(t, sl, sv);
+    const bool idle_now = hold_ended || (now_ms - idle_at_ms_) >= kIdleMs;
+    const bool changed  = std::strcmp(sl.Cstr(), status_label_.Cstr()) != 0
+                       || std::strcmp(sv.Cstr(), status_value_.Cstr()) != 0;
+    if (idle_now && (!showing_status_ || changed)) {
+        oled.ShowLine(sl.Cstr(), sv.Cstr());
+        next_draw_ms_   = now_ms + kMinRedrawIntervalMs;
+        showing_status_ = true;
+        status_label_   = sl;
+        status_value_   = sv;
     }
 
     last_ = t;

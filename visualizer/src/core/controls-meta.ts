@@ -20,8 +20,8 @@ export const CONTROLS: ControlMeta[] = [
   { svgId: 'knob-s30', name: 'S30', main: 'Drive', seq: 'Drive', arp: 'Drive', fx: 'Reverb' },
   { svgId: 'knob-s31', name: 'S31', main: 'Decay', seq: 'Tempo', arp: 'Decay' },
   { svgId: 'knob-s32', name: 'S32', main: 'Harmonics', seq: 'Swing', arp: 'Division' },
-  { svgId: 'knob-s33', name: 'S33', main: 'Timbre', seq: 'Density', arp: 'Swing' },
-  { svgId: 'knob-s34', name: 'S34', main: 'Morph', seq: 'Chance', arp: 'Density' },
+  { svgId: 'knob-s33', name: 'S33', main: 'Timbre', seq: 'Pattern density', arp: 'Swing' },
+  { svgId: 'knob-s34', name: 'S34', main: 'Morph', seq: 'Step chance', arp: 'Density' },
   { svgId: 'knob-s35', name: 'S35', main: 'Model sel', seq: 'Pattern', arp: 'Order', fx: 'Delay' },
   { svgId: 'fader-s36', name: 'S36', main: 'Volume', seq: 'Volume', arp: 'Volume' },
   { svgId: 'fader-s37', name: 'S37', main: 'Blend', seq: 'Tightness', arp: 'Blend' },
@@ -174,17 +174,43 @@ export function patternValue(genre: number, v: number): string {
   return `${SEQ_PATTERN_NAMES[idx]} ${vi + 1}/${n}`;
 }
 
-/** Seq S33 (Density) stage words — index 0 = stage 1. Mirrors the same four
- * words in display/oled_ui.cpp's kDensityWords. */
-export const DENSITY_WORDS = ['strong', 'main', 'ghosts', 'full'];
+/** Same as patternValue(), but from an already-resolved slot index (the
+ * device's own `Sequencer::VariantSlot`, published as byte 27) rather than a
+ * knob position — what the status row needs, since S35's pot is behind a
+ * pickup and may not be where the playing pattern is. Mirrors
+ * pattern_slot_value() in display/oled_ui.cpp. */
+export function patternSlotValue(genre: number, slot: number): string {
+  const g = genre >= 0 && genre < GENRE_NAMES.length ? genre : 0;
+  const n = GENRE_PATTERN_COUNT[g];
+  const vi = slot >= 0 && slot < n ? slot : 0;
+  return `${SEQ_PATTERN_NAMES[GENRE_PATTERN_IDX[g][vi]]} ${vi + 1}/${n}`;
+}
 
-/** Seq S33 (Density): stage number + what it lets through, e.g. "4 full" —
- * mirrors Sequencer::SetDensity's quantization (synth/sequencer.h) exactly,
+/** Seq S33 (Density): which weight layers survive at each stage — index 0 =
+ * stage 1. Mirrors the same four strings in display/oled_ui.cpp's
+ * kDensityWords, including their <= 11-char budget (the firmware's value row
+ * keeps one font across the sweep at that length). */
+export const DENSITY_WORDS = ['layer 4', 'layers 3-4', 'layers 2-4', 'layers 1-4'];
+
+/** Mirrors Sequencer::SetDensity's quantization (synth/sequencer.h) exactly,
  * so the displayed stage always matches what's actually playing. */
 export function densityValue(v: number): string {
   let d = 1 + Math.floor(v * 3 + 0.5);
   d = Math.min(4, Math.max(1, d));
-  return `${d} ${DENSITY_WORDS[d - 1]}`;
+  return DENSITY_WORDS[d - 1];
+}
+
+/** Seq S34 (Chance): a three-zone control, not a percentage — a raw knob %
+ * read as "100% = always plays" when full right is in fact the *sparsest*
+ * setting. Mirrors eval_step()'s curve in synth/sequencer.h (miss rate x1 at
+ * centre, up to kChanceExtraMax = 3 at full right) and chance_value() in
+ * display/oled_ui.cpp. */
+export function chanceValue(v: number): string {
+  const DEAD = 0.02;
+  if (v <= DEAD) return 'always fire';
+  if (v >= 0.5 - DEAD && v <= 0.5 + DEAD) return 'as authored';
+  if (v < 0.5) return `fuller ${Math.round((0.5 - v) * 200)}%`;
+  return `sparse ${(1 + (v - 0.5) * 4).toFixed(1)}x`;
 }
 
 export type KnobParam = 'harmonics' | 'timbre' | 'morph' | 'decay';

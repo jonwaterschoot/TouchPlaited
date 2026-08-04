@@ -607,11 +607,10 @@ static PadSlot          rec_backup;          // saved state, restored on cancel
 static int               entry_hold_pad    = -1;
 static volatile uint32_t entry_hold_count  = 0;
 static bool              entry_wait_clear  = false;
-// Set alongside rec_entry_flash (the LED's own confirm signal) at the exact
-// instant entry fires; entry_hold_count resets to 0 in that same ISR call,
-// so compute_hold_telemetry() can't catch the threshold-crossing frame by
-// polling the counter — it consumes and clears this flag instead.
-static volatile bool     entry_just_confirmed = false;
+// Rec entry's confirm is published through fire_confirm() (below) at the
+// exact instant entry fires: entry_hold_count resets to 0 in that same ISR
+// call, so compute_hold_telemetry() can't catch the threshold-crossing frame
+// by polling the counter.
 
 // Secondary pad tracking for cancel / copy while in recording. copy_hold_anim
 // mirrors the copy hold progress (only while the source pad is also down) for
@@ -619,10 +618,35 @@ static volatile bool     entry_just_confirmed = false;
 static int               cancel_pad     = -1;
 static uint32_t          cancel_count   = 0;
 static volatile uint32_t copy_hold_anim = 0;
-// Same idea as entry_just_confirmed above: copy_hold_anim/cancel_count both
-// reset to 0 in the same block that fires the copy, so this is the only
-// trace of the completion compute_hold_telemetry() can still see.
-static volatile bool     copy_just_confirmed = false;
+// Same idea as rec entry above: copy_hold_anim/cancel_count both reset to 0
+// in the same block that fires the copy, so fire_confirm() is the only trace
+// of the completion compute_hold_telemetry() can still see.
+
+// ─── Confirm latch ────────────────────────────────────────────────────────────
+// A threshold firing is a one-shot. The counters behind it reset in the same
+// ISR block, so "it just fired" used to live for exactly one main-loop pass —
+// and both consumers sample slower than that: OledUi::Service sits behind an
+// 80 ms redraw throttle and Telemetry::SendState behind a 33 ms rate limit,
+// so a confirm landing inside either window was lost outright. That's why
+// "RECORDING" only appeared sometimes and the entry bar looked stuck at ~98%.
+// The ISR now posts the confirm here; the main loop turns it into a latch
+// that keeps reporting for kConfirmLatchMs, comfortably longer than either
+// window, so every consumer sees at least one frame carrying it.
+// Kept shorter than OledUi's own kConfirmFlashMs (220 ms) on purpose: by the
+// time the screen releases the flash the latch is long expired, so the bar
+// can't flicker back in behind it.
+static constexpr uint32_t kConfirmLatchMs = 120;
+static volatile uint8_t   pending_confirm_kind    = 0;  // 0 = nothing posted
+static volatile uint8_t   pending_confirm_stage   = 0;
+static volatile uint8_t   pending_confirm_outcome = 0;
+
+// ISR-side: post a confirm. kind/stage/outcome match TelemetryState's
+// hold_kind/hold_stage/hold_outcome (midi/telemetry.h).
+static inline void fire_confirm(uint8_t kind, uint8_t stage, uint8_t outcome = 0) {
+    pending_confirm_stage   = stage;
+    pending_confirm_outcome = outcome;
+    pending_confirm_kind    = kind;   // written last — it's the "ready" flag
+}
 
 // Set on rec entry; the main loop plays a short LED burst before settling
 // into the recording heartbeat.
@@ -1081,7 +1105,8 @@ static OledUi oled_ui;
 // against the previous frame to catch the confirm flash. `outcome` is only
 // meaningful for hold_kind 3 at the instant stage becomes 1: 1 success,
 // 2 empty (nothing was there to clear).
-static void compute_hold_telemetry(uint8_t& kind, uint8_t& progress, uint8_t& stage, uint8_t& outcome);
+static void compute_hold_telemetry(uint32_t now_ms, uint8_t& kind, uint8_t& progress,
+                                   uint8_t& stage, uint8_t& outcome);
 
 static void service_telemetry() {
     TelemetryState t;
@@ -1170,8 +1195,11 @@ static void service_telemetry() {
                                        : ext_clock_src == ClockSrc::CV ? 2 : 0);
     t.arp_flags = static_cast<uint8_t>(
         (arp_state == ArpState::HOLD ? 1 : arp_state == ArpState::REC ? 2 : 0)
-        | (rec_armed ? 0x04 : 0x00));
-    compute_hold_telemetry(t.hold_kind, t.hold_progress, t.hold_stage, t.hold_outcome);
+        | (rec_armed ? 0x04 : 0x00)
+        | (arp_run_on ? 0x08 : 0x00));
+    t.seq_pattern = static_cast<uint8_t>(seq.VariantSlot());
+    const uint32_t now_ms = System::GetNow();
+    compute_hold_telemetry(now_ms, t.hold_kind, t.hold_progress, t.hold_stage, t.hold_outcome);
     for (int i = 0; i < kPadSlots; i++) {
         const PadSlot& s = drum_slots[i];
         t.kit[i][0] = static_cast<uint8_t>(s.engine) & 0x7F;
@@ -1183,7 +1211,6 @@ static void service_telemetry() {
         t.kit[i][5] = static_cast<uint8_t>(n < 0 ? 0 : (n > 127 ? 127 : n));
     }
 
-    const uint32_t now_ms = System::GetNow();
     telemetry.Service(t, now_ms, midi);
     // Same snapshot the visualizer decodes, straight to the physical
     // screen — see display/oled_ui.h.
@@ -1208,8 +1235,10 @@ static void delay_serviced(uint32_t ms) {
 static bool  rec_bank_caught[2]  = { false, false };
 static float rec_bank_thresh[2]  = { 0.f,   0.f   };
 
-// Hold timer: rec_pad alone held ≥ kLongHoldBlocks (800ms) → confirm.
-static uint32_t rec_hold_count    = 0;
+// Hold timer: rec_pad alone held ≥ kLongHoldBlocks → confirm. Volatile
+// because compute_hold_telemetry() reads it from the main loop to draw the
+// save bar, same as every other hold counter.
+static volatile uint32_t rec_hold_count = 0;
 static bool     rec_entry_released = false;  // must release pad once after entry before confirm can fire
 
 // Steady re-audition pulse while editing (only when the seq isn't already
@@ -1543,7 +1572,7 @@ static void enter_rec_mode(int slot) {
     copy_hold_anim     = 0;
     rec_p1_last        = false;   // P1 already down at entry = fresh press edge
     rec_entry_flash    = true;    // main loop: entry burst before the heartbeat
-    entry_just_confirmed = true;  // service_telemetry: OLED/visualizer confirm flash
+    fire_confirm(2, 1);           // service_telemetry: OLED/visualizer confirm flash
     rec_hit_flash      = false;
 
     // Arm knob pickups to the slot's actual values: each pot takes effect only
@@ -1591,6 +1620,7 @@ static void cancel_rec_mode() {
     pool.AllNotesOff();
     rearm_seq_pickups();   // rec borrowed these pots; require fresh pickup
     beat_led_hold = kBeatLedHoldBlocks;
+    fire_confirm(6, 1);    // "Cancelled" — the edits went back to rec_backup
 }
 
 static void confirm_rec_mode() {
@@ -1605,11 +1635,45 @@ static void confirm_rec_mode() {
     rearm_seq_pickups();   // rec borrowed these pots; require fresh pickup
     beat_led_hold = kBeatLedHoldBlocks;
     led_event = LedEvent::CONFIRM;
+    fire_confirm(5, 1);    // "Saved"
+}
+
+// ─── Hold pacing ──────────────────────────────────────────────────────────────
+// Block size 192 at 48kHz = 4ms/block.
+//
+// Every build-up gesture spends its first `announce` blocks holding an empty
+// bar while the screen names what it's building toward (display/oled_ui.cpp's
+// hold_note()) and the LED pulses slowly, then fills over the rest with the
+// LED accelerating. Two hardware findings (2026-08-04) drove this:
+//   - a stage's confirm flash owns the screen for kConfirmFlashMs, during
+//     which the *next* stage's counter keeps running — with no announce
+//     window that time came straight out of the bar, so it reappeared
+//     already ~a fifth full and looked like it started halfway. The announce
+//     window is sized well above the flash so the flash lands inside it and
+//     the bar always visibly starts from empty.
+//   - one second per stage left no time to read what the stage does and
+//     stop there, so the stages are longer now.
+// Tune these two first if the pacing still feels off on hardware.
+static constexpr uint32_t kStageAnnounceBlocks = 150;  // 600 ms
+static constexpr uint32_t kStageFillBlocks     = 350;  // 1400 ms
+static constexpr uint32_t kStageBlocks = kStageAnnounceBlocks + kStageFillBlocks;
+// Rec entry keeps its 2 s total (kRecEntryHoldBlocks) and just reserves the
+// head of it the same way; the 1.2 s holds (kLongHoldBlocks — layer copy,
+// rec save) get a proportionally shorter one.
+static constexpr uint32_t kRecEntryAnnounceBlocks = 150;  // 600 ms
+static constexpr uint32_t kShortAnnounceBlocks    = 75;   // 300 ms
+
+// Fraction of the way through a build-up, as the bar should draw it: 0 for
+// the whole announce window, then 0..127 across the fill.
+static uint8_t hold_progress_of(uint32_t count, uint32_t announce, uint32_t total) {
+    if (count <= announce) return 0;
+    const uint32_t span = total > announce ? total - announce : 1;
+    const uint32_t done = count - announce;
+    return static_cast<uint8_t>(done >= span ? 127 : done * 127u / span);
 }
 
 // ─── P0+P2 hold state (ISR-writable, main-loop-readable) ──────────────────────
-// Block size 192 at 48kHz = 4ms/block.  500 blocks = 2000ms.
-// Stages at 1s and 2s in every playmode; Basic Pitch adds a 3rd at 3s that
+// Stages every kStageBlocks in every playmode; Basic Pitch adds a 3rd that
 // drops the randomize snapshots and restores the clean live-knob sound.
 static volatile uint32_t p0p2_hold_count  = 0;
 static volatile uint32_t p0p2_stage_fired = 0;
@@ -1629,17 +1693,46 @@ static void fire_hold_stage(int stage) {
         }
     }
     p0p2_stage_fired = static_cast<uint32_t>(stage);
+    // Release before the latch expires and p0p2_fired1/2/3 are cleared by the
+    // next block — without this the confirm would vanish with them.
+    fire_confirm(1, static_cast<uint8_t>(stage));
 }
 
 // Same signal the LED loop (below) blinks from, reduced to a 0..127 fraction
 // plus a confirm edge for the OLED/visualizer progress bar instead of a
 // blink rate/rhythm — see the forward declaration above for why this lives
 // here and not there, and for what `stage`/`outcome` mean.
-static void compute_hold_telemetry(uint8_t& kind, uint8_t& progress, uint8_t& stage, uint8_t& outcome) {
+static void compute_hold_telemetry(uint32_t now_ms, uint8_t& kind, uint8_t& progress,
+                                   uint8_t& stage, uint8_t& outcome) {
     kind     = 0;
     progress = 0;
     stage    = 0;
     outcome  = 0;
+
+    // 0) A confirm posted by the ISR (see the confirm latch above) outranks
+    // everything, including a hold that's already building toward its next
+    // threshold — the gesture that just completed is the news. Held for
+    // kConfirmLatchMs so neither consumer's throttle can miss it; once it
+    // expires the chain below resumes from whatever's still live.
+    static uint8_t  latch_kind = 0, latch_stage = 0, latch_outcome = 0;
+    static uint32_t latch_until = 0;
+    if (pending_confirm_kind != 0) {
+        latch_kind    = pending_confirm_kind;
+        latch_stage   = pending_confirm_stage;
+        latch_outcome = pending_confirm_outcome;
+        latch_until   = now_ms + kConfirmLatchMs;
+        pending_confirm_kind = 0;
+    }
+    if (latch_kind != 0) {
+        if (static_cast<int32_t>(now_ms - latch_until) < 0) {
+            kind     = latch_kind;
+            stage    = latch_stage;
+            outcome  = latch_outcome;
+            progress = 127;
+            return;
+        }
+        latch_kind = 0;
+    }
 
     // 1) P0+P2 hold (re-randomize in Seq, vary sound in Arp/Mel) — highest
     // priority, matches the LED loop's own comment. p0p2_hold_count runs
@@ -1657,25 +1750,22 @@ static void compute_hold_telemetry(uint8_t& kind, uint8_t& progress, uint8_t& st
             progress = 127;
             return;
         }
-        const uint32_t lo = p0p2_fired2 ? 500u : (p0p2_fired1 ? 250u : 0u);
-        const uint32_t hi = p0p2_fired2 ? 750u : (p0p2_fired1 ? 500u : 250u);
-        const uint32_t count = p0p2_hold_count < hi ? p0p2_hold_count : hi;
-        progress = static_cast<uint8_t>(std::min<uint32_t>(127, (count - lo) * 127u / (hi - lo)));
+        // Stages are equal-length, so the current one's elapsed time is just
+        // the remainder — each fills its own 0..127 after its announce
+        // window (see kStageAnnounceBlocks).
+        const uint32_t lo    = static_cast<uint32_t>(stage) * kStageBlocks;
+        const uint32_t count = p0p2_hold_count > lo ? p0p2_hold_count - lo : 0u;
+        progress = hold_progress_of(count, kStageAnnounceBlocks, kStageBlocks);
         return;
     }
 
-    // 2) Recording entry (hold a drum pad kRecEntryHoldBlocks = 2s).
-    // entry_hold_count resets to 0 in the same ISR call that fires entry —
-    // the flag catches the frame the live counter can't.
-    if (entry_just_confirmed) {
-        entry_just_confirmed = false; // consumed — telemetry's own copy of the signal
-        kind = 2; stage = 1; progress = 127;
-        return;
-    }
+    // 2) Recording entry (hold a drum pad kRecEntryHoldBlocks = 2s). Its
+    // confirm comes from the latch above — entry_hold_count resets to 0 in
+    // the same ISR call that fires entry, so there's nothing to read here.
     if (rec_mode == RecMode::IDLE && entry_hold_count >= kRecEntryAnimStart) {
         kind     = 2;
-        progress = static_cast<uint8_t>(
-            std::min<uint32_t>(127, entry_hold_count * 127u / kRecEntryHoldBlocks));
+        progress = hold_progress_of(entry_hold_count, kRecEntryAnnounceBlocks,
+                                    kRecEntryHoldBlocks);
         return;
     }
 
@@ -1710,17 +1800,22 @@ static void compute_hold_telemetry(uint8_t& kind, uint8_t& progress, uint8_t& st
 
     // 4) Layer-copy confirm hold (kLongHoldBlocks = 1.2s), only while a
     // recording is actually in progress — matches the LED loop's own guard.
-    // copy_hold_anim resets to 0 in the same block that fires the copy, same
-    // reason kind 2 needs a flag instead of reading the counter directly.
-    if (rec_mode == RecMode::RECORDING && copy_just_confirmed) {
-        copy_just_confirmed = false;
-        kind = 4; stage = 1; progress = 127;
-        return;
-    }
+    // copy_hold_anim resets to 0 in the same block that fires the copy, so
+    // the completion itself arrives via the latch above, same as kind 2.
     if (rec_mode == RecMode::RECORDING && copy_hold_anim > 0) {
         kind     = 4;
-        progress = static_cast<uint8_t>(
-            std::min<uint32_t>(127, copy_hold_anim * 127u / kLongHoldBlocks));
+        progress = hold_progress_of(copy_hold_anim, kShortAnnounceBlocks, kLongHoldBlocks);
+        return;
+    }
+
+    // 5) Rec save-confirm hold (kLongHoldBlocks, the rec pad alone). The one
+    // hold in the set that had no bar and no flash at all — you held a pad
+    // and recording simply ended, with nothing saying it had saved rather
+    // than cancelled. Last in the chain so a copy (both pads down, counted
+    // separately) still wins, matching the LED.
+    if (rec_mode == RecMode::RECORDING && rec_hold_count >= kRecEntryAnimStart) {
+        kind     = 5;
+        progress = hold_progress_of(rec_hold_count, kShortAnnounceBlocks, kLongHoldBlocks);
     }
 }
 
@@ -2163,11 +2258,12 @@ void AudioCallback(AudioHandle::InputBuffer in, AudioHandle::OutputBuffer out, s
         fx_drum.SetDelayCharacter(side, w, synced);
     }
 
-    // P0+P2 hold counter — active in every playmode:
-    //   Basic Pitch: 1s soft tight (±0.25) → 2s soft wide (±0.45), same engine
-    //                → 3s restore clean live-knob sound (drops the snapshots)
-    //   Arp/Mel:     1s tight variance (±0.10) on the latched sound → 2s wide (±0.25)
-    //   Seq:         1s soft param variance on current kit → 2s full new kit
+    // P0+P2 hold counter — active in every playmode, one stage per
+    // kStageBlocks (2 s; see the hold-pacing block above):
+    //   Basic Pitch: soft tight (±0.25) → soft wide (±0.45), same engine
+    //                → restore clean live-knob sound (drops the snapshots)
+    //   Arp/Mel:     tight variance (±0.10) on the latched sound → wide (±0.25)
+    //   Seq:         soft param variance on current kit → full new kit
     {
         bool p0 = touch.pads().IsTouched(0);
         bool p2 = touch.pads().IsTouched(2);
@@ -2180,7 +2276,7 @@ void AudioCallback(AudioHandle::InputBuffer in, AudioHandle::OutputBuffer out, s
             p0p2_stage_fired = 0;
         } else if (!p0p2_all_done) {
             p0p2_hold_count++;
-            if (!p0p2_fired1 && p0p2_hold_count >= 250) {
+            if (!p0p2_fired1 && p0p2_hold_count >= kStageBlocks) {
                 p0p2_fired1 = true;
                 if (seq_mode_on) {
                     mutate_drum_soft();
@@ -2194,7 +2290,7 @@ void AudioCallback(AudioHandle::InputBuffer in, AudioHandle::OutputBuffer out, s
                 }
                 fire_hold_stage(1);
             }
-            if (!p0p2_fired2 && p0p2_hold_count >= 500) {
+            if (!p0p2_fired2 && p0p2_hold_count >= 2u * kStageBlocks) {
                 p0p2_fired2   = true;
                 p0p2_all_done = !in_bp;   // Basic Pitch has a 3rd stage
                 if (seq_mode_on) {
@@ -2213,7 +2309,7 @@ void AudioCallback(AudioHandle::InputBuffer in, AudioHandle::OutputBuffer out, s
                 }
                 fire_hold_stage(2);
             }
-            if (!p0p2_fired3 && p0p2_hold_count >= 750 && in_bp) {
+            if (!p0p2_fired3 && p0p2_hold_count >= 3u * kStageBlocks && in_bp) {
                 p0p2_fired3   = true;
                 p0p2_all_done = true;
                 // Stage 3: back to the clean live sound.
@@ -2228,6 +2324,7 @@ void AudioCallback(AudioHandle::InputBuffer in, AudioHandle::OutputBuffer out, s
                 vp.blend     = pitched_blend_lk;
                 pool.AuditionWithParams(root_note_f(), vp);
                 p0p2_stage_fired = 3;
+                fire_confirm(1, 3);   // stage 3 doesn't go through fire_hold_stage()
             }
         }
     }
@@ -2304,6 +2401,7 @@ void AudioCallback(AudioHandle::InputBuffer in, AudioHandle::OutputBuffer out, s
                         p2layer_outcome[j] = 1;
                     }
                 led_event = LedEvent::CONFIRM;
+                fire_confirm(3, 1, 1);
             } else {
                 p2layer_fired[i] = true;
                 if (note_rec.ClearLayer(i)) {
@@ -2314,6 +2412,7 @@ void AudioCallback(AudioHandle::InputBuffer in, AudioHandle::OutputBuffer out, s
                     p2layer_outcome[i] = 2;
                     led_event = LedEvent::LIMIT;
                 }
+                fire_confirm(3, 1, p2layer_outcome[i]);
             }
         }
     }
@@ -2406,7 +2505,7 @@ void AudioCallback(AudioHandle::InputBuffer in, AudioHandle::OutputBuffer out, s
                     pool.AuditionWithParams(root_note_f(), slot_params(cs));
                 }
                 led_event      = LedEvent::CONFIRM;
-                copy_just_confirmed = true; // service_telemetry: OLED/visualizer confirm flash
+                fire_confirm(4, 1);   // service_telemetry: OLED/visualizer confirm flash
                 cancel_pad     = -1;  // reset so next secondary starts fresh
                 cancel_count   = 0;
                 copy_hold_anim = 0;
@@ -3328,25 +3427,42 @@ int main() {
             } else if (done) {
                 delay_serviced(10);
             } else {
-                uint32_t t        = (hold < 500) ? hold : 500;
-                uint32_t interval = 150u - t * 110u / 500u;
-                set_led(true);
-                delay_serviced(interval);
-                set_led(false);
-                delay_serviced(interval);
+                // Same two-phase shape the screen draws (see the hold-pacing
+                // block): slow pulses through the announce window — three of
+                // them, the "a stage is coming" cue a unit with no screen
+                // otherwise has no way to give — then the familiar
+                // accelerating blink as the bar fills.
+                const uint32_t off = hold % kStageBlocks;
+                if (off < kStageAnnounceBlocks) {
+                    set_led(true);  delay_serviced(130);
+                    set_led(false); delay_serviced(70);
+                } else {
+                    const uint32_t t        = off - kStageAnnounceBlocks;
+                    const uint32_t interval = 150u - t * 110u / kStageFillBlocks;
+                    set_led(true);  delay_serviced(interval);
+                    set_led(false); delay_serviced(interval);
+                }
             }
             continue;
         }
 
-        // Recording-entry countdown: from ~0.2 s into the pad hold the LED
-        // blinks with gradually shrinking intervals (~140 ms down to 30 ms at
-        // the 2 s threshold) — release any time to abort.
+        // Recording-entry countdown: from ~0.2 s into the pad hold, slow
+        // pulses while the screen names what the hold does, then gradually
+        // shrinking intervals (~150 ms down to 30 ms at the 2 s threshold) —
+        // release any time to abort. Same two-phase shape as P0+P2 above.
         uint32_t ehold = entry_hold_count;
         if (rec_mode == RecMode::IDLE && ehold >= kRecEntryAnimStart) {
-            uint32_t t        = (ehold < kRecEntryHoldBlocks) ? ehold : kRecEntryHoldBlocks;
-            uint32_t interval = 150u - t * 120u / kRecEntryHoldBlocks;
-            set_led(true);  delay_serviced(interval);
-            set_led(false); delay_serviced(interval);
+            if (ehold < kRecEntryAnnounceBlocks) {
+                set_led(true);  delay_serviced(130);
+                set_led(false); delay_serviced(70);
+            } else {
+                const uint32_t span = kRecEntryHoldBlocks - kRecEntryAnnounceBlocks;
+                const uint32_t t    = (ehold < kRecEntryHoldBlocks)
+                                    ? ehold - kRecEntryAnnounceBlocks : span;
+                const uint32_t interval = 150u - t * 120u / span;
+                set_led(true);  delay_serviced(interval);
+                set_led(false); delay_serviced(interval);
+            }
             continue;
         }
 

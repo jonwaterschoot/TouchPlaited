@@ -37,7 +37,7 @@ void OledScreen::Clear() {
     i2c1_bus_busy = false;
 }
 
-void OledScreen::ShowProgress(const char* label, uint8_t progress) {
+void OledScreen::ShowProgress(const char* label, uint8_t progress, const char* note) {
     i2c1_bus_busy = true;
     _display.Fill(false);
 
@@ -51,9 +51,12 @@ void OledScreen::ShowProgress(const char* label, uint8_t progress) {
     _display.SetCursor(1, 0);
     _display.WriteString(labelBuf, Font_6x8, true);
 
-    // Value row: an outlined bar, filled left-to-right by progress/127 —
-    // same geometry oled-mini.ts's showProgress() draws.
-    constexpr uint8_t kOutlineX1 = 1, kOutlineY1 = 16, kOutlineX2 = 126, kOutlineY2 = 27;
+    // Middle row: an outlined bar, filled left-to-right by progress/127 —
+    // same geometry oled-mini.ts's showProgress() draws. Slimmer (and higher
+    // up) than the full-height bar it started as, to leave the bottom row for
+    // the note: a bar alone says a threshold is coming without ever saying
+    // what it does.
+    constexpr uint8_t kOutlineX1 = 1, kOutlineY1 = 12, kOutlineX2 = 126, kOutlineY2 = 21;
     _display.DrawRect(kOutlineX1, kOutlineY1, kOutlineX2, kOutlineY2, true, false);
     constexpr uint8_t kFillX1 = kOutlineX1 + 2, kFillY1 = kOutlineY1 + 2;
     constexpr uint8_t kFillY2 = kOutlineY2 - 2;
@@ -61,6 +64,19 @@ void OledScreen::ShowProgress(const char* label, uint8_t progress) {
     const uint8_t fillW = static_cast<uint8_t>((static_cast<uint32_t>(kFillMaxW) * (progress & 0x7F)) / 127u);
     if (fillW > 0) {
         _display.DrawRect(kFillX1, kFillY1, static_cast<uint8_t>(kFillX1 + fillW - 1), kFillY2, true, true);
+    }
+
+    // Note row: Font_6x8 on the bottom 8 rows, same truncation rule as the
+    // label row (it's the same font and the same 21-char budget).
+    if (note != nullptr && *note != '\0') {
+        char noteBuf[kBufLen];
+        size_t noteLen = std::min(strlen(note), kBufLen - 1);
+        std::memcpy(noteBuf, note, noteLen);
+        noteBuf[noteLen] = '\0';
+        for (char* p = noteBuf; *p; ++p)
+            *p = static_cast<char>(std::toupper(static_cast<unsigned char>(*p)));
+        _display.SetCursor(1, 32 - Font_6x8.FontHeight);
+        _display.WriteString(noteBuf, Font_6x8, true);
     }
 
     _display.Update();
