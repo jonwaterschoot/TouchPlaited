@@ -254,9 +254,18 @@ adding one is backward-compatible — but each still touches both sides plus
       name, drawing `HOLD P5 TO SAVE` over a filling bar and flashing
       `SAVED`; and **6 — rec cancel**, which has no build-up (it's a tap) so
       it only ever flashes `CANCELLED`. `rec_hold_count` became volatile —
-      the main loop reads it now. **Still open**: the P0+P1 sound-edit
-      toggle (`rec_snd_edit`) still changes what every knob means with no
-      message. It needs the same treatment; kind 6 is the pattern to copy.
+      the main loop reads it now. Completed **2026-08-05** with **7 — P0+P1
+      sound edit**, which turned out to deserve more than the "short-lived
+      message" originally filed: it's a real 1 s hold, so it gets the same
+      bar, announce window and confirm as every other build-up, and the
+      first LED animation it has ever had (it used to give nothing at all
+      until it fired, while silently reassigning every knob in the mode).
+      The note row names the direction — `KNOBS EDIT THE SOUND` /
+      `BACK TO ARP KNOBS` — since the same combo does both; the confirm
+      reads `SOUND EDIT` / `ARP KNOBS` off `hold_outcome`, because
+      `snd_edit` has already flipped by the time the latched flash draws.
+      `hold_outcome` is therefore no longer kind-3-only; its doc comment
+      says so in all four places now.
 - [x] **B3 — publish the active Seq pattern.** *Done 2026-08-04.*
       `Sequencer::VariantSlot()` → `t.seq_pattern`, appended as state byte
       27 behind the usual length guard, and resolved to a name through
@@ -376,7 +385,8 @@ walk** before they tick. `[O]` = walked once, findings filed and fixed.
   wording), P0+S37 stereo width, external clock (MIDI vs. CV wording)
 - [x] Held-combo progress bar + confirm flash: hold P0+P2 (Seq:
   re-randomize; Arp/Mel: vary sound — 2 stages, or 3 in Pitch mode), hold a
-  drum pad P3–P9 (rec entry → "Recording"), P2+drum-pad hold in Rec (layer
+  drum pad P3–P9 (rec entry → "Recording"), P0+P1 in Arp/Mel (sound edit,
+  both directions), P2+drum-pad hold in Rec (layer
   clear → "Cleared"/"Empty"), and the copy-confirm hold while recording
   ("Copied") — bar should track the LED's blink rate, confirm flash should
   land the same instant the LED flashes/switches pattern. A1's reliability

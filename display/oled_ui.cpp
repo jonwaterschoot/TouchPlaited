@@ -655,23 +655,26 @@ void status_row(const TelemetryState& t, FixedCapStr<24>& label, FixedCapStr<24>
 // ── Hold text ───────────────────────────────────────────────────────────────
 
 template <size_t N>
-void hold_label(FixedCapStr<N>& out, uint8_t kind, int mode, uint8_t rec_slot) {
+void hold_label(FixedCapStr<N>& out, const TelemetryState& t) {
+    const uint8_t kind = t.hold_kind;
+    const int     mode = t.mode;
     switch (kind) {
         case 1: set_label(out, "P0+P2", (mode == 0) ? "Re-randomize" : "Vary sound"); return;
         case 2: set_label(out, "P3-P9", "Rec entry");    return;
         case 3: set_label(out, "P2+pad", "Clear layer"); return;
         case 4: set_label(out, "Rec", "Copy layer");     return;
+        case 6: set_label(out, "Rec", "Exit");           return;
+        case 7: set_label(out, "P0+P1", "Sound edit");   return;
         case 5:
             // Name the pad being held, as asked for on hardware — "hold P5
             // to save" is the whole instruction, and the slot is right there
             // in the telemetry.
             out.Clear();
             out.Append("Hold ");
-            if (rec_slot < 7) { out.Append("P"); out.AppendInt(rec_slot + 3); }
-            else              { out.Append("pad"); }
+            if (t.rec_slot < 7) { out.Append("P"); out.AppendInt(t.rec_slot + 3); }
+            else                { out.Append("pad"); }
             out.Append(" to save");
             return;
-        case 6: set_label(out, "Rec", "Exit");           return;
         default: out.Clear(); out.Append("Hold");        return;
     }
 }
@@ -682,17 +685,22 @@ void hold_label(FixedCapStr<N>& out, uint8_t kind, int mode, uint8_t rec_slot) {
 // hold block in TouchPlaited.cpp): Seq varies the current kit then replaces
 // it, the pitched modes vary the sound twice, and Basic Pitch alone has a 3rd
 // stage that drops the snapshots. `done` is how many have fired already.
-const char* hold_note(uint8_t kind, int mode, uint8_t done) {
-    switch (kind) {
+const char* hold_note(const TelemetryState& t) {
+    const uint8_t done = t.hold_stage;
+    switch (t.hold_kind) {
         case 1:
-            if (mode == 0) return (done == 0) ? "1s vary kit" : "2s new kit";
+            if (t.mode == 0) return (done == 0) ? "1s vary kit" : "2s new kit";
             if (done == 0) return "1s vary sound";
-            if (done == 1) return (mode == 2) ? "2s vary more" : "2s vary more";
+            if (done == 1) return "2s vary more";
             return "3s back to live knobs";
         case 2: return "2s enter rec mode";
         case 3: return "clear this layer";
         case 4: return "copy slot to pad";
         case 5: return "keep these edits";
+        // Same combo both ways, so the note has to say which way this press
+        // is going — it's the only warning you get before every knob in the
+        // mode changes meaning.
+        case 7: return t.snd_edit ? "back to arp knobs" : "knobs edit the sound";
         default: return "";
     }
 }
@@ -701,11 +709,13 @@ const char* hold_note(uint8_t kind, int mode, uint8_t done) {
 // the stage number it used to print — "Stage 2" told you a threshold was
 // crossed but not which of the three per-mode meanings it had.
 template <size_t N>
-void confirm_text(FixedCapStr<N>& out, uint8_t kind, int mode, uint8_t stage, uint8_t outcome) {
+void confirm_text(FixedCapStr<N>& out, const TelemetryState& t) {
+    const uint8_t stage   = t.hold_stage;
+    const uint8_t outcome = t.hold_outcome;
     out.Clear();
-    switch (kind) {
+    switch (t.hold_kind) {
         case 1:
-            if (mode == 0)          out.Append(stage >= 2 ? "New kit" : "Kit varied");
+            if (t.mode == 0)        out.Append(stage >= 2 ? "New kit" : "Kit varied");
             else if (stage >= 3)    out.Append("Live knobs");
             else                    out.Append(stage >= 2 ? "Varied more" : "Varied");
             return;
@@ -714,6 +724,10 @@ void confirm_text(FixedCapStr<N>& out, uint8_t kind, int mode, uint8_t stage, ui
         case 4: out.Append("Copied"); return;
         case 5: out.Append("Saved"); return;
         case 6: out.Append("Cancelled"); return;
+        // outcome: 1 entered sound edit, 2 left it. t.snd_edit is not
+        // usable here — the flash is latched, so by the time it draws the
+        // flag has already flipped.
+        case 7: out.Append(outcome == 2 ? "Arp knobs" : "Sound edit"); return;
         default: out.Append("OK"); return;
     }
 }
@@ -773,7 +787,7 @@ void OledUi::Service(const TelemetryState& t, uint32_t now_ms, OledScreen& oled)
     // from whatever `last_` it left behind.
     if (t.hold_kind != 0) {
         FixedCapStr<24> hl;
-        hold_label(hl, t.hold_kind, t.mode, t.rec_slot);
+        hold_label(hl, t);
         // A threshold just fired (hold_stage advanced since the last drawn
         // frame — same edge-detection `last_` already does for pads/switches)
         // gets a text flash instead of the bar, held open a little longer
@@ -786,12 +800,11 @@ void OledUi::Service(const TelemetryState& t, uint32_t now_ms, OledScreen& oled)
             && (t.hold_kind != last_.hold_kind || t.hold_stage != last_.hold_stage);
         if (just_confirmed) {
             FixedCapStr<24> confirm;
-            confirm_text(confirm, t.hold_kind, t.mode, t.hold_stage, t.hold_outcome);
+            confirm_text(confirm, t);
             oled.ShowLine(hl.Cstr(), confirm.Cstr());
             next_draw_ms_ = now_ms + kConfirmFlashMs;
         } else {
-            oled.ShowProgress(hl.Cstr(), t.hold_progress,
-                              hold_note(t.hold_kind, t.mode, t.hold_stage));
+            oled.ShowProgress(hl.Cstr(), t.hold_progress, hold_note(t));
             next_draw_ms_ = now_ms + kMinRedrawIntervalMs;
         }
         last_         = t;

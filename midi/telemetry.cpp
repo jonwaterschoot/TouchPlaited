@@ -91,10 +91,11 @@ void Telemetry::SendState(const TelemetryState& s, uint32_t now_ms, MidiIO& midi
     f[27] = s.clock_src & 0x7F;    // 0 internal, 1 MIDI, 2 CV
     f[28] = s.arp_flags & 0x7F;    // bits0-1 sub-state, bit2 Rec armed, bit3 melodic transport
     f[29] = s.hold_kind & 0x7F;    // 0 none, 1 P0+P2, 2 rec entry, 3 layer clear,
-                                   // 4 layer copy, 5 rec save
+                                   // 4 layer copy, 5 rec save, 6 rec cancel,
+                                   // 7 P0+P1 sound edit
     f[30] = s.hold_progress & 0x7F;
     f[31] = s.hold_stage & 0x7F;   // confirms fired so far for the current hold
-    f[32] = s.hold_outcome & 0x7F; // hold_kind 3 only: 0 n/a, 1 success, 2 empty
+    f[32] = s.hold_outcome & 0x7F; // kind 3: 1 cleared, 2 empty · kind 7: 1 entered, 2 left
     f[33] = s.seq_pattern & 0x7F;  // playing slot within the genre, 0-based
     f[34] = 0xF7;
     midi.SendSysexUsb(f, sizeof(f));

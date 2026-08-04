@@ -100,6 +100,7 @@ function holdLabel(kind: number, mode: number, recSlot: number | null): string {
     case 4: return 'Rec Copy layer';
     case 5: return `Hold ${recSlot === null ? 'pad' : `P${recSlot + 3}`} to save`;
     case 6: return 'Rec Exit';
+    case 7: return 'P0+P1 Sound edit';
     default: return 'Hold';
   }
 }
@@ -119,6 +120,9 @@ function confirmText(kind: number, mode: number, stage: number, outcome: number)
     case 4: return 'Copied';
     case 5: return 'Saved';
     case 6: return 'Cancelled';
+    // outcome: 1 entered sound edit, 2 left it — sndEdit has already flipped
+    // by the time the latched flash draws, so it can't be read here.
+    case 7: return outcome === 2 ? 'Arp knobs' : 'Sound edit';
     default: return 'OK';
   }
 }
@@ -126,7 +130,7 @@ function confirmText(kind: number, mode: number, stage: number, outcome: number)
 /** What crossing the *next* threshold will do — the note row under the bar,
  * ported 1:1 from oled_ui.cpp's hold_note(). `done` is how many thresholds
  * have already fired. */
-function holdNote(kind: number, mode: number, done: number): string {
+function holdNote(kind: number, mode: number, done: number, sndEdit: boolean): string {
   switch (kind) {
     case 1:
       if (mode === 0) return done === 0 ? '1s vary kit' : '2s new kit';
@@ -137,6 +141,9 @@ function holdNote(kind: number, mode: number, done: number): string {
     case 3: return 'clear this layer';
     case 4: return 'copy slot to pad';
     case 5: return 'keep these edits';
+    // Same combo both ways, so the note has to say which way this press is
+    // going — the only warning before every knob changes meaning.
+    case 7: return sndEdit ? 'back to arp knobs' : 'knobs edit the sound';
     default: return '';
   }
 }
@@ -662,7 +669,7 @@ export class Labels {
             confirmText(ev.holdKind, s.mode, ev.stage, ev.outcome));
         } else if (ev.holdKind !== 0) {
           this.oledMini.showProgress(holdLabel(ev.holdKind, s.mode, s.recSlot), ev.progress,
-                                     holdNote(ev.holdKind, s.mode, ev.stage));
+                                     holdNote(ev.holdKind, s.mode, ev.stage, s.sndEdit));
         } else {
           this.oledMini.clearProgress();
         }

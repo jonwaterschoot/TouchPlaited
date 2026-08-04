@@ -1680,6 +1680,15 @@ static volatile uint32_t p0p2_stage_fired = 0;
 static volatile bool     p0p2_all_done    = false;
 static bool p0p2_fired1 = false, p0p2_fired2 = false, p0p2_fired3 = false;
 
+// ─── P0+P1 sound-edit hold (ISR-writable, main-loop-readable) ─────────────────
+// The one build-up gesture that had no screen feedback of any kind: it
+// silently changes what every knob in the mode means, and until it fired
+// there was nothing to say it was coming. Same shape as the others now —
+// counter here, bar and confirm through compute_hold_telemetry().
+static constexpr uint32_t kSndEditHoldBlocks = 250;  // 1000 ms
+static volatile uint32_t  se_hold_count = 0;
+static volatile bool      se_fired      = false;
+
 static void fire_hold_stage(int stage) {
     // In Seq the running sequencer plays the new sounds; no extra audition.
     if (!seq_mode_on) {
@@ -1805,6 +1814,15 @@ static void compute_hold_telemetry(uint32_t now_ms, uint8_t& kind, uint8_t& prog
     if (rec_mode == RecMode::RECORDING && copy_hold_anim > 0) {
         kind     = 4;
         progress = hold_progress_of(copy_hold_anim, kShortAnnounceBlocks, kLongHoldBlocks);
+        return;
+    }
+
+    // 4b) P0+P1 sound-edit hold. Sits above the Rec holds because its combo
+    // is Arp/Mel-only and can't overlap them (it requires rec_mode IDLE),
+    // and below P0+P2 so the mutate combo still wins if P2 joins mid-hold.
+    if (se_hold_count > 0 && !se_fired) {
+        kind     = 7;
+        progress = hold_progress_of(se_hold_count, kShortAnnounceBlocks, kSndEditHoldBlocks);
         return;
     }
 
@@ -2335,8 +2353,6 @@ void AudioCallback(AudioHandle::InputBuffer in, AudioHandle::OutputBuffer out, s
     // auditions the current sound; with the arp/loop running, every trigger
     // is live feedback.
     {
-        static uint32_t se_hold_count = 0;
-        static bool     se_fired      = false;
         bool combo = !seq_mode_on && current_mode == PlayMode::ARP_MEL
                      && rec_mode == RecMode::IDLE
                      && touch.pads().IsTouched(0) && touch.pads().IsTouched(1)
@@ -2344,8 +2360,12 @@ void AudioCallback(AudioHandle::InputBuffer in, AudioHandle::OutputBuffer out, s
         if (!combo) {
             se_hold_count = 0;
             se_fired      = false;
-        } else if (!se_fired && ++se_hold_count >= 250) {   // 1s of blocks
+        } else if (!se_fired && ++se_hold_count >= kSndEditHoldBlocks) {
             se_fired = true;
+            // outcome tells the screen which way it went — the two are
+            // opposite gestures on the same combo (1 entered, 2 left).
+            const bool leaving = (arp_state == ArpState::REC) ? rec_snd_edit : arp_snd_edit;
+            fire_confirm(7, 1, leaving ? 2 : 1);
             if (arp_state == ArpState::REC) {
                 if (!rec_snd_edit) {
                     rec_snd_edit = true;
@@ -3444,6 +3464,29 @@ int main() {
                 }
             }
             continue;
+        }
+
+        // P0+P1 sound-edit countdown. Until now this 1 s hold gave nothing
+        // at all until it fired — no build-up on the LED, none on the
+        // screen — even though it silently reassigns every knob in the mode.
+        // Short enough that the announce window gets a single slow pulse
+        // rather than three (see kShortAnnounceBlocks).
+        {
+            uint32_t shold = se_hold_count;
+            if (shold > 0 && !se_fired) {
+                if (shold < kShortAnnounceBlocks) {
+                    set_led(true);  delay_serviced(130);
+                    set_led(false); delay_serviced(70);
+                } else {
+                    const uint32_t span = kSndEditHoldBlocks - kShortAnnounceBlocks;
+                    const uint32_t t    = (shold < kSndEditHoldBlocks)
+                                        ? shold - kShortAnnounceBlocks : span;
+                    const uint32_t interval = 150u - t * 120u / span;
+                    set_led(true);  delay_serviced(interval);
+                    set_led(false); delay_serviced(interval);
+                }
+                continue;
+            }
         }
 
         // Recording-entry countdown: from ~0.2 s into the pad hold, slow

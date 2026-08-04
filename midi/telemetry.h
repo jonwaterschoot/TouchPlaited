@@ -45,7 +45,9 @@ struct TelemetryState {
                            // 0 none, matches the LED's own accelerating-blink
                            // family and precedence (display/oled_ui.cpp):
                            // 1 P0+P2 (re-randomize/vary sound), 2 rec entry,
-                           // 3 layer clear, 4 layer copy
+                           // 3 layer clear, 4 layer copy, 5 rec save,
+                           // 6 rec cancel (no build-up — confirm only),
+                           // 7 P0+P1 sound-edit toggle
     uint8_t  hold_progress; // 0..127, fraction of the way to hold_kind's next
                             // threshold; 0 when hold_kind is 0. For hold_kind
                             // 1 (P0+P2) this is relative to the CURRENT stage
@@ -57,10 +59,12 @@ struct TelemetryState {
                             // holds). Edge-detect against the previous frame
                             // to catch the confirm — it stays at its fired
                             // value for as long as the gesture stays held.
-    uint8_t  hold_outcome;  // only meaningful for hold_kind 3 (layer clear)
-                            // at the instant hold_stage becomes 1: 0 n/a,
-                            // 1 success (a layer/all layers cleared),
-                            // 2 empty (nothing was there to clear)
+    uint8_t  hold_outcome;  // which of two results a confirm had, at the
+                            // instant hold_stage becomes 1. kind 3 (layer
+                            // clear): 1 success, 2 empty (nothing to clear).
+                            // kind 7 (sound edit): 1 entered, 2 left — the
+                            // same combo both ways, and snd_edit has already
+                            // flipped by the time the flash draws. 0 = n/a.
 };
 
 // Emits full-state SysEx frames over USB MIDI, rate-limited:

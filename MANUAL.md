@@ -281,7 +281,7 @@ To shape whichever sound is currently in view (the arp's in Arp/Hold, Rec's whil
 
 | Gesture | Result |
 |---------|--------|
-| **P0 + P1 hold ~1 s** | Toggle **sound edit**: the knobs become S30 drive · S31 decay · S32 harmonics · S33 timbre · S34 morph on that sound (the Basic Pitch layout), and the Arp/Hold or Rec functions freeze. Entry = 3 rapid blinks + an audition; with the arp/loop running every trigger is live feedback. Toggle again (2 blinks), flick SW1, or leave and re-enter the mode to get the normal knobs back — every hand-off is pickup-protected |
+| **P0 + P1 hold ~1 s** | Toggle **sound edit**: the knobs become S30 drive · S31 decay · S32 harmonics · S33 timbre · S34 morph on that sound (the Basic Pitch layout), and the Arp/Hold or Rec functions freeze. The screen counts the hold down — `P0+P1 SOUND EDIT` over a filling bar, reading `KNOBS EDIT THE SOUND` on the way in and `BACK TO ARP KNOBS` on the way out — then flashes `SOUND EDIT` or `ARP KNOBS`; the LED pulses once slowly, then accelerates. Entry = 3 rapid blinks + an audition; with the arp/loop running every trigger is live feedback. Toggle again (2 blinks), flick SW1, or leave and re-enter the mode to get the normal knobs back — every hand-off is pickup-protected |
 | P0 / P2 + S35 | Model select on the in-view sound (bank 0 / bank 1) — works without leaving play |
 | P0 + P2 hold 2 s / 4 s | Vary the in-view sound around where it is — tight (±0.10) / wide (±0.25); the engine stays |
 

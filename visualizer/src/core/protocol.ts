@@ -29,15 +29,17 @@
 //        other meaning, outside Rec — independent of armed: a punched-out
 //        Rec keeps looping)
 //   23   hold kind: 0 none, 1 P0+P2 (re-randomize/vary sound), 2 rec entry,
-//        3 layer clear, 4 layer copy, 5 rec save — a hold toward a threshold,
+//        3 layer clear, 4 layer copy, 5 rec save, 6 rec cancel (confirm
+//        only, no build-up), 7 P0+P1 sound edit — a hold toward a threshold,
 //        same precedence as the device LED's accelerating-blink family
 //   24   hold progress, 0..127, fraction toward that threshold (for kind 1,
 //        relative to the CURRENT stage only — each stage fills on its own)
 //   25   hold stage: confirms fired so far for the current hold (0 while
 //        building; 1/2/3 for P0+P2's stages, 0->1 for the single-stage
 //        holds) — edge-detect against the previous frame to catch a confirm
-//   26   hold outcome, kind 3 only, at the instant stage becomes 1: 0 n/a,
-//        1 success, 2 empty (nothing was there to clear)
+//   26   hold outcome, at the instant stage becomes 1: 0 n/a · kind 3:
+//        1 cleared, 2 empty (nothing was there) · kind 7: 1 entered sound
+//        edit, 2 left it (same combo both ways)
 //   27   Seq pattern slot actually playing within the current genre, 0-based
 //        (S35 is behind a pickup, so its pot position is not a stand-in)
 //
