@@ -19,6 +19,16 @@
 using namespace daisy;
 using namespace synthux;
 
+// libDaisy's USBD descriptor now expects the application to supply these
+// (Synthux fork, "Use external names" / "One more external name") instead
+// of the old hardcoded "Electrosmith" / "Daisy Seed ..." defines.
+extern "C"
+{
+const char* USBD_MANUFACTURER_STRING = "TouchPlaited";
+const char* USBD_PRODUCT_STRING_HS   = "TouchPlaited";
+const char* USBD_PRODUCT_STRING_FS   = "TouchPlaited";
+}
+
 DaisySeed hw;
 Touch touch;
 OledScreen oled;
