@@ -572,8 +572,37 @@ void describe_pad(int i, const TelemetryState& t,
         case 0:  label.Append("P0 modifier"); return;
         case 1:  label.Append("P1 FX layer"); return;
         case 2:  label.Append("P2 modifier"); return;
-        case 10: label.Append("P10 Oct-/pitch-1"); return;
-        case 11: label.Append("P11 Oct+/pitch+1"); return;
+        case 10:
+        case 11: {
+            // P10/P11 carry five different jobs depending on which modifier
+            // is down, and a bare "Oct-/pitch-1" told you none of them —
+            // the combos are the whole reason to touch these two.
+            const bool up = (i == 11);
+            const bool p0 = (t.pads & (1u << 0)) != 0;
+            const bool p1 = (t.pads & (1u << 1)) != 0;
+            const bool p2 = (t.pads & (1u << 2)) != 0;
+            const int  arp_sub = t.arp_flags & 0x03;
+            const bool in_rec  = (t.mode == 1) && (arp_sub == 2);
+            if (p2) {
+                if (up)          set_label(label, "P2+P11", "Drum transport");
+                else if (in_rec) set_label(label, "P2+P10", "Rec capture");
+                else             set_label(label, "P2+P10", "Mel transport");
+            } else if (p1) {
+                set_label(label, up ? "P1+P11" : "P1+P10",
+                          up ? "Arp octaves +" : "Arp octaves -");
+            } else if (p0) {
+                if (in_rec && !up)      set_label(label, "P0+P10", "Undo layer");
+                else if (t.mode == 2)   set_label(label, up ? "P0+P11" : "P0+P10",
+                                                  up ? "Root +" : "Root -");
+                else                    set_label(label, up ? "P0+P11" : "P0+P10",
+                                                  "Root (Pitch only)");
+            } else if (t.mode == 0 && t.rec_slot != 0x7F) {
+                set_label(label, up ? "P11" : "P10", up ? "Drum pitch +1" : "Drum pitch -1");
+            } else {
+                set_label(label, up ? "P11" : "P10", up ? "Octave +" : "Octave -");
+            }
+            return;
+        }
         default: return;
     }
 }
@@ -756,6 +785,32 @@ constexpr uint32_t kConfirmFlashMs = 220;
 // How long the last touched control stays on screen before the status row
 // takes over. Matches IDLE_MS in visualizer/src/panel/oled-mini.ts.
 constexpr uint32_t kIdleMs = 2200;
+// Capture-indicator blink half-period. Slow enough to read as a deliberate
+// pulse rather than a flicker, and it costs one extra redraw per phase — the
+// screen is otherwise change-driven, so this is the only thing on it that
+// generates I2C traffic on its own. Only runs while recording.
+constexpr uint32_t kBlinkMs = 400;
+} // namespace
+
+namespace {
+// What the persistent indicator block shows right now (oled_screen.h). Only
+// Arp/Mel Rec has anything to say: whether capture is live, and the layer
+// stack with the open take marked.
+StatusIcons icons_for(const TelemetryState& t, uint32_t now_ms) {
+    StatusIcons ic;
+    if (t.mode != 1 || (t.arp_flags & 0x03) != 2) return ic;  // Rec sub-state only
+    const bool armed   = (t.arp_flags & 0x04) != 0;
+    const bool running = (t.arp_flags & 0x08) != 0;
+    ic.blink  = ((now_ms / kBlinkMs) & 1u) != 0;
+    ic.rec    = armed && running;
+    ic.layers = t.rec_layers > 5 ? 5 : t.rec_layers;
+    ic.mute   = t.rec_mute;
+    // The open take is the slot just past the committed ones — and only
+    // while capture is actually live, since nothing is going into it
+    // otherwise. At 5 the stack is full (LIMIT) and there is no open take.
+    if (ic.rec && ic.layers < 5) ic.open = ic.layers;
+    return ic;
+}
 } // namespace
 
 void OledUi::Service(const TelemetryState& t, uint32_t now_ms, OledScreen& oled) {
@@ -829,7 +884,29 @@ void OledUi::Service(const TelemetryState& t, uint32_t now_ms, OledScreen& oled)
     // Whatever wins owns the screen until the idle timeout below hands it
     // back to the status row.
     const uint16_t new_touches = t.pads & ~last_.pads;
-    if (new_touches != 0) {
+    // Transport and capture changes outrank the pad-down that caused them.
+    // P2+P10 and P2+P11 fire on the P10/P11 press edge, so the pad branch
+    // below used to win the same frame and announce "P10 Oct-/pitch-1" —
+    // the modifier's meaning, which is the whole point of the combo, never
+    // reached the screen.
+    if (((t.arp_flags ^ last_.arp_flags) & 0x0C) != 0) {
+        const bool running = (t.arp_flags & 0x08) != 0;
+        const bool armed   = (t.arp_flags & 0x04) != 0;
+        // Label names which of the combo's two meanings fired; the value is
+        // the state that leaves you in, not the flag that moved (see
+        // melodic_state()).
+        set_label(label, "P2+P10",
+                  (((t.arp_flags ^ last_.arp_flags) & 0x08) != 0) ? "Transport"
+                                                                  : "Rec capture");
+        value.Append(melodic_state(t.mode, t.arp_flags & 0x03, running, armed));
+        draw = true;
+    } else if (t.playing != last_.playing) {
+        // P2+P11, or a MIDI Start/Stop, or the seq's own first-entry
+        // auto-start — all worth saying out loud for the same reason.
+        set_label(label, "P2+P11", "Drum seq");
+        value.Append(t.playing ? "Play" : "Stop");
+        draw = true;
+    } else if (new_touches != 0) {
         int i = 0;
         while (i < 12 && !((new_touches >> i) & 1u)) i++;
         describe_pad(i, t, label, value);
@@ -846,22 +923,6 @@ void OledUi::Service(const TelemetryState& t, uint32_t now_ms, OledScreen& oled)
         label.Append("Model");
         model_value(value, t.model);
         draw = true;
-    } else if (((t.arp_flags ^ last_.arp_flags) & 0x0C) != 0) {
-        // Melodic transport / Rec arm (both P2+P10, depending on sub-state).
-        // Neither is a pad-down we can catch — P2+P10 is a combo whose pads
-        // are usually already held — and they used to pass with no message
-        // at all, which is the one gesture that silently changes whether
-        // anything sounds.
-        const bool running = (t.arp_flags & 0x08) != 0;
-        const bool armed   = (t.arp_flags & 0x04) != 0;
-        // Label names which of the combo's two meanings fired; the value is
-        // the state that leaves you in, not the flag that moved (see
-        // melodic_state()).
-        set_label(label, "P2+P10",
-                  (((t.arp_flags ^ last_.arp_flags) & 0x08) != 0) ? "Transport"
-                                                                  : "Rec capture");
-        value.Append(melodic_state(t.mode, t.arp_flags & 0x03, running, armed));
-        draw = true;
     } else {
         // First changed control wins; if two moved in the same throttle
         // window the other one's change gets folded into `last_` unseen
@@ -876,11 +937,16 @@ void OledUi::Service(const TelemetryState& t, uint32_t now_ms, OledScreen& oled)
         }
     }
 
+    const StatusIcons icons = icons_for(t, now_ms);
+
     if (draw) {
-        oled.ShowLine(label.Cstr(), value.Cstr());
+        oled.ShowLine(label.Cstr(), value.Cstr(), icons);
         next_draw_ms_   = now_ms + kMinRedrawIntervalMs;
         idle_at_ms_     = now_ms;
         showing_status_ = false;
+        blink_phase_    = icons.blink;
+        last_label_     = label;   // a blink redraw has to repaint this
+        last_value_     = value;
         last_ = t;
         return;
     }
@@ -895,11 +961,21 @@ void OledUi::Service(const TelemetryState& t, uint32_t now_ms, OledScreen& oled)
     const bool changed  = std::strcmp(sl.Cstr(), status_label_.Cstr()) != 0
                        || std::strcmp(sv.Cstr(), status_value_.Cstr()) != 0;
     if (idle_now && (!showing_status_ || changed)) {
-        oled.ShowLine(sl.Cstr(), sv.Cstr());
+        oled.ShowLine(sl.Cstr(), sv.Cstr(), icons);
         next_draw_ms_   = now_ms + kMinRedrawIntervalMs;
         showing_status_ = true;
         status_label_   = sl;
         status_value_   = sv;
+        blink_phase_    = icons.blink;
+    } else if (icons.animated() && icons.blink != blink_phase_) {
+        // The one self-generated redraw on this screen: the capture
+        // indicator has to pulse whether or not anything else moved. Redraw
+        // whatever is already showing rather than reverting to the status
+        // row, so a blink can't steal a callout mid-read.
+        if (showing_status_) oled.ShowLine(status_label_.Cstr(), status_value_.Cstr(), icons);
+        else                 oled.ShowLine(last_label_.Cstr(), last_value_.Cstr(), icons);
+        next_draw_ms_ = now_ms + kMinRedrawIntervalMs;
+        blink_phase_  = icons.blink;
     }
 
     last_ = t;

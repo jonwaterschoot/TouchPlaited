@@ -328,6 +328,27 @@ adding one is backward-compatible — but each still touches both sides plus
       `Hold P5 to save` after a few idle seconds, and give cancel its own
       message. A blinking marker on the edited pad is also still open — the
       status row is static text today.
+- [x] **C10 — Rec needs a live capture indicator and per-layer state.**
+      *Done 2026-08-05.* A persistent indicator block on the label row, the
+      first thing on this screen that outlives the callout showing under it:
+      a blinking circle while capture is live, and five dots for the layer
+      stack (filled = committed, hollow = muted, pulsing outline = the take
+      being recorded into, tick = free). `StatusIcons` in
+      `display/oled_screen.h`, built by `icons_for()`. It is also the only
+      self-generated redraw on the screen — everything else is
+      change-driven — so the blink is gated on capture actually being live
+      (`kBlinkMs` 400, one redraw per phase).
+- [x] **C11 — transport combos announced the wrong pad.** *Done 2026-08-05.*
+      P2+P10 and P2+P11 fire on the P10/P11 press edge, and the pad-down
+      branch sat above the state-change branch in the priority chain — so
+      the screen said `P10 OCT-/PITCH-1`, the modifier's meaning never
+      reaching it. State changes now outrank the pad-down that caused them,
+      and `t.playing` got the same treatment (`P2+P11 DRUM SEQ` ·
+      `Play`/`Stop`, which also covers MIDI Start/Stop and the seq's own
+      first-entry auto-start). Separately, `describe_pad()` now resolves
+      P10/P11 against the held modifier the way the visualizer's
+      `describePad()` already did — five different jobs on those two pads,
+      and the firmware named none of them.
 - [ ] **C6 — broader per-mode audit.** Standing item. The list above came
       out of one hardware session on Seq, Rec and Basic Pitch. Walk
       **Arp/Mel** (Hold/Arp/Rec sub-states, layer record/mute messages) the

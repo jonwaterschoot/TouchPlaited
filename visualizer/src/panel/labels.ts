@@ -677,8 +677,15 @@ export class Labels {
         this.lastHoldStage = ev.stage;
         break;
       }
-      case 'mode':
       case 'playing':
+        // P2+P11, a MIDI Start/Stop, or the seq's own first-entry auto-start.
+        // Same reasoning as the melodic transport above: the combo fires on
+        // P11's press edge, so without this the screen announces P11's bare
+        // octave role instead of what the combo just did.
+        this.oledMini.show('P2+P11 Drum seq', s.playing ? 'Play' : 'Stop');
+        this.renderStatus(s);
+        break;
+      case 'mode':
       case 'seqStep':
       case 'recSlot':
       case 'sndEdit':
@@ -929,6 +936,19 @@ export class Labels {
     if (!s.connected) parts.push('<i>not connected</i>');
     this.status.innerHTML = parts.join(' · ');
     this.oledWide.setStatus(parts.join(' · '));
+    // Persistent indicator block — mirrors icons_for() in display/oled_ui.cpp.
+    if (s.mode === 1 && s.arpSub === 2) {
+      const rec = s.recArmed && s.arpRunning;
+      const layers = Math.min(5, s.recLayers);
+      this.oledMini.setIcons({
+        rec,
+        layers,
+        mute: s.recMute,
+        open: rec && layers < 5 ? layers : -1,
+      });
+    } else {
+      this.oledMini.setIcons({ rec: false, layers: -1, mute: 0, open: -1 });
+    }
     // Mini screen's home row: a 1:1 mirror of the firmware's status_row()
     // (display/oled_ui.cpp) — per-mode, and deliberately free of seq_step,
     // which changes every block and so can never be redrawn fast enough to

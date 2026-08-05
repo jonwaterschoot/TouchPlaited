@@ -53,6 +53,9 @@ private:
     bool     showing_status_ = false; // status row currently owns the screen
     daisy::FixedCapStr<24> status_label_{};  // as last drawn, to skip redraws
     daisy::FixedCapStr<24> status_value_{};
+    daisy::FixedCapStr<24> last_label_{};    // last callout, for blink repaints
+    daisy::FixedCapStr<24> last_value_{};
+    bool     blink_phase_  = false;  // phase the indicator block last drew at
 };
 
 } // namespace synthux

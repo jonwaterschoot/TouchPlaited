@@ -9,7 +9,15 @@ using namespace daisy;
 
 namespace {
 constexpr size_t kBufLen = 22; // 21 chars (Font_6x8 budget, 128/6px) + NUL
-}
+
+// Indicator-block geometry, all on the label row (y 0..7). The rec circle
+// owns the far right; the five layer dots sit to its left, so a label sharing
+// the row has to be truncated to whatever is left of them.
+constexpr uint8_t kRecCx = 123, kRecCy = 3, kRecR = 3;
+constexpr uint8_t kDotX0 = 88, kDotPitch = 6, kDotW = 4;  // 5 dots -> x 88..115
+constexpr size_t  kLabelCharsWithDots  = 14;   // 84 px, clear of kDotX0
+constexpr size_t  kLabelCharsWithRec   = 19;   // 114 px, clear of the circle
+} // namespace
 
 void OledScreen::Init(daisy::DaisySeed& hw) {
     (void)hw; // transport owns its own I2C init; kept for Pads::Init() symmetry
@@ -97,17 +105,45 @@ void OledScreen::EndFrame() {
     i2c1_bus_busy = false;
 }
 
-void OledScreen::ShowLine(const char* label, const char* value) {
+void OledScreen::ShowLine(const char* label, const char* value,
+                          const StatusIcons& icons) {
     // Held for the whole draw+transfer (see i2c1_lock.h) — Pads::Process()
     // skips its I2C poll in AudioCallback while this is up, so the ~20ms
     // Update() below can't get torn by the audio ISR landing mid-transfer.
     i2c1_bus_busy = true;
     _display.Fill(false);
 
+    // Indicator block first — it owns the right end of the label row, so the
+    // label's budget depends on what's drawn here.
+    size_t labelBudget = kBufLen - 1;
+    if (icons.layers != 0xFF) {
+        labelBudget = kLabelCharsWithDots;
+        for (int i = 0; i < 5; i++) {
+            const uint8_t x0 = static_cast<uint8_t>(kDotX0 + i * kDotPitch);
+            const uint8_t x1 = static_cast<uint8_t>(x0 + kDotW - 1);
+            if (i == icons.open) {
+                // The take being recorded into pulses with the rec circle —
+                // filled on the beat it is lit, hollow between, so which
+                // layer is live reads at a glance without counting.
+                _display.DrawRect(x0, 2, x1, 5, true, icons.blink);
+            } else if (i < icons.layers) {
+                // Committed: filled, or hollow while muted.
+                _display.DrawRect(x0, 2, x1, 5, true, ((icons.mute >> i) & 1) == 0);
+            } else {
+                // Free slot: a 2px tick, just enough to count the slots.
+                _display.DrawRect(static_cast<uint8_t>(x0 + 1), 3,
+                                  static_cast<uint8_t>(x0 + 2), 4, true, true);
+            }
+        }
+    } else if (icons.rec) {
+        labelBudget = kLabelCharsWithRec;
+    }
+    if (icons.rec && icons.blink) _display.DrawCircle(kRecCx, kRecCy, kRecR, true);
+
     // Label row: Font_6x8, uppercased and truncated to the 21-char budget
     // (128px / 6px advance) — same rule as LABEL_CHARS in oled-mini.ts.
     char labelBuf[kBufLen];
-    size_t labelLen = std::min(strlen(label), kBufLen - 1);
+    size_t labelLen = std::min({strlen(label), kBufLen - 1, labelBudget});
     std::memcpy(labelBuf, label, labelLen);
     labelBuf[labelLen] = '\0';
     for (char* p = labelBuf; *p; ++p)

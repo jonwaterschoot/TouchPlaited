@@ -48,6 +48,23 @@ function truncate(s: string, n: number): string {
   return s.length <= n ? s : s.slice(0, n);
 }
 
+/** Right-aligned indicator block on the label row — mirrors StatusIcons in
+ * display/oled_screen.h, same geometry and same blink period. The only thing
+ * on this screen that survives whatever callout is showing. */
+export interface StatusIcons {
+  rec: boolean;      // capture live: a circle, top right, blinking
+  layers: number;    // committed NoteRec layers, -1 = draw no dots
+  mute: number;      // bit i = layer i muted
+  open: number;      // layer being recorded into, -1 = none
+}
+const NO_ICONS: StatusIcons = { rec: false, layers: -1, mute: 0, open: -1 };
+const REC_CX = 123, REC_CY = 3, REC_R = 3;
+const DOT_X0 = 88, DOT_PITCH = 6, DOT_W = 4;
+const LABEL_CHARS_DOTS = 14;
+const LABEL_CHARS_REC = 19;
+// Matches kBlinkMs in display/oled_ui.cpp.
+const BLINK_MS = 400;
+
 /** Same stepping as oled_screen.cpp:ShowLine() — largest font whose char
  * count fits, in char-count terms (not measured pixel width, matching the
  * hardware exactly since these are fixed-advance bitmap fonts). */
@@ -75,6 +92,8 @@ export class OledMini {
   private progressPct = 0; // 0..1
   private progressNote = ''; // what crossing the next threshold does
   private flashTimer: ReturnType<typeof setTimeout> | null = null; // confirm text owns the screen
+  private icons: StatusIcons = NO_ICONS;
+  private blinkPhase = false;
   private cell = 4; // device px per logical pixel — set for real by place()
 
   constructor(private overlay: HTMLElement, private panel: Panel, private screen: {
@@ -109,6 +128,16 @@ export class OledMini {
         this.draw();
       }
     }, 300);
+    // Capture-indicator pulse. The firmware forces the same redraw from
+    // OledUi::Service when the phase flips (kBlinkMs); here it's a timer,
+    // and like there it only runs while something is actually animating.
+    setInterval(() => {
+      if (!this.icons.rec && this.icons.open < 0) return;
+      const phase = (Math.floor(performance.now() / BLINK_MS) % 2) !== 0;
+      if (phase === this.blinkPhase) return;
+      this.blinkPhase = phase;
+      if (!this.progressMode && this.flashTimer === null) this.draw();
+    }, BLINK_MS / 4);
   }
 
   /** The one thing currently happening — a knob turn, a pad hint, a switch
@@ -223,13 +252,63 @@ export class OledMini {
    * Font_6x8 for the value row (oled_screen.cpp:ShowLine). */
   private layoutText(label: string, value: string) {
     this.bits.fill(0);
-    this.blitText(FONT_6X8, truncate(label.toUpperCase(), LABEL_CHARS), 1, 0);
+
+    // Indicator block first — it owns the right end of the label row, so the
+    // label's budget depends on what's drawn here.
+    const ic = this.icons;
+    let budget = LABEL_CHARS;
+    const blink = (Math.floor(performance.now() / BLINK_MS) % 2) !== 0;
+    if (ic.layers >= 0) {
+      budget = LABEL_CHARS_DOTS;
+      for (let i = 0; i < 5; i++) {
+        const x0 = DOT_X0 + i * DOT_PITCH;
+        const x1 = x0 + DOT_W - 1;
+        if (i === ic.open) {
+          // The take being recorded into pulses with the rec circle.
+          if (blink) this.drawRectFilled(x0, 2, x1, 5);
+          else this.drawRectOutline(x0, 2, x1, 5);
+        } else if (i < ic.layers) {
+          if (((ic.mute >> i) & 1) === 0) this.drawRectFilled(x0, 2, x1, 5);
+          else this.drawRectOutline(x0, 2, x1, 5);
+        } else {
+          this.drawRectFilled(x0 + 1, 3, x0 + 2, 4);
+        }
+      }
+    } else if (ic.rec) {
+      budget = LABEL_CHARS_REC;
+    }
+    if (ic.rec && blink) this.drawCircleOutline(REC_CX, REC_CY, REC_R);
+
+    this.blitText(FONT_6X8, truncate(label.toUpperCase(), budget), 1, 0);
 
     if (value) {
       const font = pickValueFont(value.length);
       const maxChars = Math.floor(W / font.width);
       this.blitText(font, truncate(value, maxChars), 1, H - font.height);
     }
+  }
+
+  /** Same midpoint-circle outline the firmware's DrawCircle() rasterizes. */
+  private drawCircleOutline(cx: number, cy: number, r: number) {
+    let x = r, y = 0, err = 1 - r;
+    while (x >= y) {
+      for (const [dx, dy] of [[x, y], [y, x], [-x, y], [-y, x],
+                              [-x, -y], [-y, -x], [x, -y], [y, -x]] as const)
+        this.setBit(cx + dx, cy + dy);
+      y++;
+      if (err < 0) err += 2 * y + 1;
+      else { x--; err += 2 * (y - x) + 1; }
+    }
+  }
+
+  /** The persistent indicator block; redraws immediately so a state change
+   * (arming, a layer committing) shows without waiting for the blink tick. */
+  setIcons(icons: StatusIcons) {
+    const a = this.icons;
+    if (a.rec === icons.rec && a.layers === icons.layers
+        && a.mute === icons.mute && a.open === icons.open) return;
+    this.icons = icons;
+    if (!this.progressMode && this.flashTimer === null) this.draw();
   }
 
   private setBit(x: number, y: number) {
