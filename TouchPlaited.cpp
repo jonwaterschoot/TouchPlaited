@@ -332,6 +332,18 @@ static const DrumOpt kDrumPerc[]  = {
     { 22, 0.05f,0.20f, 0.05f,0.35f, 0.30f,0.60f, 0.3f,0.5f, 66.f,80.f },
 };
 
+// Which pool each kit slot draws from, and the role volume that comes with
+// it — the single source of truth for both whole-kit generation and the
+// "is this slot still playing its own role" test below. Splitting it out of
+// generate_drum_random() is what made per-slot randomizing (Rec P0+P2) and
+// the off-pool snap-back possible without a second copy of the table.
+struct DrumPool { const DrumOpt* opts; int n; float volume; };
+static const DrumPool kDrumPools[kPadSlots] = {
+    { kDrumKick,  2, 0.90f }, { kDrumSnare, 2, 0.80f }, { kDrumCHH,  2, 0.55f },
+    { kDrumOHH,   1, 0.65f }, { kDrumClap,  2, 0.75f }, { kDrumTom,  2, 0.70f },
+    { kDrumPerc,  3, 0.50f },
+};
+
 static void fill_drum_slot(PadSlot& s, const DrumOpt* opts, int n) {
     const DrumOpt& o = opts[static_cast<int>(rand_f() * n) % n];
     s.engine    = o.e;
@@ -342,14 +354,27 @@ static void fill_drum_slot(PadSlot& s, const DrumOpt* opts, int n) {
     s.note      = rand_range(o.nlo, o.nhi);
 }
 
+// True while slot i is still on one of the engines its role is curated for.
+// Rec mode's S35 reaches all 24 engines, so a slot can be pointed at anything
+// by hand — this is how the randomizers tell "a kick that needs varying" from
+// "a Speech engine somebody parked on the kick pad".
+static bool slot_engine_in_pool(int i, int engine) {
+    const DrumPool& p = kDrumPools[i];
+    for (int j = 0; j < p.n; j++)
+        if (p.opts[j].e == engine) return true;
+    return false;
+}
+
+// Re-pick slot i from its own curated pool: new engine, new params, role
+// volume. The "stick to kick models" primitive — every randomizer that
+// replaces a sound goes through here, so none of them can wander off-role.
+static void fill_drum_slot_from_pool(int i) {
+    fill_drum_slot(drum_slots[i], kDrumPools[i].opts, kDrumPools[i].n);
+    drum_slots[i].volume = kDrumPools[i].volume;
+}
+
 static void generate_drum_random() {
-    fill_drum_slot(drum_slots[0], kDrumKick,  2); drum_slots[0].volume = 0.90f;
-    fill_drum_slot(drum_slots[1], kDrumSnare, 2); drum_slots[1].volume = 0.80f;
-    fill_drum_slot(drum_slots[2], kDrumCHH,   2); drum_slots[2].volume = 0.55f;
-    fill_drum_slot(drum_slots[3], kDrumOHH,   1); drum_slots[3].volume = 0.65f;
-    fill_drum_slot(drum_slots[4], kDrumClap,  2); drum_slots[4].volume = 0.75f;
-    fill_drum_slot(drum_slots[5], kDrumTom,   2); drum_slots[5].volume = 0.70f;
-    fill_drum_slot(drum_slots[6], kDrumPerc,  3); drum_slots[6].volume = 0.50f;
+    for (int i = 0; i < kPadSlots; i++) fill_drum_slot_from_pool(i);
     // slot.drive is a ratio of the overall S30 drive in seq mode; 1.0 = follow fully.
     // Blend/width/FX-send trims reset with the kit: a mono flag, AUX-only blend
     // or dry-trimmed send from an old kit shouldn't silently reshape whatever
@@ -390,13 +415,26 @@ static void trigger_drum(int i, float vel = 1.0f) {
     pool.NoteOnWithParams(16 + i, drum_slots[i].note, p, VoiceGroup::kDrum);
 }
 
-// Seq P0+P2 stage 1: nudge params of the current kit — same engines, same notes.
+// Vary one slot in place: same engine, same note, params nudged. The unit
+// both the whole-kit stage 1 and Rec's per-pad stage 1 are built from.
+static void mutate_drum_slot_soft(int i) {
+    auto& s = drum_slots[i];
+    s.harmonics = clampf(s.harmonics + rand_range(-0.10f, 0.10f));
+    s.timbre    = clampf(s.timbre    + rand_range(-0.10f, 0.10f));
+    s.decay     = clampf(s.decay     + rand_range(-0.08f, 0.08f));
+}
+
+// Seq P0+P2 stage 1: nudge params of the current kit — same engines, same
+// notes, with one exception. A slot sitting on an engine outside its own
+// curated pool (Rec mode's S35 reaches all 24) is re-picked from that pool
+// instead of jittered: jittering it left the kick pad on whatever non-kick
+// model had been chosen by hand, so "vary kit" could never bring the kit
+// back to kit-shaped sounds. In-pool slots are untouched by the snap, so
+// this is still "same kit, new variation" for a kit that was randomized.
 static void mutate_drum_soft() {
     for (int i = 0; i < kPadSlots; i++) {
-        auto& s = drum_slots[i];
-        s.harmonics = clampf(s.harmonics + rand_range(-0.10f, 0.10f));
-        s.timbre    = clampf(s.timbre    + rand_range(-0.10f, 0.10f));
-        s.decay     = clampf(s.decay     + rand_range(-0.08f, 0.08f));
+        if (!slot_engine_in_pool(i, drum_slots[i].engine)) fill_drum_slot_from_pool(i);
+        else                                               mutate_drum_slot_soft(i);
     }
 }
 
@@ -879,8 +917,24 @@ static constexpr uint8_t kMidiPitchCh  = 0;    // ch1
 static constexpr uint8_t kMidiDrumCh   = 9;    // ch10
 static constexpr int     kMidiSlotBase = 32;   // pool slot ids: pads 0–6, drums 16–22, MIDI 32+note
 
-// GM percussion → drum slot (kick, snare, CHH, OHH, clap, tom, perc). Phase 1:
-// the note picks the slot, the slot's stored pitch plays — same as a pad hit.
+// GM percussion → drum slot (kick, snare, CHH, OHH, clap, tom, perc). The
+// note picks the slot and the slot's stored pitch plays — same as a pad hit.
+//
+// "Phase 2" was originally going to add transposition: a note within ±6 of a
+// slot's anchor would play the slot pitched. Dropped deliberately (2026-08-05)
+// — the seven slots are drums, each already carries its own tuned pitch as
+// part of the sound, and a transposing kick pad is a different instrument, not
+// a played one. **Velocity is the expressive axis instead** — honoured on the
+// way in (below) and now generated on the way out (drum_velocity()).
+//
+// The anchors match the standard 4×4 grid controllers land on, so a pad
+// controller's bottom two rows drive the kit with no remapping:
+//     48  49  50  51
+//     44  45 [46 OHH] 47
+//     40 [41 TOM][42 CHH][43 PERC]
+//    [36 KICK] 37 [38 SNARE][39 CLAP]
+// The wider GM aliases stay accepted so a general drum track still lands
+// somewhere sensible; only 43 moved (it was a tom alias, it is Perc's anchor).
 static int gm_to_drum_slot(uint8_t note) {
     switch (note) {
         case 35: case 36:                               return 0;  // kicks
@@ -888,14 +942,30 @@ static int gm_to_drum_slot(uint8_t note) {
         case 42: case 44:                               return 2;  // closed + pedal hat
         case 46:                                        return 3;  // open hat
         case 39:                                        return 4;  // clap
-        case 41: case 43: case 45: case 47: case 48:
-        case 50:                                        return 5;  // toms
-        case 37: case 54: case 56: case 75: case 76:    return 6;  // rim/tamb/cowbell/clave/woodblock
+        case 41: case 45: case 47: case 48: case 50:    return 5;  // toms
+        case 37: case 43: case 54: case 56:
+        case 75: case 76:                               return 6;  // perc/rim/tamb/cowbell/clave/woodblock
         default:                                        return -1;
     }
 }
-// GM note sent out per drum slot (pad hits in Seq mode + seq steps).
-static const uint8_t kDrumSlotGm[kPadSlots] = { 36, 38, 42, 46, 39, 45, 37 };
+// GM note sent out per drum slot (pad hits in Seq mode + seq steps) — the
+// anchors of the grid above, so what we send is what we listen for.
+static const uint8_t kDrumSlotGm[kPadSlots] = { 36, 38, 42, 46, 39, 41, 43 };
+
+// A step's authored weight (Sequencer's 1–4 accent tier) → GM velocity. With
+// pitch fixed per slot, velocity is the only expressive axis ch10 has, and
+// every hit used to leave as a flat 100 — a ghost note and a downbeat kick
+// were indistinguishable to whatever was listening. Weight 0 is the fallback
+// for hits with no step behind them (pad taps, the forced rec-slot trigger).
+static uint8_t drum_velocity(uint8_t weight) {
+    switch (weight) {
+        case 1:  return 45;    // ghost
+        case 2:  return 70;    // light accent
+        case 3:  return 95;    // medium
+        case 4:  return 120;   // strong
+        default: return 100;
+    }
+}
 
 // Pitched note sent out per pad slot, remembered so the NoteOff matches even
 // if octave/root changed while the pad was held. -1 = nothing sent.
@@ -1108,6 +1178,96 @@ static OledUi oled_ui;
 static void compute_hold_telemetry(uint32_t now_ms, uint8_t& kind, uint8_t& progress,
                                    uint8_t& stage, uint8_t& outcome);
 
+// ─── Which pickup is live on each pot right now (telemetry B1) ────────────────
+// `KnobPickup::caught` has always known whether a pot is doing anything; what
+// was missing was the map from "current mode + layer + held modifier" to the
+// eight pickups actually in play, so nothing downstream could say it. Without
+// that the screen printed the raw pot position whether or not it meant
+// anything — you could sweep a knob through its whole travel, watch the number
+// move, and hear nothing.
+//
+// The layer selection below mirrors the knob-application block in
+// AudioCallback exactly (same order, same guards); if a role moves there, it
+// moves here. Only value-crossing pickups are reported: the movement-catches
+// (P0+S37 width, the P1 FX mirror knobs, Rec's S35 bank select) engage on any
+// deliberate ~3% nudge, so there is no target to aim at and no dead travel to
+// warn about — reporting them would put a marker on screen that the very next
+// turn of the pot satisfies.
+static void capture_pickups(TelemetryState& t) {
+    const KnobPickup* pu[8] = { nullptr, nullptr, nullptr, nullptr,
+                                nullptr, nullptr, nullptr, nullptr };
+    auto& kn = touch.knobs();
+    const bool p0    = touch.pads().IsTouched(0);
+    const bool p2    = touch.pads().IsTouched(2);
+    const bool p1_fx = touch.pads().IsTouched(1) && !p0 && !p2
+                       && rec_mode == RecMode::IDLE;
+
+    if (rec_mode == RecMode::RECORDING && rec_slot >= 0) {
+        // Slot editing borrows the whole panel. P1 swaps S30/S35 to the
+        // slot's own send trims; S35's bare role is the bank select, which
+        // is a dead-zone catch and so stays unreported either way.
+        const bool p1_snd = is_drum_mode && touch.pads().IsTouched(1) && !p0 && !p2;
+        pu[0] = p1_snd ? &rec_k30fx : &rec_k30;
+        pu[1] = &rec_k31;
+        pu[2] = &rec_k32;
+        pu[3] = &rec_k33;
+        pu[4] = &rec_k34;
+        if (p1_snd) pu[5] = &rec_k35fx;
+        pu[6] = &rec_k36;
+        if (!p0) pu[7] = &rec_k37;      // P0 held = width, a MoveCatch
+    } else if (seq_mode_on) {
+        if (!p1_fx) pu[0] = &seq_pu30;
+        pu[1] = &seq_pu31;
+        pu[2] = &seq_pu32;
+        pu[3] = &seq_pu33;
+        pu[4] = &seq_pu34;
+        if (!p1_fx) pu[5] = &seq_pu35;
+        pu[6] = &seq_pu36;
+        if (!p0) pu[7] = &seq_pu37;
+    } else if (current_mode == PlayMode::ARP_MEL) {
+        if (arp_snd_edit) {
+            if (!p1_fx) pu[0] = &arp_se30;
+            pu[1] = &arp_se31; pu[2] = &arp_se32; pu[3] = &arp_se33; pu[4] = &arp_se34;
+        } else if (rec_snd_edit) {
+            if (!p1_fx) pu[0] = &rec_se30;
+            pu[1] = &rec_se31; pu[2] = &rec_se32; pu[3] = &rec_se33; pu[4] = &rec_se34;
+        } else if (arp_state == ArpState::REC) {
+            if (!p1_fx) pu[0] = &rec_pu30;
+            pu[1] = &arp_pu31;   // decay is the one knob genuinely shared with Arp/Hold
+            pu[2] = &rec_pu32; pu[3] = &rec_pu33; pu[4] = &rec_pu34;
+            if (!p1_fx && !p0 && !p2) pu[5] = &rec_pu35;
+        } else {
+            if (!p1_fx) pu[0] = &arp_pu30;
+            pu[1] = &arp_pu31; pu[2] = &arp_pu32; pu[3] = &arp_pu33; pu[4] = &arp_pu34;
+            if (!p1_fx && !p0 && !p2) pu[5] = &arp_pu35;
+        }
+        pu[6] = arp_state == ArpState::REC ? &rec_pu_vol   : &arp_pu_vol;
+        if (!p0) pu[7] = arp_state == ArpState::REC ? &rec_pu_blend : &arp_pu_blend;
+    } else {
+        // Basic Pitch: the pots feed eff_* through the CC pickups, which are
+        // force-caught at boot and only re-arm after a MIDI CC write — so
+        // these are normally all live, and the one time they are not is
+        // exactly the case with no other feedback at all.
+        if (!p1_fx) pu[0] = &cc_pu_drive;
+        pu[1] = &cc_pu_d;
+        pu[2] = &cc_pu_h;
+        pu[3] = &cc_pu_t;
+        pu[4] = &cc_pu_m;
+        pu[6] = &pitch_pu_vol;
+        if (!p0) pu[7] = &pitch_pu_blend;
+    }
+
+    t.pickup_armed = 0;
+    for (int i = 0; i < 8; i++) {
+        t.pickup_target[i] = 0;
+        if (pu[i] == nullptr || pu[i]->caught) continue;
+        t.pickup_armed |= static_cast<uint8_t>(1u << i);
+        int x = static_cast<int>(pu[i]->thresh * 127.f + 0.5f);
+        t.pickup_target[i] = static_cast<uint8_t>(x < 0 ? 0 : (x > 127 ? 127 : x));
+    }
+    (void)kn;
+}
+
 static void service_telemetry() {
     TelemetryState t;
 
@@ -1198,6 +1358,7 @@ static void service_telemetry() {
         | (rec_armed ? 0x04 : 0x00)
         | (arp_run_on ? 0x08 : 0x00));
     t.seq_pattern = static_cast<uint8_t>(seq.VariantSlot());
+    capture_pickups(t);
     const uint32_t now_ms = System::GetNow();
     compute_hold_telemetry(now_ms, t.hold_kind, t.hold_progress, t.hold_stage, t.hold_outcome);
     for (int i = 0; i < kPadSlots; i++) {
@@ -1559,6 +1720,29 @@ static void blink_confirm() {
 
 // ─── Recording mode helpers ───────────────────────────────────────────────────
 // Called from AudioCallback (ISR context) — no blocking calls.
+// Arm the recording knob layer against a slot's actual stored values: each
+// pot takes effect only when it reaches the value it is editing — no jumps,
+// works from either direction (arming at the pot's own position made upward
+// moves dead). Called on entry, and again whenever a randomize replaces the
+// slot under the pots, which would otherwise leave every pickup armed to a
+// value the slot no longer has.
+static void arm_rec_slot_pickups(int slot) {
+    const auto& sl = live_slots()[slot];
+    rec_k30.arm_to(sl.drive,     touch.knobs().s30().Value());
+    rec_k31.arm_to(sl.decay,     touch.knobs().s31().Value());
+    rec_k32.arm_to(sl.harmonics, touch.knobs().s32().Value());
+    rec_k33.arm_to(sl.timbre,    touch.knobs().s33().Value());
+    rec_k34.arm_to(sl.morph,     touch.knobs().s34().Value());
+    rec_k36.arm_to(sl.volume,    touch.knobs().s36().Value());
+    rec_k37.arm_to(sl.blend,     touch.knobs().s37().Value());
+    rec_k37w.arm(touch.knobs().s37().Value());
+
+    // Arm model-select pickup.
+    float s35 = touch.knobs().s35().Value();
+    rec_bank_caught[0]  = rec_bank_caught[1] = false;
+    rec_bank_thresh[0]  = rec_bank_thresh[1] = s35;
+}
+
 static void enter_rec_mode(int slot) {
     rec_mode   = RecMode::RECORDING;
     rec_slot   = slot;
@@ -1575,23 +1759,7 @@ static void enter_rec_mode(int slot) {
     fire_confirm(2, 1);           // service_telemetry: OLED/visualizer confirm flash
     rec_hit_flash      = false;
 
-    // Arm knob pickups to the slot's actual values: each pot takes effect only
-    // when it reaches the value it is editing — no jumps, works from either
-    // direction (arming at the pot's own position made upward moves dead).
-    const auto& sl = live_slots()[slot];
-    rec_k30.arm_to(sl.drive,     touch.knobs().s30().Value());
-    rec_k31.arm_to(sl.decay,     touch.knobs().s31().Value());
-    rec_k32.arm_to(sl.harmonics, touch.knobs().s32().Value());
-    rec_k33.arm_to(sl.timbre,    touch.knobs().s33().Value());
-    rec_k34.arm_to(sl.morph,     touch.knobs().s34().Value());
-    rec_k36.arm_to(sl.volume,    touch.knobs().s36().Value());
-    rec_k37.arm_to(sl.blend,     touch.knobs().s37().Value());
-    rec_k37w.arm(touch.knobs().s37().Value());
-
-    // Arm model-select pickup.
-    float s35 = touch.knobs().s35().Value();
-    rec_bank_caught[0]  = rec_bank_caught[1] = false;
-    rec_bank_thresh[0]  = rec_bank_thresh[1] = s35;
+    arm_rec_slot_pickups(slot);
 
     pool.AllNotesOff();
     // While the seq is running it force-fires this slot every step, so a
@@ -1680,6 +1848,18 @@ static volatile uint32_t p0p2_stage_fired = 0;
 static volatile bool     p0p2_all_done    = false;
 static bool p0p2_fired1 = false, p0p2_fired2 = false, p0p2_fired3 = false;
 
+// ─── P0+P2 inside Rec: the same gesture, scoped to one pad ────────────────────
+// The whole-kit randomize is all-or-nothing: it replaces seven sounds when
+// usually only one is wrong. In Rec you are already pointed at a single slot,
+// so the same combo varies just that one — stage 1 nudges the sound it has,
+// stage 2 re-picks it from the slot's own curated pool (kDrumPools), which is
+// the per-instrument version of "stick to kick models". Two stages, same
+// kStageBlocks pacing as everywhere else.
+static volatile uint32_t rec_p0p2_hold_count  = 0;
+static volatile uint32_t rec_p0p2_stage_fired = 0;
+static volatile bool     rec_p0p2_all_done    = false;
+static bool rec_p0p2_fired1 = false, rec_p0p2_fired2 = false;
+
 // ─── P0+P1 sound-edit hold (ISR-writable, main-loop-readable) ─────────────────
 // The one build-up gesture that had no screen feedback of any kind: it
 // silently changes what every knob in the mode means, and until it fired
@@ -1705,6 +1885,21 @@ static void fire_hold_stage(int stage) {
     // Release before the latch expires and p0p2_fired1/2/3 are cleared by the
     // next block — without this the confirm would vanish with them.
     fire_confirm(1, static_cast<uint8_t>(stage));
+}
+
+// Rec's per-pad randomize stage: land the change on the audition voice so it
+// is audible immediately, and re-arm the knob layer against the slot's new
+// values (see arm_rec_slot_pickups). With the seq running the slot is
+// force-fired every other step, so it re-sounds on its own.
+static void fire_rec_slot_stage(int stage) {
+    if (rec_slot < 0) return;
+    arm_rec_slot_pickups(rec_slot);
+    if (!(seq_mode_on && seq.IsActive()))
+        pool.AuditionWithParams(drum_slots[rec_slot].note, drum_params(rec_slot),
+                                VoiceGroup::kDrum);
+    rec_hit_flash        = true;
+    rec_p0p2_stage_fired = static_cast<uint32_t>(stage);
+    fire_confirm(8, static_cast<uint8_t>(stage));
 }
 
 // Same signal the LED loop (below) blinks from, reduced to a 0..127 fraction
@@ -1764,6 +1959,24 @@ static void compute_hold_telemetry(uint32_t now_ms, uint8_t& kind, uint8_t& prog
         // window (see kStageAnnounceBlocks).
         const uint32_t lo    = static_cast<uint32_t>(stage) * kStageBlocks;
         const uint32_t count = p0p2_hold_count > lo ? p0p2_hold_count - lo : 0u;
+        progress = hold_progress_of(count, kStageAnnounceBlocks, kStageBlocks);
+        return;
+    }
+
+    // 1b) The same combo inside Rec, scoped to the slot being edited. Its own
+    // kind (8) rather than a mode-dependent reading of kind 1: the label, the
+    // note row and the confirm all say "this pad", not "the kit". Two stages,
+    // so no all-done third window to rescale around.
+    if ((rec_p0p2_hold_count > 0 || rec_p0p2_all_done)
+            && rec_mode == RecMode::RECORDING) {
+        kind  = 8;
+        stage = static_cast<uint8_t>((rec_p0p2_fired1 ? 1 : 0) + (rec_p0p2_fired2 ? 1 : 0));
+        if (rec_p0p2_all_done) {
+            progress = 127;
+            return;
+        }
+        const uint32_t lo    = static_cast<uint32_t>(stage) * kStageBlocks;
+        const uint32_t count = rec_p0p2_hold_count > lo ? rec_p0p2_hold_count - lo : 0u;
         progress = hold_progress_of(count, kStageAnnounceBlocks, kStageBlocks);
         return;
     }
@@ -2287,6 +2500,13 @@ void AudioCallback(AudioHandle::InputBuffer in, AudioHandle::OutputBuffer out, s
         bool p2 = touch.pads().IsTouched(2);
         bool both = p0 && p2 && rec_mode == RecMode::IDLE;
         bool in_bp = !seq_mode_on && current_mode == PlayMode::BASIC_PITCH;
+        // In Rec the combo is live too, scoped to the edited slot (below).
+        // Neither of P0/P2's own Rec roles conflicts: both sit behind a
+        // catch (S37 width on P0 is a MoveCatch, S35 model select needs a
+        // dead-zone-sized turn), so holding the pair without touching a
+        // fader changes nothing else.
+        bool rec_both = p0 && p2 && rec_mode == RecMode::RECORDING
+                        && rec_slot >= 0 && is_drum_mode;
         if (!both) {
             p0p2_hold_count  = 0;
             p0p2_fired1 = p0p2_fired2 = p0p2_fired3 = false;
@@ -2314,9 +2534,18 @@ void AudioCallback(AudioHandle::InputBuffer in, AudioHandle::OutputBuffer out, s
                 if (seq_mode_on) {
                     generate_drum_random();
                     pool.AllNotesOff();
-                    seq.Start();
-                    if (!midi_clock_master()) midi.SendStart();
-                    clkout_resync = true;
+                    // Transport is not part of the kit. This used to call
+                    // Start() unconditionally, so a new kit force-started the
+                    // sequencer — you could not audition a fresh kit pad by
+                    // pad against a stopped seq, the randomize itself began
+                    // playing. A *running* seq still restarts from bar 0 so
+                    // the new kit lands on a downbeat, which is what the
+                    // original behaviour was actually for.
+                    if (seq.IsActive()) {
+                        seq.Start();
+                        if (!midi_clock_master()) midi.SendStart();
+                        clkout_resync = true;
+                    }
                 } else if (current_mode == PlayMode::ARP_MEL) {
                     mutate_snd(arp_state == ArpState::REC ? rec_snd : arp_snd, 0.25f);
                 } else {
@@ -2343,6 +2572,33 @@ void AudioCallback(AudioHandle::InputBuffer in, AudioHandle::OutputBuffer out, s
                 pool.AuditionWithParams(root_note_f(), vp);
                 p0p2_stage_fired = 3;
                 fire_confirm(1, 3);   // stage 3 doesn't go through fire_hold_stage()
+            }
+        }
+
+        // Rec's per-pad version. Same pacing, two stages:
+        //   1 — vary the sound this pad already has (engine + note kept)
+        //   2 — new sound for this pad from its own curated pool
+        // After either, the whole rec knob layer is re-armed: the pots were
+        // armed to the values the slot had at entry, and those values have
+        // just been replaced underneath them.
+        if (!rec_both) {
+            rec_p0p2_hold_count  = 0;
+            rec_p0p2_fired1 = rec_p0p2_fired2 = false;
+            rec_p0p2_all_done    = false;
+            rec_p0p2_stage_fired = 0;
+        } else if (!rec_p0p2_all_done) {
+            rec_p0p2_hold_count++;
+            const int slot = rec_slot;
+            if (!rec_p0p2_fired1 && rec_p0p2_hold_count >= kStageBlocks) {
+                rec_p0p2_fired1 = true;
+                mutate_drum_slot_soft(slot);
+                fire_rec_slot_stage(1);
+            }
+            if (!rec_p0p2_fired2 && rec_p0p2_hold_count >= 2u * kStageBlocks) {
+                rec_p0p2_fired2   = true;
+                rec_p0p2_all_done = true;
+                fill_drum_slot_from_pool(slot);
+                fire_rec_slot_stage(2);
             }
         }
     }
@@ -2768,8 +3024,12 @@ void AudioCallback(AudioHandle::InputBuffer in, AudioHandle::OutputBuffer out, s
                 if (seq_mode_on && rec_mode == RecMode::RECORDING && i == rec_slot)
                     rec_hit_flash = true;
                 // Mirror to MIDI out as one-shot GM hits (queued; the main
-                // loop drains — never TX from this ISR).
-                midi.SendNoteOn(kMidiDrumCh, kDrumSlotGm[i], 100);
+                // loop drains — never TX from this ISR), carrying the step's
+                // authored accent as velocity. The forced rec-slot trigger
+                // has no step behind it, so StepWeight() reads 0 there and
+                // drum_velocity() falls back to a plain 100.
+                midi.SendNoteOn(kMidiDrumCh, kDrumSlotGm[i],
+                                drum_velocity(seq.StepWeight(i)));
                 midi.SendNoteOff(kMidiDrumCh, kDrumSlotGm[i]);
             }
         }
@@ -3475,6 +3735,41 @@ int main() {
                 }
             }
             continue;
+        }
+
+        // The same countdown for Rec's per-pad randomize (P0+P2 while
+        // editing a slot) — identical two-phase shape, since to the hand it
+        // is the same gesture; only its scope differs.
+        {
+            uint32_t rhold  = rec_p0p2_hold_count;
+            bool     rdone  = rec_p0p2_all_done;
+            uint32_t rstage = rec_p0p2_stage_fired;
+            if ((rhold > 0 || rdone) && rec_mode == RecMode::RECORDING) {
+                if (rstage > 0) {
+                    set_led(true);
+                    uint32_t t0 = System::GetNow();
+                    while (System::GetNow() - t0 < 500) {
+                        delay_serviced(5);
+                        if (rec_p0p2_hold_count == 0 && !rec_p0p2_all_done) break;
+                    }
+                    set_led(false);
+                    rec_p0p2_stage_fired = 0;
+                } else if (rdone) {
+                    delay_serviced(10);
+                } else {
+                    const uint32_t off = rhold % kStageBlocks;
+                    if (off < kStageAnnounceBlocks) {
+                        set_led(true);  delay_serviced(130);
+                        set_led(false); delay_serviced(70);
+                    } else {
+                        const uint32_t t        = off - kStageAnnounceBlocks;
+                        const uint32_t interval = 150u - t * 110u / kStageFillBlocks;
+                        set_led(true);  delay_serviced(interval);
+                        set_led(false); delay_serviced(interval);
+                    }
+                }
+                continue;
+            }
         }
 
         // P0+P1 sound-edit countdown. Until now this 1 s hold gave nothing

@@ -17,11 +17,14 @@ import {
   CONTROLS, PADS, SW1_POSITIONS, SW2_POSITIONS, MODE_NAMES, modelName,
   DRUM_NOTES, noteName, fxValueLabel, engineKnobLabel, formatKnobValue,
   ENGINE_KNOBS, pitchedNote, arpOrderName, patternValue, patternSlotValue,
-  densityValue, chanceValue,
+  densityValue, chanceValue, ROOT_NAMES, scaleNotes,
 } from '../core/controls-meta';
 import type { KnobParam } from '../core/controls-meta';
 
 const HL_TTL_MS = 1600;
+// Matches kRecCycleMs in display/oled_ui.cpp — how long each phase of the Rec
+// status row's model / hold-to-save / copy cycle stays up.
+const REC_CYCLE_MS = 2600;
 
 // The device's NoteOn arrives immediately but the matching pad-down rides the
 // STATE frame (rate-limited to 33 ms), so a note usually lands before its pad:
@@ -100,7 +103,7 @@ function melodicState(mode: number, arpSub: number, running: boolean, armed: boo
  * row is spent naming the modifier already under your finger. */
 const COMBO_ROWS: Record<string, string[]> = {
   'p0.seq':     ['S37 drum width', '+P2 hold: vary kit'],
-  'p0.seqrec':  ['S35 slot model b0', 'S37 slot width'],
+  'p0.seqrec':  ['S35 slot model b0', 'S37 slot width', '+P2 hold: vary pad'],
   'p0.pitch':   ['S35 model bank 0', 'S37 stereo width',
                  'P10/P11 root -/+', '+P2 hold: randomize'],
   'p0.arp':     ['S35 model bank 0', 'S37 stereo width',
@@ -113,7 +116,7 @@ const COMBO_ROWS: Record<string, string[]> = {
   'p1.arp':     ['S30 reverb', 'S35 delay',
                  'P10/P11 arp octaves', '+P0 hold: sound edit'],
   'p2.seq':     ['P10 mel transport', 'P11 drum play/pause', '+P0 hold: vary kit'],
-  'p2.seqrec':  ['S35 slot model b1'],
+  'p2.seqrec':  ['S35 slot model b1', '+P0 hold: vary pad'],
   'p2.pitch':   ['S35 model bank 1', 'P10 mel transport',
                  'P11 drum play/pause', '+P0 hold: randomize'],
   'p2.arp':     ['S35 model bank 1', 'P10 mel transport',
@@ -141,6 +144,9 @@ function holdLabel(kind: number, mode: number, recSlot: number | null): string {
     case 5: return `Hold ${recSlot === null ? 'pad' : `P${recSlot + 3}`} to save`;
     case 6: return 'Rec Exit';
     case 7: return 'P0+P1 Sound edit';
+    // Same combo as kind 1, named for its scope: in Rec it changes the one
+    // pad being edited, not the whole kit.
+    case 8: return `P0+P2 ${recSlot === null ? 'pad' : `P${recSlot + 3}`} sound`;
     default: return 'Hold';
   }
 }
@@ -163,6 +169,7 @@ function confirmText(kind: number, mode: number, stage: number, outcome: number)
     // outcome: 1 entered sound edit, 2 left it — sndEdit has already flipped
     // by the time the latched flash draws, so it can't be read here.
     case 7: return outcome === 2 ? 'Arp knobs' : 'Sound edit';
+    case 8: return stage >= 2 ? 'New sound' : 'Pad varied';
     default: return 'OK';
   }
 }
@@ -172,11 +179,13 @@ function confirmText(kind: number, mode: number, stage: number, outcome: number)
  * have already fired. */
 function holdNote(kind: number, mode: number, done: number, sndEdit: boolean): string {
   switch (kind) {
+    // Times are kStageBlocks apart (2 s each) — these still said 1s/2s/3s
+    // from before the stages were doubled.
     case 1:
-      if (mode === 0) return done === 0 ? '1s vary kit' : '2s new kit';
-      if (done === 0) return '1s vary sound';
-      if (done === 1) return '2s vary more';
-      return '3s back to live knobs';
+      if (mode === 0) return done === 0 ? '2s vary kit' : '4s new kit';
+      if (done === 0) return '2s vary sound';
+      if (done === 1) return '4s vary more';
+      return '6s back to live knobs';
     case 2: return '2s enter rec mode';
     case 3: return 'clear this layer';
     case 4: return 'copy slot to pad';
@@ -184,6 +193,7 @@ function holdNote(kind: number, mode: number, done: number, sndEdit: boolean): s
     // Same combo both ways, so the note has to say which way this press is
     // going — the only warning before every knob changes meaning.
     case 7: return sndEdit ? 'back to arp knobs' : 'knobs edit the sound';
+    case 8: return done === 0 ? '2s vary this pad' : '4s new sound, in role';
     default: return '';
   }
 }
@@ -280,8 +290,14 @@ function describePad(i: number, s: DeviceState): { combo: string; fn: string } |
     return { combo: `P2 + P${i}`, fn: `Layer ${i - 2} mute · hold = clear` };
   if (inRec && s.pads[0] && i === 10)
     return { combo: 'P0 + P10', fn: 'Undo · open take, then newest layer' };
-  if (i === 10 && s.pads[0]) return { combo: 'P0 + P10', fn: 'Root −1 semitone' };
-  if (i === 11 && s.pads[0]) return { combo: 'P0 + P11', fn: 'Root +1 semitone' };
+  // Root shifting transposes the whole scale (compute_note() adds the root
+  // before the degree offsets), and it clamps at C/B rather than wrapping —
+  // deliberately, since on a unit with no screen the dead end is the only
+  // landmark there is. Name where it landed, and the scale it puts the pads in.
+  if (i === 10 && s.pads[0])
+    return { combo: 'P0 + P10', fn: `Root −1 → ${ROOT_NAMES[s.root] ?? '?'} · ${scaleNotes(s.swA, s.root)}` };
+  if (i === 11 && s.pads[0])
+    return { combo: 'P0 + P11', fn: `Root +1 → ${ROOT_NAMES[s.root] ?? '?'} · ${scaleNotes(s.swA, s.root)}` };
   if (i === 10) return { combo: 'P10', fn: s.mode === 0 ? 'Drum pitch −1' : 'Octave −' };
   if (i === 11) return { combo: 'P11', fn: s.mode === 0 ? 'Drum pitch +1' : 'Octave +' };
   if (i >= 3 && i <= 9)
@@ -493,6 +509,14 @@ export class Labels {
       this.listAt = performance.now();
       this.oledMini.showList(rows.slice(this.listOffset));
     }, 200);
+    // Rec status-row cycle. On the device the row repaints whenever its own
+    // text changes, which the cycle drives for free; here nothing repaints
+    // without a state event, so it needs its own tick — and only while Seq
+    // slot editing is actually up.
+    setInterval(() => {
+      if (this.store.state.mode === 0 && this.store.state.recSlot !== null)
+        this.renderStatus(this.store.state);
+    }, REC_CYCLE_MS / 4);
   }
 
   private apply(ev: StateEvent, s: DeviceState) {
@@ -520,6 +544,16 @@ export class Labels {
         this.lastLabeled.set(ev.i, ev.v);
         const { combo, fn, dead, engine } = describeControl(ev.i, s);
         this.highlight(meta.svgId);
+        // While a pot is armed behind a pickup its own position drives
+        // nothing — the stored value is what's in effect, so that's what
+        // gets formatted here, in whatever units the knob normally speaks.
+        // The pot's real position is shown spatially instead, by the mini
+        // screen's pickup track (screenPush below).
+        const armed = ((s.pickupArmed >> ev.i) & 1) !== 0;
+        const shown = armed ? s.pickupTarget[ev.i] : ev.v;
+        const pickup = armed
+          ? { pot: Math.round(ev.v * 127), target: Math.round(shown * 127) }
+          : undefined;
         let value: string;
         if (dead) {
           // Unassigned knob on this engine — name the fact, skip the %.
@@ -532,8 +566,8 @@ export class Labels {
           // type) show the selected item instead of a %.
           const param: KnobParam =
             (['decay', 'harmonics', 'timbre', 'morph'] as const)[ev.i - 1];
-          value = formatKnobValue(engine, param, ev.v);
-          this.addLog(combo, `<b>${combo}</b> ${fn} <span>${value}</span>`);
+          value = formatKnobValue(engine, param, shown);
+          this.addLog(combo, `<b>${combo}</b> ${fn} <span>${value}</span>`, pickup);
           break;
         }
         if (s.pads[1] && meta.fx && !(s.mode === 0 && s.recSlot !== null)) {
@@ -542,16 +576,16 @@ export class Labels {
           // to the raw knob until the first frame lands. In rec mode the same
           // combo edits the slot's raw send trim — plain % there.
           value = ev.i === 0
-            ? fxValueLabel('reverb', s.fx.reverb ?? ev.v)
-            : fxValueLabel('delay', s.fx.delay ?? ev.v);
+            ? fxValueLabel('reverb', s.fx.reverb ?? shown)
+            : fxValueLabel('delay', s.fx.delay ?? shown);
         } else if (meta.name === 'S35' && s.mode === 1 && s.arpSub === 2
                    && !s.sndEdit && !s.pads[0] && !s.pads[2]) {
           // Rec's Order is a left/right-of-center choice, not the arp walk.
-          value = ev.v < 0.5 ? 'as recorded' : 'shuffled';
+          value = shown < 0.5 ? 'as recorded' : 'shuffled';
         } else if (meta.name === 'S35' && s.mode === 1 && !s.pads[0] && !s.pads[2]) {
           // Bare S35 in Arp/Mel is the note Order — name the setting, same
           // spirit as the model names on Basic Pitch's S35.
-          value = arpOrderName(ev.v);
+          value = arpOrderName(shown);
         } else if (meta.name === 'S35' && s.mode !== 0) {
           // s.model may be one frame stale mid-turn; the model event that
           // follows rewrites this line (see the 'model' case).
@@ -560,17 +594,17 @@ export class Labels {
                    && !s.pads[0] && !s.pads[2]) {
           // Bare S35 in Seq is the pattern variant — name it and show its
           // position in the genre, not a meaningless %.
-          value = patternValue(s.swA, ev.v);
+          value = patternValue(s.swA, shown);
         } else if (meta.name === 'S33' && s.mode === 0 && s.recSlot === null) {
           // Seq Density: name the stage instead of a raw %.
-          value = densityValue(ev.v);
+          value = densityValue(shown);
         } else if (meta.name === 'S34' && s.mode === 0 && s.recSlot === null) {
           // Seq Chance: name the zone — a raw % reads backwards here.
-          value = chanceValue(ev.v);
+          value = chanceValue(shown);
         } else {
-          value = `${Math.round(ev.v * 100)}%`;
+          value = `${Math.round(shown * 100)}%`;
         }
-        this.addLog(combo, `<b>${combo}</b> ${fn} <span>${value}</span>`);
+        this.addLog(combo, `<b>${combo}</b> ${fn} <span>${value}</span>`, pickup);
         break;
       }
       case 'pad': {
@@ -639,7 +673,12 @@ export class Labels {
                       : s.mode === 1 ? SW1_POSITIONS.arp
                                      : SW1_POSITIONS.pitch;
           this.highlight('sw1');
-          this.addLog('SW1', `<b>SW1</b> <span>${names[ev.v] ?? ev.v}</span>`);
+          // In Basic Pitch, SW1 names a scale — and a scale is a scale *from
+          // somewhere*, so it carries the root and the notes it lands on.
+          const suffix = s.mode === 2
+            ? ` - ${ROOT_NAMES[s.root] ?? '?'} <span>${scaleNotes(s.swA, s.root)}</span>`
+            : '';
+          this.addLog('SW1', `<b>SW1</b> <span>${names[ev.v] ?? ev.v}</span>${suffix}`);
         } else {
           this.highlight('sw2');
           this.addLog('SW2', `<b>SW2</b> <span>${SW2_POSITIONS[ev.v] ?? ev.v}</span>`);
@@ -958,8 +997,8 @@ export class Labels {
    * in place instead of flooding the list. Every log line also goes to both
    * OLED screens — the log is their single feed apart from the modifier-pad
    * hints, which the screens show but the log skips. */
-  private addLog(key: string, html: string) {
-    this.screenPush(key, html);
+  private addLog(key: string, html: string, pickup?: { pot: number; target: number }) {
+    this.screenPush(key, html, pickup);
     if (this.log[0]?.key === key) this.log[0].html = html;
     else this.log.unshift({ key, html });
     this.log = this.log.slice(0, 4);
@@ -969,10 +1008,17 @@ export class Labels {
   /** Feed one action-line HTML string to both screens: the wide screen keeps
    * the styled html, the mini screen gets it as plain text (its font is a
    * fixed bitmap grid, not HTML). */
-  private screenPush(key: string, html: string) {
+  private screenPush(key: string, html: string,
+                     pickup?: { pot: number; target: number }) {
     this.oledWide.push(key, html);
     const { label, value } = splitLabelValue(html);
-    this.oledMini.show(stripTags(label), stripTags(value));
+    // An armed pot gets the pickup screen: the value is the stored one that's
+    // actually in effect, and the track under it is the only thing saying the
+    // pot in your hand isn't driving it yet.
+    if (pickup)
+      this.oledMini.showPickup(stripTags(label), stripTags(value),
+                               pickup.pot, pickup.target);
+    else this.oledMini.show(stripTags(label), stripTags(value));
   }
 
   private screenAmend(key: string, value: string) {
@@ -1009,7 +1055,12 @@ export class Labels {
     this.status.innerHTML = parts.join(' · ');
     this.oledWide.setStatus(parts.join(' · '));
     // Persistent indicator block — mirrors icons_for() in display/oled_ui.cpp.
-    if (s.mode === 1 && s.arpSub === 2) {
+    if (s.mode === 0 && s.recSlot !== null) {
+      // Seq slot editing gets the circle too: no layer stack to show, but it
+      // is the other state you have to leave deliberately and that otherwise
+      // looks idle.
+      this.oledMini.setIcons({ rec: true, layers: -1, mute: 0, open: -1 });
+    } else if (s.mode === 1 && s.arpSub === 2) {
       const rec = s.recArmed && s.arpRunning;
       const layers = Math.min(5, s.recLayers);
       this.oledMini.setIcons({
@@ -1027,10 +1078,16 @@ export class Labels {
     // be true on the real panel.
     if (s.mode === 0 && s.recSlot !== null) {
       const role = PADS[s.recSlot + 3]?.seqRole;
+      // The value row cycles rather than sitting on the model: Rec is the one
+      // mode you can be stuck in, and both ways out are holds on pads you are
+      // not otherwise touching. Same three phases and period as the
+      // firmware's status_row() (kRecCycleMs).
+      const phase = Math.floor(Date.now() / REC_CYCLE_MS) % 3;
+      const value = phase === 1 ? `Hold P${s.recSlot + 3} save`
+                  : phase === 2 ? '+pad copies'
+                  : modelName(s.kit?.[s.recSlot]?.engine ?? s.model);
       this.oledMini.setStatus(
-        `Rec P${s.recSlot + 3}${role ? ` ${role}` : ''}`,
-        modelName(s.kit?.[s.recSlot]?.engine ?? s.model),
-      );
+        `Rec P${s.recSlot + 3}${role ? ` ${role}` : ''}`, value);
     } else if (s.mode === 0) {
       // Transport rides the label row so the value row can name the pattern
       // that's actually playing (s.seqPattern, the device's own slot — S35's
@@ -1051,8 +1108,11 @@ export class Labels {
         : modelName(s.model);
       this.oledMini.setStatus(`Arp/Mel ${sub}${s.sndEdit ? ' edit' : ''}`, value);
     } else {
+      // Scale and root belong together — they name the key the pads are in,
+      // and "Minor" alone never said which minor.
       const scale = ['Minor', 'Chromatic', 'Major'][s.swA] ?? '?';
-      this.oledMini.setStatus(`Pitch ${scale}`, modelName(s.model));
+      this.oledMini.setStatus(
+        `Pitch ${scale} ${ROOT_NAMES[s.root] ?? '?'}`, modelName(s.model));
     }
   }
 

@@ -66,6 +66,8 @@ const LABEL_CHARS_REC = 19;
 const BLINK_MS = 400;
 // Matches OledScreen::kListRows — 32 px / an 8 px font.
 const LIST_ROWS = 4;
+// ShowPickup geometry: Font_7x10 value at y 12..21, track at y 24..31.
+const PICKUP_VALUE_Y = 12;
 
 /** Same stepping as oled_screen.cpp:ShowLine() — largest font whose char
  * count fits, in char-count terms (not measured pixel width, matching the
@@ -96,6 +98,9 @@ export class OledMini {
   private flashTimer: ReturnType<typeof setTimeout> | null = null; // confirm text owns the screen
   private icons: StatusIcons = NO_ICONS;
   private listRows: string[] | null = null; // combo list owns the screen
+  // Set only while the shown control is armed behind a pickup; both values
+  // are 0..127, as the wire carries them.
+  private pickup: { pot: number; target: number } | null = null;
   private blinkPhase = false;
   private cell = 4; // device px per logical pixel — set for real by place()
 
@@ -158,6 +163,24 @@ export class OledMini {
     this.active = true;
     this.label = label;
     this.value = value;
+    this.pickup = null;
+    this.shownAt = performance.now();
+    this.draw();
+  }
+
+  /** A pot that's armed behind a pickup — mirrors OledScreen::ShowPickup()
+   * (display/oled_screen.cpp), same geometry. `value` is the STORED value in
+   * its own units, the one actually in effect; the track underneath carries
+   * both positions, a tall post at the target and a slider block at the pot.
+   * Drive the block onto the post and the pot takes over — no arithmetic, and
+   * it reads the same whether the value is a BPM, a note name or a word. */
+  showPickup(label: string, value: string, pot: number, target: number) {
+    if (this.progressMode || this.flashTimer !== null) return;
+    this.listRows = null;
+    this.active = true;
+    this.label = label;
+    this.value = value;
+    this.pickup = { pot, target };
     this.shownAt = performance.now();
     this.draw();
   }
@@ -177,6 +200,7 @@ export class OledMini {
   showProgress(label: string, pct: number, note = '') {
     if (this.flashTimer !== null) return; // a confirm is still on screen
     this.listRows = null;
+    this.pickup = null;
     this.active = true;
     this.progressMode = true;
     this.progressLabel = label;
@@ -192,6 +216,7 @@ export class OledMini {
    * back to whatever showProgress()/show() calls land next. */
   confirmFlash(label: string, text: string) {
     this.listRows = null;
+    this.pickup = null;
     this.active = true;
     this.progressMode = false;
     this.shownAt = performance.now();
@@ -222,6 +247,7 @@ export class OledMini {
    * Mirrors OledScreen::ShowList() (display/oled_screen.cpp). */
   showList(rows: string[]) {
     this.active = true;
+    this.pickup = null;
     this.progressMode = false;
     this.listRows = rows;
     this.shownAt = performance.now();
@@ -262,6 +288,11 @@ export class OledMini {
       this.rasterize();
       return;
     }
+    if (this.active && this.pickup !== null) {
+      this.layoutPickup(this.label, this.value, this.pickup.pot, this.pickup.target);
+      this.rasterize();
+      return;
+    }
     const label = this.active ? this.label : this.idleLabel;
     // A live action and the idle status never blend — a dead-knob line (no
     // %, just "no effect on …") shows on its own rather than borrowing the
@@ -269,6 +300,27 @@ export class OledMini {
     const value = this.active ? this.value : this.idleValue;
     this.layoutText(label, value);
     this.rasterize();
+  }
+
+  /** Label row as layoutText(), a fixed Font_7x10 value row (nothing here
+   * changes size mid-hunt — the stored value doesn't move while you look for
+   * it), and a pickup track across the bottom. Identical geometry to the
+   * firmware's OledScreen::ShowPickup(). */
+  private layoutPickup(label: string, value: string, pot: number, target: number) {
+    this.bits.fill(0);
+    this.blitText(FONT_6X8, truncate(label.toUpperCase(), LABEL_CHARS), 1, 0);
+    if (value) {
+      const maxChars = Math.floor(W / FONT_7X10.width);
+      this.blitText(FONT_7X10, truncate(value, maxChars), 1, PICKUP_VALUE_Y);
+    }
+    const X0 = 1, X1 = 126, SPAN = X1 - X0;
+    const at = (v: number) => X0 + Math.round((Math.max(0, Math.min(127, v)) * SPAN) / 127);
+    for (let x = X0; x <= X1; x++) this.setBit(x, 30);
+    const tx = at(target);
+    this.drawRectFilled(tx, 24, tx + 1, 31);          // where it has to get to
+    const px = at(pot);
+    this.drawRectFilled(Math.max(X0, px - 2), 27,
+                        Math.min(X1, px + 2), 29);    // where it is now
   }
 
   /** Blit `font`'s glyphs for `text` into the bit-grid starting at (x0, y0),

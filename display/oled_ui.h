@@ -59,6 +59,11 @@ private:
     int      list_mod_     = -1;     // modifier whose combo list owns the screen
     int      list_offset_  = 0;      // first row shown, for lists over 4 rows
     uint32_t list_at_ms_   = 0;      // when the current window went up
+    // Knob currently drawn as a pickup (ShowPickup) rather than a plain value
+    // row, -1 = none. Held across calls only so the frame where the pot
+    // *catches* can be recognised and the track taken away again — see the
+    // arm-cleared branch in Service().
+    int      pickup_knob_  = -1;
 };
 
 } // namespace synthux

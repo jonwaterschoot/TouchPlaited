@@ -258,15 +258,22 @@ export function engineKnobLabel(
 export const MIDI_PITCH_CH = 0; // ch 1 — pitched notes, global CCs
 export const MIDI_DRUM_CH = 9;  // ch 10 — GM drum notes
 
-/** Pad index → outgoing GM drum note (P3..P9; sequencer + Seq-mode taps). */
+/** Pad index → outgoing GM drum note (P3..P9; sequencer + Seq-mode taps).
+ * The anchors of the standard 4×4 grid a pad controller lands on, so its
+ * bottom two rows drive the kit with no remapping — mirrors kDrumSlotGm in
+ * TouchPlaited.cpp:
+ *     48  49  50  51
+ *     44  45 [46 OHH] 47
+ *     40 [41 TOM][42 CHH][43 PERC]
+ *    [36 KICK] 37 [38 SNARE][39 CLAP]  */
 export const DRUM_NOTES: Record<number, number> = {
   3: 36, // Kick
   4: 38, // Snare
   5: 42, // Closed hat
   6: 46, // Open hat
   7: 39, // Clap
-  8: 45, // Tom
-  9: 37, // Perc
+  8: 41, // Tom
+  9: 43, // Perc
 };
 
 /** Pitched-note math, mirroring TouchPlaited.cpp compute_note(): the scale
@@ -340,4 +347,18 @@ const NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 
 
 export function noteName(n: number): string {
   return `${NOTE_NAMES[n % 12]}${Math.floor(n / 12) - 1}`;
+}
+
+/** The root as a bare pitch class — root is octave-less by design on the
+ * device (the octave lives in its own per-mode store). */
+export const ROOT_NAMES = NOTE_NAMES;
+
+/** The seven pads as pitch classes from the current root, in order:
+ * "D# F F# G# A# B C#". Mirrors display/oled_ui.cpp's scale_notes(): what
+ * makes it visible that shifting the root transposes the whole scale rather
+ * than only retuning the first pad. */
+export function scaleNotes(swA: number, root: number): string {
+  const scale = SCALES[swA] ?? SCALES[1];
+  const r = ((root % 12) + 12) % 12;
+  return scale.map((d) => NOTE_NAMES[(r + d) % 12]).join(' ');
 }

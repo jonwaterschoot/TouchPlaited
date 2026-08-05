@@ -56,6 +56,11 @@ export interface DeviceState {
                           // the single-stage holds)
   holdOutcome: number;    // holdKind 3 only, at the instant holdStage hits 1:
                           // 0 n/a, 1 success, 2 empty (nothing to clear)
+  pickupArmed: number;    // bitmask, bit i = S3(0+i) is behind a pickup: the
+                          // pot drives nothing until it reaches pickupTarget[i].
+                          // Every playmode has its own pickup layer, so every
+                          // hand-off between them puts knobs in this state
+  pickupTarget: number[]; // 0..1 per S30..S37; meaningless where the bit is 0
 }
 
 export type StateEvent =
@@ -79,6 +84,7 @@ export type StateEvent =
       prevSub: number; prevArmed: boolean; prevRunning: boolean }
   | { kind: 'seqPattern'; v: number }
   | { kind: 'hold'; holdKind: number; progress: number; stage: number; outcome: number }
+  | { kind: 'pickup'; armed: number; targets: number[] }
   | { kind: 'connected'; v: boolean }
   | { kind: 'note'; channel: number; note: number; on: boolean } // transient, not stored
   | { kind: 'sync' }; // emitted after a bulk update; views should repaint all
@@ -114,6 +120,8 @@ function initialState(): DeviceState {
     holdProgress: 0,
     holdStage: 0,
     holdOutcome: 0,
+    pickupArmed: 0,
+    pickupTarget: new Array(8).fill(0),
   };
 }
 
@@ -258,6 +266,19 @@ export class DeviceStore {
     if (this.state.seqPattern === v) return;
     this.state.seqPattern = v;
     this.emit({ kind: 'seqPattern', v });
+  }
+
+  /** Which pots are behind a pickup, and what each one has to reach. Only
+   * the armed slots are compared: an unarmed slot's target is stale by
+   * definition, and letting it churn would emit on every frame. */
+  setPickup(armed: number, targets: number[]) {
+    let changed = this.state.pickupArmed !== armed;
+    for (let i = 0; i < 8 && !changed; i++)
+      if ((armed >> i) & 1) changed = this.state.pickupTarget[i] !== targets[i];
+    if (!changed) return;
+    this.state.pickupArmed = armed;
+    this.state.pickupTarget = targets;
+    this.emit({ kind: 'pickup', armed, targets });
   }
 
   /** A hold building toward a threshold (P0+P2, rec entry, layer clear,

@@ -98,6 +98,7 @@ SW1 picks the sub-state — **Hold** (left) · **Arp** (center) · **Rec** (righ
 | P0 + S37 | Per-slot stereo width |
 | P1 + S30 / P1 + S35 | Per-slot reverb / delay send trim |
 | P10 / P11 | Drum pitch −1 / +1 semitone |
+| P0 + P2 hold 2 s / 4 s | Vary this pad's sound / new sound for this pad, in role |
 | Hold source pad 1.2 s | Confirm — save and exit |
 | Tap any other pad | Cancel — restore and exit |
 | Source pad + other pad 1.2 s | Copy slot to the other pad |
@@ -373,6 +374,18 @@ While the sequencer runs it fires the slot being edited every other step (8th no
 | P10 alone | Pitch the drum down 1 semitone |
 | P11 alone | Pitch the drum up 1 semitone |
 
+### Randomizing just this pad
+
+| Gesture | Result |
+|---------|--------|
+| P0 + P2 hold **2 s** | Vary the sound this pad already has — engine and pitch untouched |
+| P0 + P2 hold **4 s** | New sound for this pad, picked from its own curated pool (kick engines on the kick pad, and so on) |
+
+The same combo that randomizes the whole kit outside Recording, scoped to the
+one pad you're editing — usually only one drum is wrong. Both stages re-arm
+every knob against the slot's new values, so nothing jumps afterwards. See
+*Re-randomize gestures* for the full picture.
+
 ### Confirming, cancelling, copying
 
 | Gesture | Result |
@@ -394,6 +407,22 @@ Octave is per-mode: Basic Pitch, the arp (Arp/Hold) and Rec each remember their 
 | P0 + P10 | **Basic Pitch only:** root semitone down (within one octave) — in Arp/Mel's Rec state P0+P10 is **undo** instead; has no effect in Arp/Hold |
 | P0 + P11 | **Basic Pitch only:** root semitone up — no effect in Arp/Mel |
 | P1 + P10 / P11 | *(Arp/Mel only)* octave range down / up — 0–3 extra octaves the arp climbs beyond the base octave |
+
+**Root clamps at C and B — it does not wrap.** Wrapping would be two lines of
+code and it was deliberately not done: root is the one control with no
+audible landmark of its own, and without perfect pitch (or a screen) the fact
+that the control goes dead is the only way to know you have reached the
+bottom or the top of the octave. Step down until nothing happens and you are
+on C. To go the other way, step up.
+
+**Shifting the root transposes the whole scale, not just the first pad.** The
+root is added before the scale's degree offsets, so with SW1 on Minor and the
+root stepped up three semitones the pads play D♯ minor — the same intervals,
+in a new key. The screen says so: **P0+P10 / P0+P11 name the root they landed
+on** (`P0+P10 ROOT - D#`) and spell the seven pads out underneath
+(`D# F F# G# A# B C#`), the **SW1 callout** in Basic Pitch reads
+`SW1 MINOR - D#` with the same note row, and the idle status row reads
+`PITCH MINOR D#`.
 
 ---
 
@@ -430,8 +459,35 @@ Hold both pads together. Two stages fire in sequence.
 
 | Hold time | Stage | Result |
 |-----------|-------|--------|
-| 1 s | 1 — Soft variance | Randomizes parameters of current loaded drum models with slight variance; engines stay the same |
-| 2 s | 2 — Full new kit | Fully randomizes all drum models and parameters; new engines picked from drum pools. Sequencer restarts from bar 0. |
+| 2 s | 1 — Soft variance | Randomizes parameters of the current drum models with slight variance; engines stay the same — **except** a slot sitting on an engine outside its own role pool, which is re-picked from that pool (see below) |
+| 4 s | 2 — Full new kit | Fully randomizes all drum models and parameters; new engines picked from the per-role drum pools |
+
+**Randomizing never starts the sequencer.** Stage 2 used to force-start it, so
+a new kit could not be auditioned pad by pad against a stopped seq — the kit
+change itself began playing. Now the transport is left exactly as it was; a
+*running* seq still restarts from bar 0 so the new kit lands on a downbeat.
+
+**Every randomize stays in role.** Each of the seven slots draws from its own
+curated pool — kick engines on the kick pad, hat engines on the hats — so a
+new kit is always a kit. Because Recording's S35 reaches all 24 engines, a
+slot can be pointed at something else by hand; stage 1 snaps such a slot back
+into its pool rather than jittering the off-role sound, which is what used to
+make "vary kit" unable to bring a hand-picked pad back to a kick.
+
+### In Seq Recording — one pad's sound
+
+While editing a slot (see *Recording*), the same combo is scoped to that one
+pad instead of the whole kit — the usual case, since usually only one drum is
+wrong.
+
+| Hold time | Stage | Result |
+|-----------|-------|--------|
+| 2 s | 1 — Vary this pad | Nudges the sound this pad already has; engine and pitch untouched |
+| 4 s | 2 — New sound, in role | Re-picks this pad's engine and parameters from its own curated pool |
+
+Both stages re-arm the whole recording knob layer against the slot's new
+values, so no pot jumps afterwards. The bar names the pad it is about to
+change (`P0+P2 P5 SOUND`) and the LED counts it down like every other hold.
 
 **Mode memory:** switching between Basic Pitch, Arp/Mel, and Seq always restores the last state for that mode — no re-randomize on mode switch. Only P0+P2 forces a change. On first power-on Seq generates a fresh drum kit automatically.
 
@@ -491,10 +547,30 @@ Held notes are released by NoteOff, by CC 120/123 (All Sound Off / All Notes Off
 | P5 | Closed hat | **42**, 44 (pedal hat) |
 | P6 | Open hat | **46** |
 | P7 | Clap | **39** |
-| P8 | Tom | 41, 43, **45**, 47, 48, 50 |
-| P9 | Perc | **37** (rimshot), 54, 56, 75, 76 |
+| P8 | Tom | **41**, 45, 47, 48, 50 |
+| P9 | Perc | 37 (rimshot), **43**, 54, 56, 75, 76 |
 
 Bold = the note TouchPlaited itself sends for that slot on MIDI out. Notes outside the table are ignored. Each hit plays the slot at its stored pitch, exactly like tapping the pad.
+
+**The anchors are laid out as a 4×4 grid**, so a pad controller's bottom two
+rows drive the whole kit with no remapping:
+
+```
+[   48   ] [   49   ] [   50   ] [   51   ]
+[   44   ] [   45   ] [ OHH 46 ] [   47   ]
+[   40   ] [ TOM 41 ] [ CHH 42 ] [PERC 43 ]
+[ KICK 36] [   37   ] [SNARE 38] [CLAP 39 ]
+```
+
+**Pitch is fixed per slot; velocity is the expressive axis.** There is
+deliberately no transposition on ch10 — the seven slots are drums, and each
+already carries its own tuned pitch as part of the sound, so a transposing
+kick pad would be a different instrument rather than a played one. Instead:
+incoming velocity scales the hit, and **outgoing notes carry the pattern's own
+accents** — each sequencer step's weight tier becomes the velocity
+(1 ghost → 45, 2 light → 70, 3 medium → 95, 4 strong → 120). Hits with no
+step behind them (pad taps in Seq, the recording slot's forced trigger) send a
+plain 100.
 
 ### MIDI in — CC map (received on any channel)
 
@@ -624,6 +700,6 @@ Optional physical mods for anyone modding their own Simple Touch. None of these 
 
 **2. CV clock jacks.** S43 (clock in) and S40 (clock out) — see *Clock sync* above — use Daisy Seed pins **A11** and **D25** on this build. Those were just the first free pins taken in order, not a deliberate choice, so if you're wiring your own jacks, check what's actually free/convenient on your board rather than assuming those two.
 
-**3. OLED screen.** Optional I2C 128×32 add-on (SSD1306) on **D11/D12**, sharing the MPR121 touch bus. Mirrors the last-touched control (combo, function, value) on the faceplate. After ~2 s untouched it falls back to a per-mode status row — Seq shows genre and transport, Rec shows which pad you're editing and what's loaded in it, Arp/Mel and Basic Pitch show the sub-state and the loaded model. Hold a combo with a build-up (see *Re-randomize gestures* and *Recording*) and the screen shows a progress bar with a note saying what crossing the next threshold does, then flashes what changed. If you'd rather not add hardware, the [visualizer webapp](#visualizer-webapp) shows the same live telemetry on a screen you already have.
+**3. OLED screen.** Optional I2C 128×32 add-on (SSD1306) on **D11/D12**, sharing the MPR121 touch bus. Mirrors the last-touched control (combo, function, value) on the faceplate. After ~2 s untouched it falls back to a per-mode status row — Seq shows genre and transport, Rec shows which pad you're editing and cycles between what's loaded in it and the two ways out (`HOLD P5 SAVE`, `+PAD COPIES`), Arp/Mel and Basic Pitch show the sub-state and the loaded model; Basic Pitch adds the root next to the scale. Hold a combo with a build-up (see *Re-randomize gestures* and *Recording*) and the screen shows a progress bar with a note saying what crossing the next threshold does, then flashes what changed. **A knob that's waiting for pickup** (see *Knob pickup*) gets its own screen: the value row shows the **stored** value that's actually in effect, in its normal units, and a track underneath carries a tall post at the value the pot has to reach and a block at where the pot is now — drive the block onto the post and the knob takes over, at which point the track disappears. A blinking circle top-right marks the two states you have to leave deliberately: Seq slot editing, and live capture in Arp/Mel Rec. If you'd rather not add hardware, the [visualizer webapp](#visualizer-webapp) shows the same live telemetry on a screen you already have.
 
 On power-up it runs a one-time boot animation before handing off to that normal display: "TouchPlaited" materializes letter by letter (*Plaited* emphasized one font size up), holds, then disintegrates into scattering particles, then settles into a status line reporting whether SettingsJournal found and restored a prior session or this is a fresh/reset unit — see [`display/oled_boot.cpp`](display/oled_boot.cpp) / [`oled_boot.h`](display/oled_boot.h). The user LED slow-blinks for the duration (see *LED blink codes* above) and flashes once when it's done, so a unit with no screen attached still shows boot progress and a ready signal.

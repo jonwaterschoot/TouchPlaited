@@ -233,6 +233,15 @@ public:
 
     bool BeatFired() const { return beat_fired_; }
 
+    // The authored weight (1–4) of track t's most recent firing step, 0 if it
+    // didn't fire. Only meaningful for the block Tick() returned its bit in.
+    // Exists so MIDI out can carry the pattern's own accents as velocity —
+    // ch10 plays each slot at a fixed pitch, so velocity is the only
+    // expressive axis it has (TouchPlaited.cpp's drum_velocity()).
+    uint8_t StepWeight(int t) const {
+        return (t >= 0 && t < kTracks) ? last_weight_[t] : 0;
+    }
+
     // True on the block where a 16th step fired (regardless of density mask).
     bool StepFired() const { return step_fired_; }
 
@@ -266,6 +275,7 @@ private:
     float    shuffle_      = 0.f;
     float    chance_       = 0.5f;  // 0.5 = pattern's own chance, untouched
     uint32_t rng_          = 0x2545F491;  // xorshift32 state (any non-zero seed)
+    uint8_t  last_weight_[kTracks] = {};  // weight of each track's last firing step
 
     uint32_t next_rand() {
         rng_ ^= rng_ << 13;
@@ -304,6 +314,7 @@ private:
         int     idx  = bar_ * kSteps + step_;
         const uint8_t (*pat)[64] = kSeqPatterns[pattern_index()];
         for (int t = 0; t < kTracks; t++) {
+            last_weight_[t] = 0;
             uint8_t v = pat[t][idx];
             uint8_t w = v & 0x0F;
             if (w == 0) continue;
@@ -326,6 +337,7 @@ private:
                 if (eff_p < 0.f) eff_p = 0.f;
                 if (static_cast<float>(next_rand() & 0xFF) >= eff_p) continue;
             }
+            last_weight_[t] = w;
             mask |= static_cast<uint8_t>(1u << t);
         }
         return mask;

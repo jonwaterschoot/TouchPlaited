@@ -17,6 +17,9 @@ constexpr uint8_t kRecCx = 123, kRecCy = 3, kRecR = 3;
 constexpr uint8_t kDotX0 = 88, kDotPitch = 6, kDotW = 4;  // 5 dots -> x 88..115
 constexpr size_t  kLabelCharsWithDots  = 14;   // 84 px, clear of kDotX0
 constexpr size_t  kLabelCharsWithRec   = 19;   // 114 px, clear of the circle
+
+// ShowPickup geometry: Font_7x10 value at y 12..21, pickup track at y 24..31.
+constexpr uint8_t kPickupValueY = 12;
 } // namespace
 
 void OledScreen::Init(daisy::DaisySeed& hw) {
@@ -86,6 +89,56 @@ void OledScreen::ShowProgress(const char* label, uint8_t progress, const char* n
         _display.SetCursor(1, 32 - Font_6x8.FontHeight);
         _display.WriteString(noteBuf, Font_6x8, true);
     }
+
+    _display.Update();
+    i2c1_bus_busy = false;
+}
+
+void OledScreen::ShowPickup(const char* label, const char* value,
+                            uint8_t pot, uint8_t target) {
+    i2c1_bus_busy = true;
+    _display.Fill(false);
+
+    // Label row: identical to ShowLine's.
+    char labelBuf[kBufLen];
+    size_t labelLen = std::min(strlen(label), kBufLen - 1);
+    std::memcpy(labelBuf, label, labelLen);
+    labelBuf[labelLen] = '\0';
+    for (char* p = labelBuf; *p; ++p)
+        *p = static_cast<char>(std::toupper(static_cast<unsigned char>(*p)));
+    _display.SetCursor(1, 0);
+    _display.WriteString(labelBuf, Font_6x8, true);
+
+    // Value row: Font_7x10 at a fixed y, not ShowLine's shrink-to-fit stepping.
+    // The value here is the stored one and doesn't change while you hunt for
+    // it, so there is nothing for a font change to signal — and the track
+    // below needs its own rows regardless, which rules out the 18px font.
+    if (value != nullptr && *value != '\0') {
+        constexpr size_t kValueChars = 128 / 7;   // Font_7x10 advance
+        char valueBuf[kBufLen];
+        size_t n = std::min({strlen(value), kValueChars, kBufLen - 1});
+        std::memcpy(valueBuf, value, n);
+        valueBuf[n] = '\0';
+        _display.SetCursor(1, kPickupValueY);
+        _display.WriteString(valueBuf, Font_7x10, true);
+    }
+
+    // Pickup track across the bottom: 0..127 mapped to the full width, with a
+    // baseline so an empty stretch still reads as travel rather than blank.
+    constexpr uint8_t kTrackX0 = 1, kTrackX1 = 126;
+    constexpr uint8_t kSpan    = kTrackX1 - kTrackX0;
+    auto track_x = [](uint8_t v) -> uint8_t {
+        return static_cast<uint8_t>(kTrackX0 + (static_cast<uint32_t>(v & 0x7F) * kSpan) / 127u);
+    };
+    _display.DrawLine(kTrackX0, 30, kTrackX1, 30, true);
+    // Target: a full-height post — where the pot has to get to.
+    const uint8_t tx = track_x(target);
+    _display.DrawRect(tx, 24, static_cast<uint8_t>(tx + 1), 31, true, true);
+    // Pot: a wider, shorter block riding the track — where it is now.
+    const uint8_t px = track_x(pot);
+    const uint8_t pl = px >= kTrackX0 + 2 ? static_cast<uint8_t>(px - 2) : kTrackX0;
+    const uint8_t pr = px <= kTrackX1 - 2 ? static_cast<uint8_t>(px + 2) : kTrackX1;
+    _display.DrawRect(pl, 27, pr, 29, true, true);
 
     _display.Update();
     i2c1_bus_busy = false;

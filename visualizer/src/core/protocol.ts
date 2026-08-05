@@ -3,10 +3,10 @@
 //
 //   F0 7D 54 50 <ver> <type> <payload…> F7      "TP" = 0x54 0x50, mfr 0x7D
 //
-// STATE (0x01) payload, 28 bytes, all 7-bit (bytes 16-17 appended in fw v2,
+// STATE (0x01) payload, 37 bytes, all 7-bit (bytes 16-17 appended in fw v2,
 // byte 18 in fw v3, bytes 19-20 in fw v4, bytes 21-22 in fw v5, bytes 23-24
-// in fw v6, bytes 25-26 in fw v7, byte 27 in fw v8; decode guards on length
-// so older frames still parse):
+// in fw v6, bytes 25-26 in fw v7, byte 27 in fw v8, bytes 28-36 in fw v9;
+// decode guards on length so older frames still parse):
 //   0    pads P0..P6 bitmask (bit0 = P0)
 //   1    pads P7..P11 bitmask (bit0 = P7)
 //   2-9  S30..S37, 0..127
@@ -42,6 +42,13 @@
 //        edit, 2 left it (same combo both ways)
 //   27   Seq pattern slot actually playing within the current genre, 0-based
 //        (S35 is behind a pickup, so its pot position is not a stand-in)
+//   28   pickup armed mask, bit i = S3(0+i) is behind a pickup right now: the
+//        pot is not driving anything until it reaches byte 29+i. Only
+//        value-crossing pickups are reported — the movement-catches (stereo
+//        width, the P1 FX mirror knobs, Rec's S35 bank select) engage on any
+//        deliberate nudge, so there is no target to aim at
+//   29-36 pickup targets, 0..127, one per S30..S37; meaningless where the
+//        mask bit is 0
 //
 // FX (0x04) payload: drive, reverb, delay, nTrims, trims…   (all 0..127)
 // KIT (0x05) payload: nSlots, then per slot 6 bytes: engine, harmonics,
@@ -136,6 +143,11 @@ export function applySysex(data: Uint8Array, store: DeviceStore): boolean {
         store.setHold(p[23], p[24], stage, outcome);
       }
       if (p.length >= 28) store.setSeqPattern(p[27]);
+      if (p.length >= 37) {
+        const targets: number[] = [];
+        for (let i = 0; i < 8; i++) targets.push(p[29 + i] / 127);
+        store.setPickup(p[28], targets);
+      }
       return true;
     }
     case FrameType.EVENT: {

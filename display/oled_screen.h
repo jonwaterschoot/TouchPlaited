@@ -63,6 +63,19 @@ public:
     // Mirrors oled-mini.ts's showProgress().
     void ShowProgress(const char* label, uint8_t progress, const char* note);
 
+    // A pot that is armed behind a pickup: it isn't driving anything until it
+    // reaches the stored value, and printing its raw position (what this
+    // screen used to do) actively lies about that. Label row as ShowLine();
+    // `value` is the STORED value in its own units — the one actually in
+    // effect, formatted exactly as it would be normally, so nothing has to be
+    // re-expressed as a bare percentage just because it's mid-handover. Under
+    // it, a track carrying both positions: a tall post at `target` and a
+    // slider block at `pot`, both 0..127 across the full width. Drive the
+    // block onto the post and the pot takes over — no arithmetic, and it
+    // works the same whether the value is a BPM, a note name or a word.
+    void ShowPickup(const char* label, const char* value,
+                    uint8_t pot, uint8_t target);
+
     void Clear();
 
     // Frame-level primitives for the one-shot boot animation

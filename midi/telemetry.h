@@ -59,6 +59,22 @@ struct TelemetryState {
                             // holds). Edge-detect against the previous frame
                             // to catch the confirm — it stays at its fired
                             // value for as long as the gesture stays held.
+    uint8_t  pickup_armed;     // bit i = S3(0+i) is behind a pickup right now:
+                               // the pot is not driving anything until it
+                               // reaches pickup_target[i]. Every playmode has
+                               // its own pickup layer (a pot means something
+                               // different per mode, so every hand-off is a
+                               // crossing) and nothing used to say so — the
+                               // screen printed the raw pot position whether
+                               // or not it was doing anything, so you could
+                               // sweep a knob end to end and hear nothing.
+                               // Only value-crossing pickups (KnobPickup) are
+                               // reported; the movement-catches (stereo width,
+                               // the FX mirror knobs) engage on any ~3% nudge,
+                               // so there is no target to show and no dead
+                               // travel to warn about.
+    uint8_t  pickup_target[8]; // value each armed pot must reach, 0..127.
+                               // Meaningless where pickup_armed's bit is 0.
     uint8_t  hold_outcome;  // which of two results a confirm had, at the
                             // instant hold_stage becomes 1. kind 3 (layer
                             // clear): 1 success, 2 empty (nothing to clear).

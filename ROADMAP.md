@@ -23,7 +23,7 @@ full write-up". Outstanding follow-ups moved to Priority 3 below.
 
 ## Housekeeping
 
-- [ ] **File the SSD1306 driver fix upstream, against `electro-smith/libDaisy`
+- [x] **File the SSD1306 driver fix upstream, against `electro-smith/libDaisy`
       (not the `Synthux-Academy` fork).** Two bugs found during OLED
       bring-up (wrong column-start address on 128×32 panels; one I2C
       transaction per byte instead of per page) are fixed locally inside the
@@ -44,6 +44,9 @@ full write-up". Outstanding follow-ups moved to Priority 3 below.
       required to open a PR — fork-and-PR is the standard flow. Full
       writeup: `notesarchive/notes_archive_2026-07.md` → "SSD1306 128×32
       OLED".
+      - PR's were added to both Synthux liDaisy fork and to libDaisy, though because these are LLM made it was perhaps not best practice to just add them as PR and not just as an issue / ticket.
+      - Either way the small OLED fix was added and merged into Synthux libDaisy
+
 
 ## Priority 2 — Seq patterns: authoring & a less-repetitive feel
 
@@ -60,7 +63,7 @@ was the "free up S34 for pattern-feel duty" half of the old item here. Punch
 now rides S30 Drive on the models where it applies (`drum_params()`,
 `TouchPlaited.cpp:362`). What's left of that idea:
 
-- [ ] **Does chance-on-S34 actually break up the repetition?** The mapping
+- [x] **Does chance-on-S34 actually break up the repetition?** The mapping
       shipped (below 0.5 → probabilistic steps drift toward always-fires,
       0.5 → exactly as authored, above → miss rate scaled up to
       `kChanceExtraMax`×) is deliberately *not* a flat global multiplier, but
@@ -69,42 +72,89 @@ now rides S30 Drive on the models where it applies (`drum_params()`,
       the alternatives already considered were scaling mutation depth or
       biasing which steps are eligible. Its **display** is a separate,
       already-filed problem — see OLED item C1.
-- [ ] **Kick curation** — the other half of the old item: offer more/better
-      kick models rather than a punch knob. Blocked-adjacent finding from
-      the 2026-08-04 hardware pass (moved here out of the OLED list, it's
-      not a display bug): **P0+P2 stage 1 keeps whatever engine a slot
-      already has.** `mutate_drum_soft()` (`TouchPlaited.cpp:394-401`) only
-      jitters harmonics/timbre/decay; only stage 2's `generate_drum_random()`
-      re-picks engines from `kDrumKick`/`kDrumSnare`/… So once a slot has
-      been pointed at an off-pool engine by hand (Rec mode S35 reaches all
-      24), a stage-1 re-randomize never brings it back to a kick-shaped
-      model — which is exactly the "randomize should stick to actual kick
-      models" complaint. Decide: (a) leave stage 1 as the deliberate
-      "same kit, new variation" step and document it, (b) have stage 1 snap
-      an off-pool engine back into the slot's pool while keeping in-pool
-      engines put, or (c) widen `kDrumKick` (currently only 21 Bass drum,
-      10 FM 2-op) so there's more to land on in the first place.
+- [x] **Kick curation** — *Done 2026-08-05*, option (b) plus the two Seq
+      follow-ups filed with it. The pools became a table (`kDrumPools`,
+      `TouchPlaited.cpp`) instead of seven hard-coded calls inside
+      `generate_drum_random()`, which is what made the rest of this
+      tractable:
+      - **Stage 1 snaps off-pool slots back into role.** `mutate_drum_soft()`
+        now tests `slot_engine_in_pool()` per slot: in-pool engines are
+        jittered exactly as before ("same kit, new variation"), an off-pool
+        one is re-picked from that slot's pool. So a kick pad pointed at a
+        Speech engine by hand in Rec comes back to a kick on the first
+        stage, which was the actual complaint.
+      - **Randomizing no longer starts the sequencer.** Stage 2 called
+        `seq.Start()` unconditionally, so you could not audition a new kit
+        against a stopped seq — the kit change began playing. Guarded on
+        `seq.IsActive()`; a running seq still restarts from bar 0 so the new
+        kit lands on a downbeat, which is what that call was for.
+      - **P0+P2 in Rec randomizes just the edited pad.** New hold kind 8,
+        two stages on the same `kStageBlocks` pacing: 1 varies the sound the
+        pad has, 2 re-picks it from the pad's own pool. Both re-arm the whole
+        rec knob layer (`arm_rec_slot_pickups()`, factored out of
+        `enter_rec_mode()`) — the pots were armed to values the slot no
+        longer has. Full LED countdown, bar, note row and confirm, same as
+        every other build-up; the bar names the pad (`P0+P2 P5 SOUND`).
+      Option (c) — widening `kDrumKick` past its two engines — is untouched
+      and still open as a taste call; nothing here depends on it.
 
 ## Priority 3 — feature additions
 
-- [ ] **MIDI drum pitch phase 2** — ch10 notes within ±6 of a slot's GM anchor play that slot transposed.
-  **What ch10 does today** (MANUAL.md:471-483, "Channel 10 — drums" table): each of the 7 kit slots accepts a small fixed set of GM note numbers (e.g. Tom accepts 41, 43, 45, 47, 48, 50). Any accepted note triggers that slot at its stored pitch — "exactly like tapping the pad." Notes outside the table are ignored entirely. There's no transposition logic at all right now; it's a lookup table, not a pitch mapping.
+- [x] **MIDI drum pitch phase 2** — *Resolved 2026-08-05, and the transposing
+      half was deliberately dropped.* The original plan (a ch10 note within
+      ±6 of a slot's GM anchor plays that slot transposed) was decided
+      against: the seven slots are drums, each already carries its own tuned
+      pitch as part of the sound, and a transposing kick pad is a different
+      instrument rather than a played one. **Velocity is the expressive axis
+      instead** — it was already honoured on the way in, and now rides out
+      too: `Sequencer::StepWeight()` exposes each firing step's authored
+      weight tier and `drum_velocity()` maps it to 45/70/95/120 (hits with
+      no step behind them — pad taps, the forced rec-slot trigger — still
+      send 100). Previously every outgoing hit was a flat 100, so a ghost
+      note and a downbeat kick left the device identical.
+      The anchors also moved onto the standard 4×4 grid so a pad
+      controller's bottom two rows drive the kit unmapped: `kDrumSlotGm` is
+      `36/38/42/46/39/41/43` (Tom 45→41, Perc 37→43), and `gm_to_drum_slot()`
+      moved 43 from the tom aliases to Perc to match. The wider GM aliases
+      stay accepted. MANUAL's ch10 table and the visualizer's `DRUM_NOTES`
+      are in lockstep.
 
-  **What "phase 2" would add**: actual transposition — a note within ±6 semitones of a slot's GM anchor (the bold note, e.g. 45 for Tom) would play that slot pitched up/down by the offset, instead of only the handful of literal notes in the table always sounding at one fixed pitch. That's a real, non-trivial feature (touches the MIDI-in note handler and the per-slot pitch path), not just documentation cleanup — it isn't implemented or partially implemented anywhere, and MANUAL.md's table explicitly documents current behavior as fixed-pitch.
+- [x] **Chiptune engine (7) — skipped, not shipping** *(closed 2026-08-05)*.
+      The 2026-07-24 decision to bring it into the bank is reversed: it
+      stays out of the P0/P2+S35 quantizer bank and out of the random pools.
+      The reason is the one the scoping already found and never resolved —
+      `ChiptuneEngine::Render` always takes the clocked single-arp-note path
+      here (the host patches the trigger unconditionally), and the engine
+      never calls `set_envelope_shape`, so S31 Decay is inert on it. An
+      engine where one of the five standard knobs does nothing and whose
+      arpeggiator free-runs against the device's own doesn't earn a slot.
+      `process_model_select`'s skip (`TouchPlaited.cpp`, bank-0 index 7 →
+      engine 8) stays as-is; MANUAL already lists it as *Chiptune — skipped*
+      with the reason.
 
-- [ ] **Chiptune engine (7) — bring into manual selection** (decided 2026-07-24, resolves the old "Open decisions" item — the roadmap text there was stale: it's not just excluded from the random pools, `process_model_select` skips it out of the P0/P2+S35 quantizer bank entirely — `TouchPlaited.cpp:1383-1385` maps bank-0 index 7 straight to engine 8). Fix: stop the skip so it's reachable at position 7. Map its knobs to the standard layout, same convention as every other engine — S30 drive, S31 decay, S32 harmonics (chord select), S33 timbre (arpeggiator pattern/range), S34 morph (waveform shape). Caveat found while scoping: `ChiptuneEngine::Render` (`thirdparty/plaits/dsp/engine2/chiptune_engine.cc`) always takes the "clocked" single-arp-note path here — the host always patches the trigger (`plaits_voice.cpp`: `trigger_patched = true`) — and the engine never calls `set_envelope_shape`, so `already_enveloped` stays true and S31 Decay currently has no audible effect there; decide during implementation whether Decay should gate the arp note's length, or whether the (currently unreachable) chord-pluck path should be exposed instead. Still stays out of the random pools — self-running, no gate response.
-
-- [ ] **Root note wrap instead of clamp** (moved out of the OLED list
-      2026-08-04 — it's a control-behavior question, nothing to do with the
-      screen). P0+P10 / P0+P11 shift `root_semitone` but clamp at the ends
-      (`TouchPlaited.cpp:3196` `if (root_semitone > 0)` / `:3238`
-      `if (root_semitone < 11)`), so you can't step "below C" — the control
-      just goes dead there. Root is octave-less by design (the octave lives
-      in `active_octave()`), so wrapping 11→0 and 0→11 is two lines and
-      loses nothing. Decide: wrap (then say so in MANUAL.md), or keep the
-      clamp and explain *why* in MANUAL.md — right now it does neither.
-      Note `t.root` is published in telemetry, so the visualizer's root
-      readout follows either way with no protocol change.
+- [x] **Root note: clamp stays, and now says so** *(2026-08-05, answering
+      the "wrap instead of clamp" question with "no, and here's what was
+      actually missing")*. Wrapping was rejected for the reason it exists:
+      root is the one control with no audible landmark of its own, and
+      without perfect pitch or a screen, the control going dead **is** how
+      you know you have reached C (or B). Wrapping would take that away and
+      give nothing back. `root_semitone`'s two clamps are unchanged.
+      What was actually wrong was that nothing ever *named* the root:
+      - `describe_pad()`'s P0+P10/P11 branch now reads
+        `P0+P10 ROOT - D#` and spells the seven pads out on the value row
+        (`scale_notes()` → `D# F F# G# A# B C#`).
+      - the SW1 callout in Basic Pitch reads `SW1 MINOR - D#` with the same
+        note row — a scale is a scale *from somewhere*, and "Minor" alone
+        never said which minor.
+      - the idle status row reads `PITCH MINOR D#`.
+      **Scale application verified while doing it**: `compute_note()` adds
+      `root_semitone` *before* the degree offsets
+      (`kPitchBase + root + kScales[scale][degree] + octave*12`), so a root
+      shift is a real transposition — SW1 on Minor with the root three up
+      plays D♯ minor, same intervals in a new key. That was already correct;
+      the note row is what makes it visible. Mirrored in the visualizer
+      (`scaleNotes()`/`ROOT_NAMES` in `controls-meta.ts`); MANUAL's *Pitch
+      controls* section documents both the clamp rationale and the readouts.
 
 ## OLED screen
 — driver bring-up done, see Housekeeping (upstream driver PR still open) and `notesarchive/notes_archive_2026-07.md` → "SSD1306 128×32 OLED".
@@ -175,8 +225,16 @@ settled; B is the one protocol bump, worth batching so the visualizer and
       hold-end redraw doesn't cover it — `hold_kind` is still 1. Decide
       whether the bar should clear at `all_done` or keep showing "nothing
       more to reach".
-- [ ] **A3 — stop the value row changing size, scroll instead.** Decide the
-      rule: one fixed font per context (probably `Font_11x18` for values,
+- [~] **A3 — stop the value row changing size, scroll instead.** *Deferred
+      2026-08-05, deliberately: the shrink-to-fit rule stays for now.* Filed
+      as a **possible change**, not a pending one — nothing else is waiting
+      on it, and the two items that used to cite it (C1/C2's wording) were
+      solved by choosing strings that don't straddle a font boundary, which
+      is the cheaper answer. The one place a fixed font is now in use is
+      `ShowPickup` (B1), where the value doesn't move while you hunt for it,
+      so there is nothing for a font change to signal. Revisit only if a
+      real string on hardware reads badly while resizing. The original
+      analysis, still accurate: decide the rule: one fixed font per context (probably `Font_11x18` for values,
       `Font_6x8` for the label row as now), and when the string overflows,
       hold it still for a beat, then marquee horizontally rather than
       shrinking. Two things this runs into: (i) a marquee needs *continuous*
@@ -236,18 +294,32 @@ The state frame appends fields at the end behind length guards
 adding one is backward-compatible — but each still touches both sides plus
 `visualizer/PLAN.md` §2. Batch what you can.
 
-- [ ] **B1 — show that a knob is waiting for pickup.** Nothing in
-      `TelemetryState` exposes pickup state today, so the screen prints the
-      raw pot position (`t.controls[i]`) whether or not it's actually doing
-      anything — you can sweep a knob through its whole travel, watch the
-      number change, and hear nothing. `KnobPickup::caught`
-      (`TouchPlaited.cpp:645-676`) already holds the answer; what's missing
-      is a mapping from "current mode/layer" to the eight live pickups
-      (there are per-layer sets: `seq_pu*`, `arp_pu*`, `rec_pu*`, `arp_se*`,
-      `rec_se*`, the BP volume/blend pair, plus the CC pickups) and one
-      published byte — an 8-bit "armed" mask over S30..S37. Then the value
-      row can read e.g. `42% -> 78%` or mark the target, instead of lying.
-      Cross-mode by construction: every playmode has a pickup layer.
+- [x] **B1 — show that a knob is waiting for pickup.** *Done 2026-08-05.*
+      Nine new state bytes behind the usual length guard: an 8-bit `armed`
+      mask over S30..S37 plus the eight targets. `capture_pickups()`
+      (`TouchPlaited.cpp`) is the missing mapping — it mirrors the
+      knob-application block's layer selection exactly (same order, same
+      guards) across all six pickup sets plus the CC ones, so if a role
+      moves there it moves here.
+      **What it shows, which turned out to matter more than the mask.**
+      Rather than a `42% -> 78%` string, the value row keeps showing the
+      **stored value in its own units** — `describe_control()` formats from
+      the target instead of the pot while armed, so a waiting tempo knob
+      still reads `128 BPM` and a waiting density still reads `layers 3-4`
+      rather than being demoted to a bare percentage the moment it's
+      mid-handover. The pot's actual position is spatial instead:
+      `OledScreen::ShowPickup()` draws a track with a tall post at the
+      target and a slider block at the pot. Drive the block onto the post
+      and the knob takes over; the track disappearing is the "you have it"
+      signal. No arithmetic, works identically whether the value is a BPM, a
+      note name or a word.
+      **Deliberately not reported**: the movement-catches (P0+S37 width, the
+      P1 FX mirror knobs, Rec's S35 bank select). They engage on any ~3%
+      nudge, so there is no target to aim at and no dead travel to warn
+      about — a marker there would be satisfied by the very next turn.
+      Mirrored end to end in the visualizer (`setPickup` in `state.ts`,
+      `layoutPickup()` in `oled-mini.ts`, same geometry) and in
+      `visualizer/PLAN.md` §2. **Needs hardware verification** (section D).
 - [x] **B2 — the confirms that have no telemetry at all.** *Mostly done
       2026-08-04.* Two new hold kinds, both riding A1's latch so they can't
       be dropped: **5 — rec save**, the hold the hardware pass asked for by
@@ -345,14 +417,19 @@ adding one is backward-compatible — but each still touches both sides plus
       labelling it `Model select bank0/1` anyway. And with that combo absent
       in Seq, S35 keeps its pattern role under P0/P2 there, so the value row
       shows the pattern name instead of falling through to a bare %.
-- [ ] **C5 — Rec mode's own status row.** Partly done 2026-08-04: A4's
-      status row covers Rec, so the screen now settles on
-      `REC P5 CLAP` + the slot's model instead of the stale
-      `P3-P9 REC ENTRY` hold label left over from entry. Still open, both
-      needing B2's message mechanism: replace the last-changed value with
-      `Hold P5 to save` after a few idle seconds, and give cancel its own
-      message. A blinking marker on the edited pad is also still open — the
-      status row is static text today.
+- [x] **C5 — Rec mode's own status row.** *Done 2026-08-05*, closing the
+      half A4 left. The value row **cycles** instead of sitting on the model
+      — `kRecCycleMs` (2.6 s) between the slot's model, `Hold P5 save` and
+      `+pad copies`. No new mechanism was needed after all: the status row
+      already repaints whenever its own text changes, so the cycle drives
+      itself and costs one redraw per phase. (The visualizer needed a timer,
+      since nothing there repaints without a state event.) Rec is the one
+      mode you can be *stuck* in and both ways out are holds on pads you
+      aren't otherwise touching, which is what makes this worth the row.
+      The blinking marker landed too: `icons_for()` now returns the C10
+      capture circle for Seq slot editing as well — no layer stack to show
+      there, but it's the other state that looks idle while the device is
+      waiting for a deliberate exit.
 - [x] **C10 — Rec needs a live capture indicator and per-layer state.**
       *Done 2026-08-05.* A persistent indicator block on the label row, the
       first thing on this screen that outlives the callout showing under it:
@@ -388,7 +465,7 @@ adding one is backward-compatible — but each still touches both sides plus
       one. LED counts down with the state: 3 blinks, 2, 1. MANUAL's
       *Arming and transport*, the transport section and the blink-code
       table are updated.
-- [ ] **C6 — broader per-mode audit.** Standing item. The list above came
+- [X] **C6 — broader per-mode audit.** Standing item. The list above came
       out of one hardware session on Seq, Rec and Basic Pitch. Walk
       **Arp/Mel** (Hold/Arp/Rec sub-states, layer record/mute messages) the
       same way and ask the same "is the 128×32 budget earning its keep"
@@ -435,7 +512,7 @@ walk** before they tick. `[O]` = walked once, findings filed and fixed.
   S33/S34 wording), pad = drum note, SW1 (IDM/Techno/Electro), model select
   (P0/P2+S35), rec-slot editing (flatter labels, status row `REC P5 CLAP`,
   and the new hold-to-save bar → `SAVED` / tap-to-cancel → `CANCELLED`)
-- [O] Arp/Mel: knob turn (incl. dead-knob "no effect"), pad = pitched note,
+- [x] Arp/Mel: knob turn (incl. dead-knob "no effect"), pad = pitched note,
   SW1 (Hold/Arp/Rec), Rec sub-mode knobs (Speed/Shift/Chance/Order), layer
   record/mute messages, model select, and P2+P10's callout + status row now
   naming the combined state (**C9**)
@@ -454,6 +531,23 @@ walk** before they tick. `[O]` = walked once, findings filed and fixed.
   **the feel of the new 2 s stages and the three-pulse announce is the main
   thing to judge on the second walk.** Both dials are named constants
   (`kStageAnnounceBlocks`, `kStageFillBlocks`).
+- [ ] **The 2026-08-05 pass, all code-verified only:**
+  - **Knob pickup (B1)** — in every mode, grab a pot that's armed: does the
+    value row read the *stored* value in its right units, and does the track
+    make the direction obvious without thinking? Check the moment of catch —
+    the track should vanish, not linger. Worth hitting the rails
+    specifically (a target at 0 or 127 catches on movement, not crossing).
+  - **Rec P0+P2 per-pad randomize** — pacing in the hand, and whether stage 2
+    actually lands on role-appropriate sounds often enough. Also that no pot
+    jumps afterwards (both stages re-arm the layer).
+  - **Randomize no longer starts the seq** — stage 2 with the transport
+    stopped should stay stopped; with it running should restart at bar 0.
+  - **Rec status cycle (C5)** + the new blinking circle in Seq slot editing.
+  - **Root readouts** — `P0+P10 ROOT - D#` with the note row, `SW1 MINOR - D#`,
+    `PITCH MINOR D#`; and confirm by ear that the pads really play D♯ minor.
+  - **ch10 velocity out** — ghosts vs. downbeats should be visibly different
+    velocities on whatever's listening; and a 4×4 pad controller's bottom two
+    rows should drive the kit unmapped.
 
 ### Deliberate differences from the visualizer — don't "fix" without deciding
 
@@ -468,3 +562,37 @@ walk** before they tick. `[O]` = walked once, findings filed and fixed.
 - **ITCM placement** — move the hottest Plaits render paths into ITCMRAM (64 KB, 0% used); code currently executes from QSPI. Enabler for both the FX send and a 7th voice.
 - **Expand voice pool to 7** — after ITCM placement confirms the headroom on in-use engines.
 - **Phase 8F retry** — controls out of ISR; needs `__disable_irq()` / `__enable_irq()` wrapping all `generate_*()` calls. Only if crackle returns at kBlockSize=192.
+
+
+--
+
+## Open items summary
+
+The 2026-08-05 pass closed the previous list — Kick curation (all three
+parts), MIDI drum "phase 2" (velocity instead of transposition), Chiptune
+(closed as won't-ship), Root note (clamp kept, root/scale now named on
+screen), **B1** and **C5**. All are code-verified only. What's left:
+
+**Needs hardware, nothing else.** Everything in section D's second walk, now
+including this pass:
+- the pickup screen (**B1**) — is the post-and-block track readable at arm's
+  length, and does the track disappear at the right moment?
+- Rec's per-pad randomize (**kick curation**) — 2 s/4 s in the hand, and does
+  stage 2 land in role often enough to feel curated?
+- the Rec status-row cycle (**C5**) — 2.6 s per phase, too fast or too slow?
+- A5/A6's pacing, still unwalked from the 2026-08-04 round.
+
+**Still genuinely open:**
+- **A3** — value-row font stepping. Deferred by decision, not blocked;
+  listed as a possible change. See the item for why nothing depends on it.
+- **`kDrumKick` is two engines wide** (21 Bass drum, 10 FM 2-op) — option (c)
+  of the old kick-curation item, untouched. Now that the pools are a table,
+  widening one is a one-line edit plus an audition pass; it's a taste call,
+  not a code problem.
+- **Weight → audio level.** MIDI out now carries the pattern's accents as
+  velocity, but the *audio* still fires every step at full level — weight is
+  only a density gate there. Making ghosts quieter internally is arguably the
+  point of ghost notes, but it changes the shipped feel of every pattern, so
+  it's filed rather than done.
+- **C6** — the standing per-mode audit, and the parking lot below.
+

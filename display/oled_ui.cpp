@@ -305,6 +305,30 @@ void note_name(FixedCapStr<N>& out, int n) {
     out.AppendInt(n / 12 - 1);
 }
 
+// The root as a bare pitch class ("D#"), no octave — root_semitone is
+// octave-less by design (the octave lives in active_octave()).
+const char* root_name(int root) {
+    return (root >= 0 && root < 12) ? kNoteNames[root] : "?";
+}
+
+// The seven pads as they actually sound from the current root, in order:
+// "D# F F# G# A# B C#". compute_note() adds root_semitone *before* the scale
+// degrees, so shifting the root transposes the whole scale — this row is what
+// makes that visible, and answers "am I really in D# minor, or is only the
+// first pad retuned". Pitch classes only, for the same reason as root_name().
+// Worst case is 20 chars (seven names, five of them sharps, six spaces), just
+// inside the 21-char Font_6x8 budget.
+template <size_t N>
+void scale_notes(FixedCapStr<N>& out, int sw1, int root) {
+    if (sw1 < 0 || sw1 > 2) sw1 = 1;
+    if (root < 0 || root > 11) root = 0;
+    out.Clear();
+    for (int d = 0; d < 7; d++) {
+        if (d) out.Append(" ");
+        out.Append(kNoteNames[(root + kUiScales[sw1][d]) % 12]);
+    }
+}
+
 // blendInfo() port: what S37/Blend targets on a given engine — aux==nullptr
 // means the engine's AUX output equals OUT, so blend/width does nothing.
 template <size_t N>
@@ -377,7 +401,13 @@ void describe_control(int i, const TelemetryState& t,
     const int  mode = t.mode; // 0 Seq, 1 Arp/Mel, 2 Pitch
     const bool snd_edit = t.snd_edit;
     const int  arp_sub = t.arp_flags & 0x03; // 0 Arp, 1 Hold, 2 Rec
-    const float v = t.controls[i] / 127.f;
+    // While a pot is armed behind a pickup its own position drives nothing —
+    // the stored value is what's in effect, so that's what the value chain
+    // below formats, in whatever units the knob normally speaks (BPM, a
+    // layer count, a note name). The pot's actual position is shown
+    // spatially instead, by OledScreen::ShowPickup's track.
+    const bool armed = ((t.pickup_armed >> i) & 1u) != 0;
+    const float v = (armed ? t.pickup_target[i] : t.controls[i]) / 127.f;
 
     const bool rec_active  = (mode == 0) && (t.rec_slot != 0x7F);
     const int  rec_engine  = (rec_active && t.rec_slot < 7) ? t.kit[t.rec_slot][0] : -1;
@@ -598,9 +628,21 @@ void describe_pad(int i, const TelemetryState& t,
                           up ? "Arp octaves +" : "Arp octaves -");
             } else if (p0) {
                 if (in_rec && !up)      set_label(label, "P0+P10", "Undo layer");
-                else if (t.mode == 2)   set_label(label, up ? "P0+P11" : "P0+P10",
-                                                  up ? "Root +" : "Root -");
-                else                    set_label(label, up ? "P0+P11" : "P0+P10",
+                else if (t.mode == 2) {
+                    // Root shifting is the one control on the panel with no
+                    // audible landmark of its own — it clamps at C and B
+                    // rather than wrapping (deliberate: the dead end IS the
+                    // landmark for a unit with no screen), and without a
+                    // note name you cannot tell a shifted scale from a
+                    // retuned first pad. Name the root on the label row and
+                    // spell the whole scale out underneath.
+                    FixedCapStr<24> fn;
+                    fn.Append(up ? "Root +" : "Root -");
+                    fn.Append(" ");
+                    fn.Append(root_name(t.root));
+                    set_label(label, up ? "P0+P11" : "P0+P10", fn);
+                    scale_notes(value, t.sw1, t.root);
+                } else                  set_label(label, up ? "P0+P11" : "P0+P10",
                                                   "Root (Pitch only)");
             } else if (t.mode == 0 && t.rec_slot != 0x7F) {
                 set_label(label, up ? "P11" : "P10", up ? "Drum pitch +1" : "Drum pitch -1");
@@ -646,7 +688,8 @@ constexpr int kMaxComboRows = 6;
 
 // Every row <= 21 chars (Font_6x8 budget). Longest here is 20.
 const char* const kP0Seq[]      = { "S37 drum width", "+P2 hold: vary kit" };
-const char* const kP0SeqRec[]   = { "S35 slot model b0", "S37 slot width" };
+const char* const kP0SeqRec[]   = { "S35 slot model b0", "S37 slot width",
+                                    "+P2 hold: vary pad" };
 const char* const kP0Pitch[]    = { "S35 model bank 0", "S37 stereo width",
                                     "P10/P11 root -/+", "+P2 hold: randomize" };
 const char* const kP0Arp[]      = { "S35 model bank 0", "S37 stereo width",
@@ -661,7 +704,7 @@ const char* const kP1Arp[]      = { "S30 reverb", "S35 delay",
                                     "P10/P11 arp octaves", "+P0 hold: sound edit" };
 const char* const kP2Seq[]      = { "P10 mel transport", "P11 drum play/pause",
                                     "+P0 hold: vary kit" };
-const char* const kP2SeqRec[]   = { "S35 slot model b1" };
+const char* const kP2SeqRec[]   = { "S35 slot model b1", "+P0 hold: vary pad" };
 const char* const kP2Pitch[]    = { "S35 model bank 1", "P10 mel transport",
                                     "P11 drum play/pause", "+P0 hold: randomize" };
 const char* const kP2Arp[]      = { "S35 model bank 1", "P10 mel transport",
@@ -707,11 +750,24 @@ int combo_rows(const TelemetryState& t, int mod, const char* const** rows) {
 // from slow-moving fields — the row this replaces was dropped because it
 // included seq_step, which changes every block and so never redrew in time to
 // be right. Everything here changes at most a few times a second.
-void status_row(const TelemetryState& t, FixedCapStr<24>& label, FixedCapStr<24>& value) {
+// How long each phase of the Rec status row's cycle stays up (below). Long
+// enough to read a sentence and look away, short enough that you don't have
+// to wait to find the one you wanted.
+constexpr uint32_t kRecCycleMs = 2600;
+
+void status_row(const TelemetryState& t, uint32_t now_ms,
+                FixedCapStr<24>& label, FixedCapStr<24>& value) {
     label.Clear();
     value.Clear();
 
     // Seq recording: which pad is being edited, and what's loaded in it.
+    // Rec is the one mode you can be *stuck* in — the two ways out are both
+    // holds on pads you're not otherwise touching, and neither announces
+    // itself. So the value row cycles instead of sitting on the model:
+    // what's loaded, then how to keep it, then the other gesture that lives
+    // here. Costs nothing extra to redraw — the row already repaints
+    // whenever its own text changes (OledUi::Service's `changed` test), so
+    // the cycle drives itself.
     if (t.mode == 0 && t.rec_slot < 7) {
         const int slot = t.rec_slot;
         label.Append("Rec P");
@@ -720,7 +776,19 @@ void status_row(const TelemetryState& t, FixedCapStr<24>& label, FixedCapStr<24>
             label.Append(" ");
             label.Append(kPads[slot + 3].seq_role);
         }
-        value.Append(model_name(t.kit[slot][0]));
+        switch ((now_ms / kRecCycleMs) % 3) {
+            case 1:
+                value.Append("Hold P");
+                value.AppendInt(slot + 3);
+                value.Append(" save");
+                break;
+            case 2:
+                value.Append("+pad copies");
+                break;
+            default:
+                value.Append(model_name(t.kit[slot][0]));
+                break;
+        }
         return;
     }
     if (t.mode == 0) {
@@ -755,6 +823,11 @@ void status_row(const TelemetryState& t, FixedCapStr<24>& label, FixedCapStr<24>
     }
     label.Append("Pitch ");
     label.Append((t.sw1 <= 2) ? kSw1Pitch[t.sw1] : "?");
+    // Root belongs next to the scale, not on its own screen: together they
+    // name the key the pads are in. 14 chars at worst ("Pitch Chromatic"
+    // is 15 without it, 20 with) — inside the label budget.
+    label.Append(" ");
+    label.Append(root_name(t.root));
     value.Append(model_name(t.model));
 }
 
@@ -771,6 +844,15 @@ void hold_label(FixedCapStr<N>& out, const TelemetryState& t) {
         case 4: set_label(out, "Rec", "Copy layer");     return;
         case 6: set_label(out, "Rec", "Exit");           return;
         case 7: set_label(out, "P0+P1", "Sound edit");   return;
+        // Same combo as kind 1, deliberately named for its scope instead:
+        // in Rec it changes the one pad you are editing, not the kit.
+        case 8:
+            out.Clear();
+            out.Append("P0+P2 ");
+            if (t.rec_slot < 7) { out.Append("P"); out.AppendInt(t.rec_slot + 3); }
+            else                { out.Append("pad"); }
+            out.Append(" sound");
+            return;
         case 5:
             // Name the pad being held, as asked for on hardware — "hold P5
             // to save" is the whole instruction, and the slot is right there
@@ -794,11 +876,13 @@ void hold_label(FixedCapStr<N>& out, const TelemetryState& t) {
 const char* hold_note(const TelemetryState& t) {
     const uint8_t done = t.hold_stage;
     switch (t.hold_kind) {
+        // Times are kStageBlocks apart (2 s each, TouchPlaited.cpp) — these
+        // strings still said 1s/2s/3s from before A5 doubled the stages.
         case 1:
-            if (t.mode == 0) return (done == 0) ? "1s vary kit" : "2s new kit";
-            if (done == 0) return "1s vary sound";
-            if (done == 1) return "2s vary more";
-            return "3s back to live knobs";
+            if (t.mode == 0) return (done == 0) ? "2s vary kit" : "4s new kit";
+            if (done == 0) return "2s vary sound";
+            if (done == 1) return "4s vary more";
+            return "6s back to live knobs";
         case 2: return "2s enter rec mode";
         case 3: return "clear this layer";
         case 4: return "copy slot to pad";
@@ -807,6 +891,7 @@ const char* hold_note(const TelemetryState& t) {
         // is going — it's the only warning you get before every knob in the
         // mode changes meaning.
         case 7: return t.snd_edit ? "back to arp knobs" : "knobs edit the sound";
+        case 8: return (done == 0) ? "2s vary this pad" : "4s new sound, in role";
         default: return "";
     }
 }
@@ -834,6 +919,7 @@ void confirm_text(FixedCapStr<N>& out, const TelemetryState& t) {
         // usable here — the flash is latched, so by the time it draws the
         // flag has already flipped.
         case 7: out.Append(outcome == 2 ? "Arp knobs" : "Sound edit"); return;
+        case 8: out.Append(stage >= 2 ? "New sound" : "Pad varied"); return;
         default: out.Append("OK"); return;
     }
 }
@@ -879,6 +965,16 @@ namespace {
 // stack with the open take marked.
 StatusIcons icons_for(const TelemetryState& t, uint32_t now_ms) {
     StatusIcons ic;
+    // Seq slot editing gets the circle too — it has no layer stack to show,
+    // but it is the other mode where the panel looks idle while the device
+    // is in a state you have to leave deliberately. One persistent marker
+    // that survives every callout, so "am I still in Rec?" is never a
+    // question you have to press something to answer.
+    if (t.mode == 0 && t.rec_slot < 7) {
+        ic.blink = ((now_ms / kBlinkMs) & 1u) != 0;
+        ic.rec   = true;
+        return ic;
+    }
     if (t.mode != 1 || (t.arp_flags & 0x03) != 2) return ic;  // Rec sub-state only
     const bool armed   = (t.arp_flags & 0x04) != 0;
     const bool running = (t.arp_flags & 0x08) != 0;
@@ -946,6 +1042,7 @@ void OledUi::Service(const TelemetryState& t, uint32_t now_ms, OledScreen& oled)
         last_         = t;
         idle_at_ms_   = now_ms;
         showing_status_ = false;
+        pickup_knob_  = -1;
         return;
     }
 
@@ -959,6 +1056,11 @@ void OledUi::Service(const TelemetryState& t, uint32_t now_ms, OledScreen& oled)
     FixedCapStr<24> label;
     FixedCapStr<24> value;
     bool draw = false;
+    // Which knob (if any) this frame should draw as a pickup rather than a
+    // plain value row. Only the knob branch below sets it, so any more
+    // specific callout — a pad, a switch, a transport change — takes the
+    // screen back to normal, same as it takes it back from anything else.
+    int pickup_now = -1;
 
     // Priority mirrors labels.ts: an explicit pad-down is the most specific
     // signal, then a switch flip, then a model change, then a knob move.
@@ -1006,6 +1108,7 @@ void OledUi::Service(const TelemetryState& t, uint32_t now_ms, OledScreen& oled)
             next_draw_ms_   = now_ms + kMinRedrawIntervalMs;
             idle_at_ms_     = now_ms;
             showing_status_ = false;
+            pickup_knob_    = -1;
             last_ = t;
             return;
         }
@@ -1014,6 +1117,13 @@ void OledUi::Service(const TelemetryState& t, uint32_t now_ms, OledScreen& oled)
     } else if (t.sw1 != last_.sw1) {
         const char* const* table = (t.mode == 0) ? kSw1Seq : (t.mode == 1) ? kSw1Arp : kSw1Pitch;
         set_label(label, "SW1", (t.sw1 >= 0 && t.sw1 <= 2) ? table[t.sw1] : "?");
+        if (t.mode == 2) {
+            // A scale is a scale *from somewhere* — "Minor" alone never said
+            // which minor. Root is Basic Pitch-only, so it only rides here.
+            label.Append(" - ");
+            label.Append(root_name(t.root));
+            scale_notes(value, t.sw1, t.root);
+        }
         draw = true;
     } else if (t.sw2 != last_.sw2) {
         set_label(label, "SW2", (t.sw2 >= 0 && t.sw2 <= 2) ? kSw2[t.sw2] : "?");
@@ -1032,9 +1142,26 @@ void OledUi::Service(const TelemetryState& t, uint32_t now_ms, OledScreen& oled)
             if (t.controls[i] != last_.controls[i]) {
                 describe_control(i, t, label, value);
                 draw = true;
+                // An armed pot gets the pickup screen instead of the plain
+                // value row: the value shown is the stored one (see
+                // describe_control), and the track underneath is the only
+                // thing saying the pot in your hand isn't connected to it
+                // yet. Redraws on every reported pot move, so the marker
+                // tracks the knob.
+                if ((t.pickup_armed >> i) & 1u) pickup_now = i;
                 break;
             }
         }
+    }
+    // Catching by proximity (KnobPickup's kNear window) or by the rails'
+    // move-catch can land on a frame where the pot's *reported* position
+    // hasn't moved a full LSB, so the branch above wouldn't fire and the
+    // track would sit there implying the knob is still dead. Force the plain
+    // value row once the arm clears — the track disappearing is the "you
+    // have it" signal.
+    if (!draw && pickup_knob_ >= 0 && ((t.pickup_armed >> pickup_knob_) & 1u) == 0) {
+        describe_control(pickup_knob_, t, label, value);
+        draw = true;
     }
 
     const StatusIcons icons = icons_for(t, now_ms);
@@ -1062,7 +1189,12 @@ void OledUi::Service(const TelemetryState& t, uint32_t now_ms, OledScreen& oled)
     }
 
     if (draw) {
-        oled.ShowLine(label.Cstr(), value.Cstr(), icons);
+        pickup_knob_ = pickup_now;
+        if (pickup_knob_ >= 0)
+            oled.ShowPickup(label.Cstr(), value.Cstr(),
+                            t.controls[pickup_knob_], t.pickup_target[pickup_knob_]);
+        else
+            oled.ShowLine(label.Cstr(), value.Cstr(), icons);
         next_draw_ms_   = now_ms + kMinRedrawIntervalMs;
         idle_at_ms_     = now_ms;
         showing_status_ = false;
@@ -1078,7 +1210,7 @@ void OledUi::Service(const TelemetryState& t, uint32_t now_ms, OledScreen& oled)
     // things it reports (transport, model, edited slot) can change while no
     // control is being moved.
     FixedCapStr<24> sl, sv;
-    status_row(t, sl, sv);
+    status_row(t, now_ms, sl, sv);
     const bool idle_now = hold_ended || (now_ms - idle_at_ms_) >= kIdleMs;
     const bool changed  = std::strcmp(sl.Cstr(), status_label_.Cstr()) != 0
                        || std::strcmp(sv.Cstr(), status_value_.Cstr()) != 0;
@@ -1086,6 +1218,7 @@ void OledUi::Service(const TelemetryState& t, uint32_t now_ms, OledScreen& oled)
         oled.ShowLine(sl.Cstr(), sv.Cstr(), icons);
         next_draw_ms_   = now_ms + kMinRedrawIntervalMs;
         showing_status_ = true;
+        pickup_knob_    = -1;   // the track went with the callout
         status_label_   = sl;
         status_value_   = sv;
         blink_phase_    = icons.blink;
