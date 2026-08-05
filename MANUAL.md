@@ -61,7 +61,7 @@ SW1 picks the sub-state — **Hold** (left) · **Arp** (center) · **Rec** (righ
 | P1 + S30 / P1 + S35 | Reverb / delay send — **own send per sub-state** | | — |
 | P2 + S35 | Model select, bank 1 — same in-view-sound rule as P0+S35 | | — |
 | P2 + pad P3–P7 (Rec only) | Tap = mute/unmute that layer · hold = clear that layer · hold ≥2 pads = clear all layers | | — |
-| P2 (hold) + P10 | Melodic transport — arp run / stop (any playmode) · **in Rec: arm/disarm capture instead (see below)** | | — |
+| P2 (hold) + P10 | Melodic transport — arp run / stop (any playmode) · **in Rec: cycles capturing → looping → stopped (see below)** | | — |
 | P2 (hold) + P11 | Drum seq play / pause | | Start/Continue/Stop |
 
 ### Seq (SW2 Up)
@@ -245,7 +245,15 @@ All arp knobs go through pickup on mode entry, so pots that served another mode 
 - **Hold** — the pool latches: touch a pad to add a note, touch it again to remove it. Flicking Hold away (to Arp or Rec) drops the latch, keeping only pads you're still physically holding. A latched arp keeps playing in the background of every playmode.
 - **Rec** — a layered note recorder over a fixed **2-bar loop**. Entering Rec always lands **disarmed**: pads play Rec's own sound so you can hear it, but nothing is captured until you arm with **P2+P10** (see *Arming* below). Once armed, the **first note starts the clock**. Every 2-bar pass commits what you played as one **layer** and opens a fresh one — committed layers replay every pass, the open take is heard live and joins the loop on the wrap. Max **5 layers × 48 notes** (LIMIT blink when full). P10/P11 transpose your live playing (Rec keeps its own octave, independent of Arp/Hold); the recording replays as recorded. With the drum seq stopped, the LED pulses quarter notes as a metronome.
 
-**Arming** — Rec's pads always sound so you can audition its own (independent, possibly unfamiliar) model before committing anything. **P2+P10, only while SW1 is in Rec, arms or disarms capture** instead of its usual transport meaning: arming makes sure the clock is running (3 blinks) and disarming stops new capture and commits the open take, but does **not** stop playback — already-committed layers keep looping while you're punched out, so you can listen back before punching in again (2 blinks). P2+P10 keeps its normal transport meaning everywhere else (Arp, Hold, and every other playmode).
+**Arming and transport** — Rec's pads always sound so you can audition its own (independent, possibly unfamiliar) model before committing anything. **P2+P10, only while SW1 is in Rec, cycles the three states this mode has** instead of its usual straight transport toggle:
+
+| Press | Lands in | Screen | LED |
+|-------|----------|--------|-----|
+| from stopped | **capturing** — clock runs, pads record | `REC + PLAY` | 3 blinks |
+| again | **looping, punched out** — committed layers keep playing, the open take commits, nothing new is captured | `PLAY NO REC` | 2 blinks |
+| again | **stopped** — loop and capture both stop; layers are kept | `REC STOPPED` | 1 blink |
+
+The punch-out step commits the open take, so the stop step can never lose one. Listening back before punching in again is the middle state. P2+P10 keeps its plain transport meaning everywhere else (Arp, Hold, and every other playmode).
 
 While SW1 is in Rec the screen carries a persistent indicator block in the top right, the one thing that survives whatever callout is showing: a **blinking circle** while capture is live, and **five dots** for the layer stack — filled = committed, hollow = muted, a pulsing outline on the take currently being recorded into, a small tick for each free slot. So which layer you are filling, and whether anything is going into it, are readable at a glance without pressing anything.
 
@@ -273,7 +281,7 @@ Whether a hold resolves to "clear that layer" or "clear all" is decided the inst
 
 Pads neither sound nor record while P2 is held. Whether a hold resolves to a single clear or clear-all is decided at the moment the hold threshold is reached, by how many of P3–P7 are down right then — so pads that joined the hold at slightly different times still resolve correctly.
 
-**Transport** — the plain arp is gate-driven: it runs whenever the pool has notes. The latched arp is transport-driven: **P2 + P10** (P2 first) stops/starts it, from any playmode, mirroring the drum seq's P2+P11. The Rec loop instead uses P2+P10 for arming (see *Arming* above) — arming implicitly starts its clock, and once something's recorded it keeps looping in the background across SW2/SW1 flicks regardless of armed state, same as the latched arp does.
+**Transport** — the plain arp is gate-driven: it runs whenever the pool has notes. The latched arp is transport-driven: **P2 + P10** (P2 first) stops/starts it, from any playmode, mirroring the drum seq's P2+P11. While SW1 is in Rec the same combo cycles capturing → looping → stopped instead (see *Arming and transport* above), which is how the Rec loop is stopped without leaving the sub-state. Once it has content it keeps looping in the background across SW2/SW1 flicks until you stop it.
 
 #### The sounds — arp and Rec, both independent
 
@@ -432,9 +440,9 @@ Hold both pads together. Two stages fire in sequence.
 | Gesture | Result |
 |---------|--------|
 | Hold P2, then tap P11 | Toggle drum seq play / pause (2 blinks = paused; 3 blinks = playing) |
-| Hold P2, then tap P10 | Toggle the arp's transport (2 blinks = paused; 3 blinks = playing) — **except while SW1 is in Rec, where it arms/disarms Rec's capture instead (see *Arming* under Arp/Mel)** |
+| Hold P2, then tap P10 | Toggle the arp's transport (2 blinks = paused; 3 blinks = playing) — **except while SW1 is in Rec, where it cycles capturing (3 blinks) → looping, punched out (2) → stopped (1); see *Arming and transport* under Arp/Mel** |
 
-The order matters: **P2 first**. While P2 is held, P10/P11's octave functions are disabled; after both are released they work normally again. Starting the seq from a pitched mode before ever entering Seq generates a drum kit automatically. Stopping the arp's transport closes its open gates; starting it again resumes in phase with the master tempo. The Rec loop doesn't share this stop/start — once it has content it keeps looping regardless of armed state; disarming only stops new capture.
+The order matters: **P2 first**. While P2 is held, P10/P11's octave functions are disabled; after both are released they work normally again. Starting the seq from a pitched mode before ever entering Seq generates a drum kit automatically. Stopping the arp's transport closes its open gates; starting it again resumes in phase with the master tempo. In Rec the stop lives one step further round the same cycle: punching out (disarming) only stops new capture, and a second press stops the loop too.
 
 ---
 
@@ -549,7 +557,8 @@ TouchPlaited always puts a clock on its outputs, and follows one when you give i
 |---------|---------|
 | Slow blink (~300ms on/off) | Booting — device is loading (see *OLED screen* under [Hardware mods](#hardware-mods)); ends with one quick flash once ready, then normal operation |
 | 1 blink | Mode / scale / arp-state position 1 (SW2 Down or SW1 right flick); also: Rec undo landed |
-| 2 blinks | Mode / scale / arp-state position 2 (SW2 Center or SW1 center); also: transport paused (P2+P10/P11), sound edit left |
+| 1 blink | Rec transport fully stopped (P2+P10's third step — loop and capture both off) |
+| 2 blinks | Mode / scale / arp-state position 2 (SW2 Center or SW1 center); also: transport paused (P2+P10/P11), sound edit left, Rec punched out but still looping |
 | 3 blinks | Mode / scale / arp-state position 3 (SW2 Up or SW1 left flick); also: Seq resumed |
 | N blinks | Numbered feedback — arp octave range (1–4 = range 0–3), Rec layer cleared (its number) |
 | 3 rapid blinks | Confirm — recording saved, copy completed, Seq entered/re-randomized, transport started, sound edit entered, Rec cleared |

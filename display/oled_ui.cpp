@@ -895,9 +895,11 @@ void OledUi::Service(const TelemetryState& t, uint32_t now_ms, OledScreen& oled)
         // Label names which of the combo's two meanings fired; the value is
         // the state that leaves you in, not the flag that moved (see
         // melodic_state()).
+        // Rec's cycle can move both flags in one press (stopped -> capturing
+        // arms and starts). Capture is the headline when it changed.
         set_label(label, "P2+P10",
-                  (((t.arp_flags ^ last_.arp_flags) & 0x08) != 0) ? "Transport"
-                                                                  : "Rec capture");
+                  (((t.arp_flags ^ last_.arp_flags) & 0x04) != 0) ? "Rec capture"
+                                                                 : "Transport");
         value.Append(melodic_state(t.mode, t.arp_flags & 0x03, running, armed));
         draw = true;
     } else if (t.playing != last_.playing) {

@@ -3258,22 +3258,33 @@ int main() {
             } else if (rec_mode == RecMode::IDLE && touch.pads().IsTouched(2)
                        && !seq_mode_on && current_mode == PlayMode::ARP_MEL
                        && arp_state == ArpState::REC) {
-                // P2+P10 while SW1=Rec: arm/disarm capture instead of the
-                // usual transport toggle (2026-07-21 follow-up — auto-start
-                // on Rec entry made auditioning Rec's own sound impossible
-                // without also recording a note). Arming makes sure the
-                // clock is actually running; disarming does NOT stop
-                // playback — committed layers keep looping while punched
-                // out, only new capture stops (and the open take commits).
-                rec_armed = !rec_armed;
-                if (rec_armed) {
+                // P2+P10 while SW1=Rec cycles the three states this mode
+                // actually has, rather than toggling arm alone (2026-08-05).
+                // Arm-only left the transport unreachable from Rec: stopping
+                // playback meant flicking SW1 out, pressing P2+P10 there and
+                // flicking back, because arming force-starts the clock and
+                // disarming deliberately does NOT stop it (2026-07-21 —
+                // auto-start on entry made auditioning Rec's own sound
+                // impossible without also recording a note).
+                //   stopped -> capture live -> looping, punched out -> stopped
+                // The open take commits on the punch-out step, so the stop
+                // step can never lose one. LED counts down with the state:
+                // 3 blinks capturing, 2 looping, 1 stopped.
+                if (!arp_run_on) {
                     arp_run_on = true;
+                    rec_armed  = true;
                     note_rec.SetRecording(true);
-                    led_event = LedEvent::CONFIRM;   // 3 blinks: armed
-                } else {
+                    led_event = LedEvent::CONFIRM;   // 3 blinks: capturing
+                } else if (rec_armed) {
+                    rec_armed = false;
                     note_rec.SetRecording(false);
                     led_event      = LedEvent::NUMBERED;
-                    led_event_data = 2;              // 2 blinks: disarmed
+                    led_event_data = 2;              // 2 blinks: looping only
+                } else {
+                    arp_run_on = false;
+                    arp_gates_off();
+                    led_event      = LedEvent::NUMBERED;
+                    led_event_data = 1;              // 1 blink: stopped
                 }
             } else if (rec_mode == RecMode::IDLE && touch.pads().IsTouched(2)) {
                 // P2 (held first) + P10 → melodic transport (arp + Rec loop),

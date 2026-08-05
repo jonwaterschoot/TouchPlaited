@@ -632,12 +632,14 @@ export class Labels {
       case 'arpSub': {
         // Arm/disarm is its own gesture (P2+P10); a sub-state move is the
         // latched SW1 change — log whichever actually happened.
+        // Rec's P2+P10 cycle can move both flags in one press (stopped ->
+        // capturing arms and starts), so capture is the headline when it
+        // changed — matching the firmware's own label choice.
         const melState = melodicState(s.mode, ev.sub, ev.running, ev.armed);
         if (ev.armed !== ev.prevArmed) {
           this.addLog('rec-arm', ev.armed
             ? `<b>Rec</b> <span>armed</span> — pads record`
             : `<b>Rec</b> <span>disarmed</span> — playback continues`);
-          this.oledMini.show('P2+P10 Rec capture', melState);
         }
         if (ev.sub !== ev.prevSub) {
           const names = ['Arp', 'Hold', 'Rec'];
@@ -650,7 +652,11 @@ export class Labels {
         if (ev.running !== ev.prevRunning) {
           this.addLog('mel-transport',
             `<b>P2+P10</b> melodic transport <span>${ev.running ? 'play' : 'stop'}</span>`);
-          this.oledMini.show('P2+P10 Transport', melState);
+        }
+        if (ev.armed !== ev.prevArmed || ev.running !== ev.prevRunning) {
+          this.oledMini.show(
+            ev.armed !== ev.prevArmed ? 'P2+P10 Rec capture' : 'P2+P10 Transport',
+            melState);
         }
         this.renderStatus(s);
         break;

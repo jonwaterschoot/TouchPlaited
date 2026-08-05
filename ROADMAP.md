@@ -349,6 +349,20 @@ adding one is backward-compatible — but each still touches both sides plus
       P10/P11 against the held modifier the way the visualizer's
       `describePad()` already did — five different jobs on those two pads,
       and the firmware named none of them.
+- [x] **C12 — Rec's transport was unreachable (control change, not display).**
+      *Done 2026-08-05.* Filed here because it surfaced as "I'm not even
+      sure what starts and stops what", but no amount of labelling could fix
+      it: while SW1 was in Rec, P2+P10 toggled capture arm **only**. Arming
+      force-starts the clock and disarming deliberately doesn't stop it, so
+      stopping playback meant flicking SW1 out of Rec, pressing P2+P10
+      there, and flicking back — three of the four states you'd name were
+      reachable and the fourth wasn't a state at all. P2+P10 in Rec now
+      cycles **capturing → looping, punched out → stopped**, which is
+      exactly the three states `melodic_state()` already names. The
+      punch-out step commits the open take, so the stop step can't lose
+      one. LED counts down with the state: 3 blinks, 2, 1. MANUAL's
+      *Arming and transport*, the transport section and the blink-code
+      table are updated.
 - [ ] **C6 — broader per-mode audit.** Standing item. The list above came
       out of one hardware session on Seq, Rec and Basic Pitch. Walk
       **Arp/Mel** (Hold/Arp/Rec sub-states, layer record/mute messages) the
