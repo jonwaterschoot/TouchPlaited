@@ -392,10 +392,11 @@ Default per-slot volumes at randomize time (tuning targets): Kick 0.9, Snare 0.8
 ## Open Decisions
 
 All three resolved — detail in `notesarchive/notes_archive_2026-07.md` →
-"Open Decisions — resolved" (items 1–2) and `ROADMAP.md` Priority 3,
-"Chiptune engine (7)" (item 3, decided 2026-07-24: bring into manual
-selection, remap knobs to the standard layout — implementation not yet
-started).
+"Open Decisions — resolved" (items 1–2) and
+`notesarchive/notes_archive_2026-08.md` → "Priority 3 — feature additions",
+"Chiptune engine (7)" (item 3 — the 2026-07-24 decision to bring it into
+manual selection was reversed on 2026-08-05; it is not shipping, and the
+reason is recorded there).
 
 ---
 
@@ -405,8 +406,11 @@ All fixed — the debugging write-ups (Six-Op audibility + gate/click fixes,
 seq pickup bugs, tightness direction, model-select-while-seq, Electro
 pattern redesign, the SSD1306 driver bugs found during OLED bring-up, etc.)
 moved to `notesarchive/notes_archive_2026-07.md` → "Known Issues — all
-fixed". The one item with a still-open follow-up — filing the SSD1306 fix
-upstream to Synthux-Academy/libDaisy — is tracked in `ROADMAP.md`.
+fixed". Its one follow-up — filing the SSD1306 fix upstream — is closed too:
+merged into the Synthux libDaisy fork and filed against
+`electro-smith/libDaisy` (#634). See
+`notesarchive/notes_archive_2026-08.md` → "Housekeeping — SSD1306 driver fix,
+filed upstream".
 
 ---
 
