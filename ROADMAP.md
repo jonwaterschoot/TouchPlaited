@@ -640,12 +640,31 @@ parts), MIDI drum "phase 2" (velocity instead of transposition), Chiptune
 (closed as won't-ship), Root note (clamp kept, root/scale now named on
 screen), **B1** and **C5**. What's left:
 
-- [ ] **Doc sweep against the last few rounds.** MANUAL and README have been
-      updated per-change, but not read end-to-end since the OLED work
-      started — the screen grew a status row, a pickup display, combo lists,
-      capture indicators and now the `*` marker, and README still describes
-      the project from before most of that. Check the two against the shipped
-      behaviour rather than against these notes.
+### Next up, once this branch is on `main` — in this order
+
+Agreed 2026-08-05. Nothing here is blocked; the ordering is deliberate,
+because each step narrows what the next one has to read.
+
+- [ ] **1 — Reorganize this file into `notesarchive/`.** Everything ticked
+      through the 2026-08-04/05 rounds is history now, and it is crowding the
+      items that are actually open: sections A–D are almost entirely `[x]`,
+      and the hardware-walk checklists have served their purpose. Move the
+      closed material out the way the rest of the project already does
+      (`notesarchive/notes_archive_2026-08.md`), keeping this file to what is
+      genuinely future work. Do this **first** — the doc sweep below is much
+      cheaper against a roadmap that only lists open items.
+- [ ] **2 — Read MANUAL and README end-to-end.** Both have been updated
+      per-change and neither has been read whole since the OLED work started.
+      The screen has since grown a status row, a pickup display, combo lists,
+      capture indicators, the `*` marker and the octave/root readouts, and
+      README still describes the project from before most of that. Check
+      against **shipped behaviour**, not against these notes — the notes are
+      what would repeat an error rather than catch it. Expect findings to
+      split into doc bugs and real bugs; file the second kind here.
+- [ ] **3 — A round of visualizer tweaks.** The app has been kept in
+      lockstep field-by-field through six protocol additions without anyone
+      standing back from it. Worth a pass in its own right now that the
+      firmware side has settled.
 
 **Still genuinely open:**
 - **A3** — value-row font stepping. Deferred by decision, not blocked;
@@ -653,9 +672,14 @@ screen), **B1** and **C5**. What's left:
 - **`kDrumKick` is two engines wide** (21 Bass drum, 10 FM 2-op) — option (c)
   of the old kick-curation item, untouched. Now that the pools are a table,
   widening one is a one-line edit plus an audition pass; it's a taste call,
-  not a code problem.
-
->>> Can we make extra kicks from either existing models or write our own using specific model tricks
+  not a code problem. **Open question (2026-08-05): can more kicks come from
+  existing engines, or do they need writing?** Two routes, and they are not
+  equally expensive. (a) A pool entry is an engine *plus a parameter
+  preset* — several non-drum engines sit in kick territory at the right
+  harmonics/decay (Waveshaping and the 2-op FM already do; Modal and Particle
+  plausibly), so widening may be preset work rather than DSP work. (b) A
+  purpose-written engine is a real addition to `thirdparty/plaits`, worth it
+  only if (a) is exhausted. Audition (a) before considering (b).
 
 - **Weight → audio level.** MIDI out now carries the pattern's accents as
   velocity, but the *audio* still fires every step at full level — weight is
