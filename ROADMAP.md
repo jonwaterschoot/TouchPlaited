@@ -626,12 +626,12 @@ it, and became the fifth change:
       plain octave shift — which is what `P1+P10` already did in Basic Pitch,
       so it is at least uniform.
 
-**Still needs hardware — only the swap.** Everything else from this pass is
-walked and ticked, including section D's whole 2026-08-05 block (pickup, Rec
-per-pad randomize, no-autostart, Rec cycle, root readouts, ch10 velocity) and
-A5/A6's pacing, which had been carried over unwalked since 08-04. The swap is
-a muscle-memory change more than a code one: does `P0+P10/P11` feel right for
-range, and is undo still findable on `P1+P10`?
+**Nothing outstanding — the whole pass is walked and ticked.** That covers
+section D's 2026-08-05 block (pickup, Rec per-pad randomize, no-autostart, Rec
+cycle, root readouts, ch10 velocity), A5/A6's pacing which had been carried
+unwalked since 08-04, the four first-walk fixes, the `*` marker, the
+octave-range/undo swap, and **E1**'s span readout. The swap was exercised
+incidentally — using `P0+P10/P11` is what turned up E1's empty value row.
 
 ## Open items summary
 
@@ -679,7 +679,7 @@ raised them, since two of the three need new telemetry.
       governs the arp's climb from `arp_octave`; pairing them would be a
       confident lie. `arp_flags` bits4-5 carry the range, so no new field and
       no length guard. Every variant is <= 11 chars, so the value row holds
-      one font across the sweep. Needs hardware.*
+      one font across the sweep. Hardware-verified 2026-08-05.*
       *Original:* This is
       unfinished business from the same round that gave plain P10/P11 a value
       row — the combo version got the label and nothing under it. What belongs
