@@ -148,6 +148,12 @@ export function applySysex(data: Uint8Array, store: DeviceStore): boolean {
         for (let i = 0; i < 8; i++) targets.push(p[29 + i] / 127);
         store.setPickup(p[28], targets);
       }
+      // SW1's two change-latched roles, both in panel order. Pre-v10 frames
+      // never published them, and the lever was all the old build had — so
+      // fall back to it rather than to a constant, keeping old firmware
+      // exactly as accurate (and as wrong) as it was before.
+      if (p.length >= 38) store.setSw1Latch(p[37] & 0x03, (p[37] >> 2) & 0x03);
+      else store.setSw1Latch(p[10], p[10]);
       return true;
     }
     case FrameType.EVENT: {

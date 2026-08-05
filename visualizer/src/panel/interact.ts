@@ -29,7 +29,7 @@ export function enablePadInteraction(panel: Panel, store: DeviceStore) {
       const s = store.state;
       held = s.mode === 0
         ? { ch: MIDI_DRUM_CH, note: DRUM_NOTES[padIdx] }
-        : { ch: MIDI_PITCH_CH, note: pitchedNote(padIdx, s.swA, s.root, s.octave) };
+        : { ch: MIDI_PITCH_CH, note: pitchedNote(padIdx, s.scaleLatched, s.root, s.octave) };
       midiOut.send([0x90 | held.ch, held.note, 100]);
       el.classList.add('midi-flash');
     });

@@ -566,21 +566,60 @@ walk** before they tick. `[O]` = walked once, findings filed and fixed.
 
 --
 
+## Hardware test round — 2026-08-05
+
+First walk of the 2026-08-05 pass. **Passed and closed: B1's pickup screen
+and C5's Rec status-row cycle** — both confirmed in the hand, no changes
+needed. Four findings, all fixed same-day:
+
+- [x] **Arp: `P0+P10 ROOT (PITCH ON`.** "Root (Pitch only)" ran to 24 chars
+      behind the combo and truncated mid-word, reading as a fault rather than
+      a restriction — with the value row sitting empty underneath it. Split
+      across the two rows: `P0+P10 ROOT` over `Pitch mode only`. The
+      visualizer had the same combo labelled as a working root shift in
+      *every* mode, which was worse; it now gates on Basic Pitch too.
+- [x] **Seq: silent randomize against a stopped transport.** Only reachable
+      because this pass stopped stage 2 force-starting the seq — the gesture
+      fired into silence. Each stage now auditions the kick when the seq is
+      stopped (a running one is its own confirmation). Slot 0, because it is
+      the sound the curation is about.
+- [x] **Seq/Pitch: the screen named the lever, not what was loaded.** SW1 is
+      change-latched per role, so flicking it in Basic Pitch and returning to
+      Seq left the screen naming a genre that was not playing — and picking
+      pattern names out of that wrong genre's table, which is the part that
+      made it a bug rather than a cosmetic slip. The old code comment called
+      reading the lever "a deliberate simplification"; it wasn't. Both latched
+      roles are now published (`t.sw1_latch`, state byte 37, both normalised
+      to panel order) and every genre/scale/note-name read goes through them.
+      A trailing `*` marks the divergence, as suggested — `SEQ TECHNO*`.
+      Fixed in the same place: pitched **pad note names** were computed off
+      the lever too, so the visualizer's pad legends could show the wrong
+      scale entirely.
+- [x] **Octave: direction without a destination.** P10/P11 said only
+      `Octave +`. Now the value row carries `+1 D#5` — the offset within
+      −3…+3 and the note the root lands on — and, in Seq slot editing where
+      the same pads retune one drum, that slot's own note.
+
+**Still needs hardware** (unchanged from before this round):
+- Rec's per-pad randomize (**kick curation**) — 2 s/4 s in the hand, and does
+  stage 2 land in role often enough to feel curated?
+- A5/A6's pacing, still unwalked from the 2026-08-04 round.
+- The four fixes above, plus the `*` marker: does it read as information or
+  as an error?
+
 ## Open items summary
 
 The 2026-08-05 pass closed the previous list — Kick curation (all three
 parts), MIDI drum "phase 2" (velocity instead of transposition), Chiptune
 (closed as won't-ship), Root note (clamp kept, root/scale now named on
-screen), **B1** and **C5**. All are code-verified only. What's left:
+screen), **B1** and **C5**. What's left:
 
-**Needs hardware, nothing else.** Everything in section D's second walk, now
-including this pass:
-- the pickup screen (**B1**) — is the post-and-block track readable at arm's
-  length, and does the track disappear at the right moment?
-- Rec's per-pad randomize (**kick curation**) — 2 s/4 s in the hand, and does
-  stage 2 land in role often enough to feel curated?
-- the Rec status-row cycle (**C5**) — 2.6 s per phase, too fast or too slow?
-- A5/A6's pacing, still unwalked from the 2026-08-04 round.
+- [ ] **Doc sweep against the last few rounds.** MANUAL and README have been
+      updated per-change, but not read end-to-end since the OLED work
+      started — the screen grew a status row, a pickup display, combo lists,
+      capture indicators and now the `*` marker, and README still describes
+      the project from before most of that. Check the two against the shipped
+      behaviour rather than against these notes.
 
 **Still genuinely open:**
 - **A3** — value-row font stepping. Deferred by decision, not blocked;

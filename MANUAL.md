@@ -168,6 +168,8 @@ Each genre holds its own bank of patterns (the files in `synth/patterns/<genre>/
 
 **Each role remembers its own setting.** A flick only takes effect in the mode you are in: moving SW1 in Basic Pitch changes the scale but leaves the genre and arp state untouched, and so on — so flicking back and forth between playmodes never changes a setting by itself (the switch equivalent of the knob pickup). The genre starts at Techno and changes only when SW1 is moved while in Seq; the arp sub-state starts at Arp and changes only when SW1 is moved while in Arp/Mel — which is what lets a latched arp keep playing in the background across mode flicks.
 
+**Reading `*` on the screen.** The consequence of the above is that the lever routinely points somewhere other than what is loaded — flick SW1 to Major in Basic Pitch, return to Seq, and the switch says "right" while Techno is still playing. The screen always names **what is loaded**, and appends `*` when the lever has since moved elsewhere: `SEQ TECHNO*` means Techno is playing and SW1 is parked on some other position. It is not a warning — it just tells you that a flick is available, and roughly that the next one may jump further than one position.
+
 ---
 
 ## Pads — layout
@@ -406,6 +408,13 @@ Octave is per-mode: Basic Pitch, the arp (Arp/Hold) and Rec each remember their 
 | P11 | Octave up (disabled while P2 is held — P2+P11 is the seq play/pause combo) |
 | P0 + P10 | **Basic Pitch only:** root semitone down (within one octave) — in Arp/Mel's Rec state P0+P10 is **undo** instead; has no effect in Arp/Hold |
 | P0 + P11 | **Basic Pitch only:** root semitone up — no effect in Arp/Mel |
+
+**The screen names the octave you land on**, not just the direction you
+pressed: P10/P11 read `Octave -` over a value like `+1 D#5` — the offset
+within the −3…+3 range, and the note the pads' root now sounds at. In Seq
+while editing a drum slot, where P10/P11 retune that one drum instead, the
+value is the slot's own note. Outside Basic Pitch, **P0+P10 / P0+P11** say
+`Root` over `Pitch mode only` rather than naming a shift that will not happen.
 | P1 + P10 / P11 | *(Arp/Mel only)* octave range down / up — 0–3 extra octaves the arp climbs beyond the base octave |
 
 **Root clamps at C and B — it does not wrap.** Wrapping would be two lines of
@@ -466,6 +475,10 @@ Hold both pads together. Two stages fire in sequence.
 a new kit could not be auditioned pad by pad against a stopped seq — the kit
 change itself began playing. Now the transport is left exactly as it was; a
 *running* seq still restarts from bar 0 so the new kit lands on a downbeat.
+
+**With the seq stopped, each stage plays the kick** as its confirmation — the
+same idea as the audition in the pitched modes. A running sequencer is its own
+confirmation, so nothing extra fires there.
 
 **Every randomize stays in role.** Each of the seven slots draws from its own
 curated pool — kick engines on the kick pad, hat engines on the hats — so a
