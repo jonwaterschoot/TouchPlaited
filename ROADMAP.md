@@ -666,6 +666,51 @@ because each step narrows what the next one has to read.
       standing back from it. Worth a pass in its own right now that the
       firmware side has settled.
 
+### E. Arp/Mel screen round (filed 2026-08-05, from the second walk)
+
+Three findings on the same screen, in rising order of cost. The last one is
+the one worth doing first. Scoped here rather than bolted onto the branch that
+raised them, since two of the three need new telemetry.
+
+- [ ] **E1 — `P0+P10/P11 ARP OCTAVES -` leaves the value row empty.** This is
+      unfinished business from the same round that gave plain P10/P11 a value
+      row — the combo version got the label and nothing under it. What belongs
+      there isn't the range on its own: **base octave and range compose**, so
+      the useful readout is the span the arp will actually cover — base `+1`
+      with range 2 climbs to `+3`. Something like `+1..+3` (or with note
+      names). **Cheap:** `arp_oct_range` isn't published today, but `arp_flags`
+      uses only bits 0-3 and the value is 0..3, so bits 4-5 take it with no
+      new field and no length-guard change.
+- [ ] **E2 — `P1+P10 UNDO LAYER` likewise, and the layer display generally.**
+      Two separable things, deliberately split:
+      - *The undo readout* is easy and worth doing: name **what the next press
+        will remove** — the open take, or `Layer 3` — rather than leaving the
+        row blank. `rec_layers` and `rec_mute` are already published and
+        `icons_for()` already derives the open take from them.
+      - *Bigger layer squares in the value row* is *not* just a rendering
+        change, and shouldn't be taken on its own. C10 already draws the
+        five-dot stack on the **label** row precisely so it survives every
+        callout; drawing it large in the value row either duplicates it at two
+        sizes or gives up that persistence. Agreed on the walk that **Rec's
+        layer UX needs its own pass** — this belongs in that, not ahead of it.
+- [ ] **E3 — Arp/Hold: show the pool with the held notes marked.** The best of
+      the three: a note row in the style of the root-note readout, with a
+      marker row aligning a filled/hollow shape under each pad.
+      **The catch that decides the design: in Hold, the pool is not the pads.**
+      `Arp::notes_[]` latches — a note stays in the pool after you lift, and a
+      re-touch toggles it off — so building this from `t.pads` (which *is*
+      published) would look correct in Arp and be silently useless in Hold,
+      which is the exact state where the display earns its keep: fingers off,
+      four notes latched, nothing on the panel telling you which four. Needs
+      `Arp::PoolMask()` (7 bits, one accessor over `notes_[]`) and one
+      published byte.
+      Two implementation notes so they aren't rediscovered: the markers must
+      be **drawn, not written** — Font_6x8 accepts ASCII 32-126 only and
+      `WriteString` aborts the whole string on the first rejected char, so
+      filled shapes can't be glyphs (draw them like `StatusIcons` does). And
+      the layout fits: 32 px is four 8-px rows, this needs label + notes +
+      markers, leaving one spare.
+
 **Still genuinely open:**
 - **A3** — value-row font stepping. Deferred by decision, not blocked;
   listed as a possible change. See the item for why nothing depends on it.
