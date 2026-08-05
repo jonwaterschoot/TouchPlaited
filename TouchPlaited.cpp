@@ -1368,7 +1368,8 @@ static void service_telemetry() {
     t.arp_flags = static_cast<uint8_t>(
         (arp_state == ArpState::HOLD ? 1 : arp_state == ArpState::REC ? 2 : 0)
         | (rec_armed ? 0x04 : 0x00)
-        | (arp_run_on ? 0x08 : 0x00));
+        | (arp_run_on ? 0x08 : 0x00)
+        | ((arp_oct_range & 0x03) << 4));
     t.seq_pattern = static_cast<uint8_t>(seq.VariantSlot());
     capture_pickups(t);
     const uint32_t now_ms = System::GetNow();

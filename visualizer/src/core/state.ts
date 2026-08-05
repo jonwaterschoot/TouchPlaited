@@ -45,6 +45,9 @@ export interface DeviceState {
   arpRunning: boolean;    // melodic transport (P2+P10 outside Rec) — gates
                           // the arp and the Rec loop together; independent
                           // of recArmed, a punched-out Rec still loops
+  arpRange: number;       // arp octave range 0..3 — extra octaves the arp
+                          // climbs ABOVE its base octave, so the two compose:
+                          // base +1 with range 2 spans +1..+3
   seqPattern: number;     // Seq pattern slot playing within the genre, 0-based
   holdKind: number;       // 0 none, 1 P0+P2, 2 rec entry, 3 layer clear,
                           // 4 layer copy, 5 rec save — a hold building
@@ -89,6 +92,7 @@ export type StateEvent =
   | { kind: 'clockSrc'; v: number }
   | { kind: 'arpSub'; sub: number; armed: boolean; running: boolean;
       prevSub: number; prevArmed: boolean; prevRunning: boolean }
+  | { kind: 'arpRange'; v: number }
   | { kind: 'seqPattern'; v: number }
   | { kind: 'sw1Latch'; genre: number; scale: number }
   | { kind: 'hold'; holdKind: number; progress: number; stage: number; outcome: number }
@@ -121,6 +125,7 @@ function initialState(): DeviceState {
     recMute: 0,
     clockSrc: 0,
     arpSub: 0,
+    arpRange: 0,
     recArmed: false,
     arpRunning: true,   // device default: the plain arp sounds from boot
     seqPattern: 0,
@@ -269,6 +274,15 @@ export class DeviceStore {
     this.state.recArmed = armed;
     this.state.arpRunning = running;
     this.emit({ kind: 'arpSub', sub, armed, running, prevSub, prevArmed, prevRunning });
+  }
+
+  /** Arp octave range. Its own setter rather than a field on setArpSub:
+   * that event carries prev values so listeners can name a transition, and a
+   * range tweak is not a sub-state move. */
+  setArpRange(v: number) {
+    if (this.state.arpRange === v) return;
+    this.state.arpRange = v;
+    this.emit({ kind: 'arpRange', v });
   }
 
   /** Which pattern slot the drum sequencer is actually playing. */

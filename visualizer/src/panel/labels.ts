@@ -276,6 +276,9 @@ function describeControl(
   return { combo: meta.name, fn: fn ?? meta.main };
 }
 
+/** Octave offsets read as positions, so an explicit + earns its character. */
+const signed = (v: number): string => (v > 0 ? `+${v}` : `${v}`);
+
 /** Name a pad press including modifier gestures; null = pure modifier, not
  * worth a log line on its own. */
 function describePad(i: number, s: DeviceState): { combo: string; fn: string } | null {
@@ -305,8 +308,17 @@ function describePad(i: number, s: DeviceState): { combo: string; fn: string } |
     // Arp/Mel gives these pads to the arp's octave range (moved off P1
     // 2026-08-05 — P0 is the pitch modifier, and range was P1's one non-FX
     // combo). Root stays Basic Pitch-only; elsewhere the combo is unbound.
-    if (s.mode === 1)
-      return { combo: `P0 + P${i}`, fn: `Arp octave range ${i === 11 ? '+' : '−'} (0–3 extra)` };
+    // Base octave and range compose, so name the span the arp will cover —
+    // except in Rec, where s.octave is Rec's own octave while the range still
+    // governs the arp's climb, so pairing them would be a confident lie.
+    if (s.mode === 1) {
+      const span = s.arpSub === 2
+        ? (s.arpRange === 0 ? 'no extra octaves' : `+${s.arpRange} extra octaves`)
+        : (s.arpRange === 0
+            ? `${signed(s.octave)} only`
+            : `${signed(s.octave)}..${signed(s.octave + s.arpRange)}`);
+      return { combo: `P0 + P${i}`, fn: `Arp octave range ${i === 11 ? '+' : '−'} · ${span}` };
+    }
     return s.mode === 2
       ? { combo: `P0 + P${i}`, fn: `Root ${dir} → ${ROOT_NAMES[s.root] ?? '?'} · ${scaleNotes(s.scaleLatched, s.root)}` }
       : { combo: `P0 + P${i}`, fn: 'Root · Pitch mode only' };

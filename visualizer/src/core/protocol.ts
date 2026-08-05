@@ -136,6 +136,9 @@ export function applySysex(data: Uint8Array, store: DeviceStore): boolean {
         // "unknown", so keep the pre-v8 default of running.
         store.setArpSub(p[22] & 0x03, (p[22] & 0x04) !== 0,
                         p.length >= 28 ? (p[22] & 0x08) !== 0 : true);
+        // bits4-5 arp octave range, added v10. Pre-v10 they read 0, which is
+        // also the range's own default, so no version guard buys anything.
+        store.setArpRange((p[22] >> 4) & 0x03);
       }
       if (p.length >= 25) {
         const stage = p.length >= 27 ? p[25] : 0;

@@ -672,7 +672,15 @@ Three findings on the same screen, in rising order of cost. The last one is
 the one worth doing first. Scoped here rather than bolted onto the branch that
 raised them, since two of the three need new telemetry.
 
-- [ ] **E1 — `P0+P10/P11 ARP OCTAVES -` leaves the value row empty.** This is
+- [x] **E1 — `P0+P10/P11 ARP OCTAVES -` leaves the value row empty.** *Done
+      2026-08-05, as scoped: the value row now names the **span**, not the
+      range — `+1..+3`, or `+1 only` at range 0. Rec reports `+2 extra`
+      instead, because `t.octave` there is Rec's own octave while the range
+      governs the arp's climb from `arp_octave`; pairing them would be a
+      confident lie. `arp_flags` bits4-5 carry the range, so no new field and
+      no length guard. Every variant is <= 11 chars, so the value row holds
+      one font across the sweep. Needs hardware.*
+      *Original:* This is
       unfinished business from the same round that gave plain P10/P11 a value
       row — the combo version got the label and nothing under it. What belongs
       there isn't the range on its own: **base octave and range compose**, so

@@ -364,6 +364,40 @@ void octave_value(FixedCapStr<N>& out, const TelemetryState& t) {
     out.Append(n.Cstr());
 }
 
+// What P0+P10/P11 leaves you with. The range alone ("2") says little, because
+// base octave and range COMPOSE: base +1 with range 2 means the arp climbs
+// +1 -> +3, and that span is the thing you are actually setting.
+//
+// Only Arp and Hold can show the span, and the reason is worth keeping:
+// t.octave is active_octave(), which in Rec is rec_octave — while the range
+// still governs the ARP's climb from arp_octave. Pairing the range with an
+// octave that isn't the one climbing would be a confident lie, so Rec reports
+// the range on its own instead. Every variant is <= 11 chars so the value row
+// holds one font across the whole sweep (item A3).
+template <size_t N>
+void append_signed(FixedCapStr<N>& out, int v) {
+    if (v > 0) out.Append("+");
+    out.AppendInt(v);
+}
+
+template <size_t N>
+void arp_octave_span(FixedCapStr<N>& out, const TelemetryState& t) {
+    const int range = (t.arp_flags >> 4) & 0x03;
+    out.Clear();
+    if ((t.arp_flags & 0x03) == 2) {          // Rec — base octave isn't the arp's
+        if (range == 0) { out.Append("no extra"); return; }
+        out.Append("+");
+        out.AppendInt(range);
+        out.Append(" extra");
+        return;
+    }
+    const int base = static_cast<int>(t.octave) - 3;
+    append_signed(out, base);
+    if (range == 0) { out.Append(" only"); return; }
+    out.Append("..");
+    append_signed(out, base + range);
+}
+
 // blendInfo() port: what S37/Blend targets on a given engine — aux==nullptr
 // means the engine's AUX output equals OUT, so blend/width does nothing.
 template <size_t N>
@@ -667,6 +701,7 @@ void describe_pad(int i, const TelemetryState& t,
                     // non-FX combo on P1.
                     set_label(label, up ? "P0+P11" : "P0+P10",
                               up ? "Arp octaves +" : "Arp octaves -");
+                    arp_octave_span(value, t);
                 } else if (t.mode == 2) {
                     // Root shifting is the one control on the panel with no
                     // audible landmark of its own — it clamps at C and B

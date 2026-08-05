@@ -409,6 +409,13 @@ Octave is per-mode: Basic Pitch, the arp (Arp/Hold) and Rec each remember their 
 | P0 + P10 / P11 | **Basic Pitch:** root semitone − / + (within one octave) · **Arp/Mel:** arp octave range − / + (0–3 extra octaves the arp climbs) · no effect in Seq |
 | P1 + P10 | *(Arp/Mel's Rec state only)* undo layer — see *Recording into the loop* |
 
+**The screen names the span, not the range.** Base octave and range compose —
+base `+1` with range 2 means the arp climbs `+1` to `+3` — so `P0+P10/P11`
+reads e.g. `+1..+3`, or `+1 only` at range 0. In **Rec** it reports the range
+alone (`+2 extra`): the base octave shown there is Rec's own, while the range
+still governs the arp's climb from *its* octave, so pairing the two would be
+misleading.
+
 **Why P0 owns both.** The panel's modifiers have a grammar — **P0 = sound and
 pitch**, **P1 = FX**, **P2 = transport** — and octave range is a pitch
 control, so it belongs on P0 with root and the model banks. It sat on P1 until
