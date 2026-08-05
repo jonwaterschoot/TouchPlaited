@@ -312,14 +312,39 @@ adding one is backward-compatible — but each still touches both sides plus
       change instead of the old `STAGE N` (`confirm_text()`: `Kit varied`,
       `New kit`, `Varied more`, `Live knobs`, …). Mirrored in
       `visualizer/src/panel/labels.ts`.
-- [ ] **C4 — list the combos when a modifier pad is touched.** Touching P0,
-      P1 or P2 currently prints only `P0 modifier` / `P1 FX layer`
-      (`describe_pad()`, `display/oled_ui.cpp:519-526`). Show what the
-      modifier unlocks instead (`S35 model bank 0`, `hold + P2 randomize`,
-      …). Open problem as filed: there are more combos than fit one 128×32
-      screen, so this needs paging or scrolling — i.e. it depends on A3, and
-      the content is per-mode, so it's really three lists. Lowest priority
-      of the C items; do it last.
+- [x] **C4 — list the combos when a modifier pad is touched.** *Done
+      2026-08-05.* Holding P0/P1/P2 now lists what it unlocks in the current
+      mode (`ShowList()`, four rows of Font_6x8 filling the whole 32 px),
+      instead of printing `P0 modifier` — the name of the pad already under
+      your finger. The list owns the screen until the modifier is released,
+      so the idle timeout can't pull a reference away mid-read.
+
+      **The counts, which is what made this tractable.** Enumerated from the
+      handlers rather than from MANUAL, 15 lists (3 modifiers × 5 contexts:
+      Seq, Seq Recording, Basic Pitch, Arp/Hold, Arp Rec):
+
+      | | Seq | Seq Rec | Pitch | Arp/Hold | Arp Rec |
+      |---|---|---|---|---|---|
+      | **P0** | 2 | 2 | 4 | 4 | **5** |
+      | **P1** | 2 | 2 | 2 | 4 | 4 |
+      | **P2** | 3 | 1 | 4 | 4 | **5** |
+
+      Two things kept this from needing real paging. Pairing the ± combos
+      onto one row each (`P10/P11 root -/+`, `P10/P11 arp octaves`) cut most
+      lists from 5 to 4; and making each row self-labelling (`P1+S30 …`)
+      meant no header row had to be spent naming the modifier. So **13 of 15
+      lists fit one screen exactly**, and the two that don't overflow by
+      exactly one row — handled by scrolling the window down one row every
+      `kListScrollMs`, which always keeps the screen full. No dependency on
+      A3 after all (that's horizontal marquee for over-long values; this is
+      a vertical window over short rows).
+
+      **Two mislabels the enumeration turned up**, both now fixed:
+      `process_model_select()` returns immediately on `seq_mode_on`, so
+      **P0/P2 + S35 does nothing in Seq** — `describe_control()` was
+      labelling it `Model select bank0/1` anyway. And with that combo absent
+      in Seq, S35 keeps its pattern role under P0/P2 there, so the value row
+      shows the pattern name instead of falling through to a bare %.
 - [ ] **C5 — Rec mode's own status row.** Partly done 2026-08-04: A4's
       status row covers Rec, so the screen now settles on
       `REC P5 CLAP` + the slot's model instead of the stale

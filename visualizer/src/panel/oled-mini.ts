@@ -64,6 +64,8 @@ const LABEL_CHARS_DOTS = 14;
 const LABEL_CHARS_REC = 19;
 // Matches kBlinkMs in display/oled_ui.cpp.
 const BLINK_MS = 400;
+// Matches OledScreen::kListRows — 32 px / an 8 px font.
+const LIST_ROWS = 4;
 
 /** Same stepping as oled_screen.cpp:ShowLine() — largest font whose char
  * count fits, in char-count terms (not measured pixel width, matching the
@@ -93,6 +95,7 @@ export class OledMini {
   private progressNote = ''; // what crossing the next threshold does
   private flashTimer: ReturnType<typeof setTimeout> | null = null; // confirm text owns the screen
   private icons: StatusIcons = NO_ICONS;
+  private listRows: string[] | null = null; // combo list owns the screen
   private blinkPhase = false;
   private cell = 4; // device px per logical pixel — set for real by place()
 
@@ -122,6 +125,7 @@ export class OledMini {
     // screen, checked on a slow tick rather than a one-shot timer so a burst
     // of activity doesn't need to keep rescheduling anything.
     setInterval(() => {
+      if (this.listRows !== null) return;  // held modifier owns the screen
       if (this.active && performance.now() - this.shownAt > IDLE_MS) {
         this.active = false;
         this.progressMode = false;
@@ -150,6 +154,7 @@ export class OledMini {
    * last win. */
   show(label: string, value: string) {
     if (this.progressMode || this.flashTimer !== null) return;
+    this.listRows = null;
     this.active = true;
     this.label = label;
     this.value = value;
@@ -171,6 +176,7 @@ export class OledMini {
    * knob would, so the bar visibly fills. */
   showProgress(label: string, pct: number, note = '') {
     if (this.flashTimer !== null) return; // a confirm is still on screen
+    this.listRows = null;
     this.active = true;
     this.progressMode = true;
     this.progressLabel = label;
@@ -185,6 +191,7 @@ export class OledMini {
    * matching the firmware's own held-open redraw throttle, then releases
    * back to whatever showProgress()/show() calls land next. */
   confirmFlash(label: string, text: string) {
+    this.listRows = null;
     this.active = true;
     this.progressMode = false;
     this.shownAt = performance.now();
@@ -209,6 +216,34 @@ export class OledMini {
     if (this.flashTimer === null) this.draw();
   }
 
+  /** Four rows of Font_6x8 — the whole 32 px height, no label/value split.
+   * The combo list a held modifier shows; only the first LIST_ROWS entries
+   * are drawn, so a caller scrolls by advancing the slice it passes.
+   * Mirrors OledScreen::ShowList() (display/oled_screen.cpp). */
+  showList(rows: string[]) {
+    this.active = true;
+    this.progressMode = false;
+    this.listRows = rows;
+    this.shownAt = performance.now();
+    this.draw();
+  }
+
+  /** Releases a combo list when its modifier comes up. */
+  clearList() {
+    if (this.listRows === null) return;
+    this.listRows = null;
+    this.active = false;
+    this.draw();
+  }
+
+  private layoutList(rows: string[]) {
+    this.bits.fill(0);
+    const shown = Math.min(rows.length, LIST_ROWS);
+    for (let i = 0; i < shown; i++)
+      this.blitText(FONT_6X8, truncate(rows[i].toUpperCase(), LABEL_CHARS),
+                    1, i * FONT_6X8.height);
+  }
+
   /** Home-screen content: what shows when nothing's been touched recently. */
   setStatus(label: string, value: string) {
     this.idleLabel = label;
@@ -217,6 +252,11 @@ export class OledMini {
   }
 
   private draw() {
+    if (this.active && this.listRows !== null) {
+      this.layoutList(this.listRows);
+      this.rasterize();
+      return;
+    }
     if (this.active && this.progressMode) {
       this.layoutProgress(this.progressLabel, this.progressPct, this.progressNote);
       this.rasterize();

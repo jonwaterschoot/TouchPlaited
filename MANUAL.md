@@ -255,6 +255,8 @@ All arp knobs go through pickup on mode entry, so pots that served another mode 
 
 The punch-out step commits the open take, so the stop step can never lose one. Listening back before punching in again is the middle state. P2+P10 keeps its plain transport meaning everywhere else (Arp, Hold, and every other playmode).
 
+Holding **P0**, **P1** or **P2** on its own lists what that modifier unlocks in the current mode — four rows, scrolling by one where a list runs longer, and it stays up until you let go. That is the fastest way to answer "what does this pad do here" without reaching for this document.
+
 While SW1 is in Rec the screen carries a persistent indicator block in the top right, the one thing that survives whatever callout is showing: a **blinking circle** while capture is live, and **five dots** for the layer stack — filled = committed, hollow = muted, a pulsing outline on the take currently being recorded into, a small tick for each free slot. So which layer you are filling, and whether anything is going into it, are readable at a glance without pressing anything.
 
 Because arming and running are independent, the screen names the *combination* rather than the flag you just moved — `REC + PLAY` (looping and capturing), `PLAY NO REC` (looping, punched out), `REC STOPPED` (transport stopped, nothing sounding). Outside Rec the same combo reads `ARP PLAY` / `ARP STOPPED`, or `MEL PLAY` / `MEL STOPPED` when you hit it from Seq or Basic Pitch. The idle status row shows the same wording, so what a press told you and what the screen settles back to always agree.

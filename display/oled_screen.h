@@ -49,6 +49,13 @@ public:
     void ShowLine(const char* label, const char* value,
                   const StatusIcons& icons = StatusIcons{});
 
+    // Four rows of Font_6x8 — the whole 32 px height, no label/value split.
+    // Used for the combo list a held modifier pad shows; `rows` must hold at
+    // least `n` entries and only the first 4 are drawn, so a caller with more
+    // pages by advancing the pointer.
+    static constexpr int kListRows = 32 / 8;
+    void ShowList(const char* const* rows, int n);
+
     // Label row as ShowLine(), value row replaced by a filled bar —
     // progress/127 of the screen width — for a hold building toward a
     // threshold, plus a small note row under it saying what crossing that

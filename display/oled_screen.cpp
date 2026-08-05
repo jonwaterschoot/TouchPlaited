@@ -91,6 +91,24 @@ void OledScreen::ShowProgress(const char* label, uint8_t progress, const char* n
     i2c1_bus_busy = false;
 }
 
+void OledScreen::ShowList(const char* const* rows, int n) {
+    i2c1_bus_busy = true;
+    _display.Fill(false);
+    const int shown = std::min(n, kListRows);
+    for (int i = 0; i < shown; i++) {
+        char buf[kBufLen];
+        const size_t len = std::min(strlen(rows[i]), kBufLen - 1);
+        std::memcpy(buf, rows[i], len);
+        buf[len] = '\0';
+        for (char* p = buf; *p; ++p)
+            *p = static_cast<char>(std::toupper(static_cast<unsigned char>(*p)));
+        _display.SetCursor(1, static_cast<uint8_t>(i * Font_6x8.FontHeight));
+        _display.WriteString(buf, Font_6x8, true);
+    }
+    _display.Update();
+    i2c1_bus_busy = false;
+}
+
 void OledScreen::BeginFrame() {
     _display.Fill(false);
 }

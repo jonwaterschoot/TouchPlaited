@@ -436,11 +436,15 @@ void describe_control(int i, const TelemetryState& t,
         fx_value_label(value, i == 0, v);
         return; // value fully resolved here, matches the web app's early break
     }
-    if (!handled && i == 5 && p0) {
+    // Model select is pitched-modes-only: process_model_select() returns
+    // immediately on seq_mode_on (TouchPlaited.cpp), so in Seq these combos
+    // do nothing and S35 keeps its pattern role. Labelling them here claimed
+    // a control that isn't there (found while enumerating the combo lists).
+    if (!handled && i == 5 && p0 && mode != 0) {
         set_label(label, "P0+S35", "Model select bank0");
         handled = true;
     }
-    if (!handled && i == 5 && p2) {
+    if (!handled && i == 5 && p2 && mode != 0) {
         set_label(label, "P2+S35", "Model select bank1");
         handled = true;
     }
@@ -539,7 +543,9 @@ void describe_control(int i, const TelemetryState& t,
             model_value(value, t.model);
             return;
         }
-        if (!p0 && !p2 && !rec_active) {
+        // Seq: S35 keeps its pattern role under P0/P2 too — model select is
+        // the combo that doesn't exist here, so there's nothing to yield to.
+        if (!rec_active) {
             pattern_value(value, t.sw1, v);
             return;
         }
@@ -622,6 +628,77 @@ const char* melodic_state(int mode, int arp_sub, bool running, bool armed) {
     // Hold is the same arpeggiator with latched input, so it shares Arp's
     // wording — the label row is what distinguishes the two.
     return running ? "Arp play" : "Arp stopped";
+}
+
+// ── Modifier combo lists ────────────────────────────────────────────────────
+// What holding P0 / P1 / P2 actually unlocks, per mode. Every row is verified
+// against the handler that implements it, not against the manual — two things
+// fell out of doing that:
+//   - P0/P2 + S35 is dead in Seq. process_model_select() returns immediately
+//     on seq_mode_on (TouchPlaited.cpp), so the drum kit is only reachable
+//     per-slot from Recording. describe_control() labels it anyway; see the
+//     `mode == 0` guard there now.
+//   - the ± pairs (root, arp octaves) share one row. Listing them separately
+//     was what pushed most of these lists past the four rows the screen has.
+// Rows are self-labelling ("P1+S30 …"), so no header row is spent naming the
+// modifier you are already holding.
+constexpr int kMaxComboRows = 6;
+
+// Every row <= 21 chars (Font_6x8 budget). Longest here is 20.
+const char* const kP0Seq[]      = { "S37 drum width", "+P2 hold: vary kit" };
+const char* const kP0SeqRec[]   = { "S35 slot model b0", "S37 slot width" };
+const char* const kP0Pitch[]    = { "S35 model bank 0", "S37 stereo width",
+                                    "P10/P11 root -/+", "+P2 hold: randomize" };
+const char* const kP0Arp[]      = { "S35 model bank 0", "S37 stereo width",
+                                    "+P1 hold: sound edit", "+P2 hold: vary sound" };
+const char* const kP0ArpRec[]   = { "S35 model bank 0", "S37 stereo width",
+                                    "P10 undo layer", "+P1 hold: sound edit",
+                                    "+P2 hold: vary sound" };
+const char* const kP1Seq[]      = { "S30 reverb (drums)", "S35 delay (drums)" };
+const char* const kP1SeqRec[]   = { "S30 slot reverb send", "S35 slot delay send" };
+const char* const kP1Pitch[]    = { "S30 reverb", "S35 delay" };
+const char* const kP1Arp[]      = { "S30 reverb", "S35 delay",
+                                    "P10/P11 arp octaves", "+P0 hold: sound edit" };
+const char* const kP2Seq[]      = { "P10 mel transport", "P11 drum play/pause",
+                                    "+P0 hold: vary kit" };
+const char* const kP2SeqRec[]   = { "S35 slot model b1" };
+const char* const kP2Pitch[]    = { "S35 model bank 1", "P10 mel transport",
+                                    "P11 drum play/pause", "+P0 hold: randomize" };
+const char* const kP2Arp[]      = { "S35 model bank 1", "P10 mel transport",
+                                    "P11 drum play/pause", "+P0 hold: vary sound" };
+const char* const kP2ArpRec[]   = { "S35 model bank 1", "P10 rec cycle",
+                                    "P11 drum play/pause", "P3-P7 layer gestures",
+                                    "+P0 hold: vary sound" };
+
+template <size_t N>
+int pick_rows(const char* const (&tbl)[N], const char* const** out) {
+    *out = tbl;
+    return static_cast<int>(N);
+}
+
+// Returns the row count and points `rows` at them. mod is 0/1/2 (P0/P1/P2).
+int combo_rows(const TelemetryState& t, int mod, const char* const** rows) {
+    const bool seq_rec = (t.mode == 0) && (t.rec_slot != 0x7F);
+    const bool arp_rec = (t.mode == 1) && ((t.arp_flags & 0x03) == 2);
+    switch (mod) {
+        case 0:
+            if (seq_rec)      return pick_rows(kP0SeqRec, rows);
+            if (t.mode == 0)  return pick_rows(kP0Seq,    rows);
+            if (arp_rec)      return pick_rows(kP0ArpRec, rows);
+            if (t.mode == 1)  return pick_rows(kP0Arp,    rows);
+            return pick_rows(kP0Pitch, rows);
+        case 1:
+            if (seq_rec)      return pick_rows(kP1SeqRec, rows);
+            if (t.mode == 0)  return pick_rows(kP1Seq,    rows);
+            if (t.mode == 1)  return pick_rows(kP1Arp,    rows);
+            return pick_rows(kP1Pitch, rows);
+        default:
+            if (seq_rec)      return pick_rows(kP2SeqRec, rows);
+            if (t.mode == 0)  return pick_rows(kP2Seq,    rows);
+            if (arp_rec)      return pick_rows(kP2ArpRec, rows);
+            if (t.mode == 1)  return pick_rows(kP2Arp,    rows);
+            return pick_rows(kP2Pitch, rows);
+    }
 }
 
 // ── Idle status row ─────────────────────────────────────────────────────────
@@ -790,6 +867,10 @@ constexpr uint32_t kIdleMs = 2200;
 // screen is otherwise change-driven, so this is the only thing on it that
 // generates I2C traffic on its own. Only runs while recording.
 constexpr uint32_t kBlinkMs = 400;
+// How long each window of an overflowing combo list stays up before it
+// scrolls by one row. Only two lists in the whole device exceed the screen's
+// four rows, and both by exactly one — see combo_rows().
+constexpr uint32_t kListScrollMs = 1400;
 } // namespace
 
 namespace {
@@ -911,6 +992,23 @@ void OledUi::Service(const TelemetryState& t, uint32_t now_ms, OledScreen& oled)
     } else if (new_touches != 0) {
         int i = 0;
         while (i < 12 && !((new_touches >> i) & 1u)) i++;
+        if (i <= 2) {
+            // A modifier just went down: list what it unlocks here rather
+            // than printing "P0 modifier", which named the pad you are
+            // already holding and nothing else. Owns the screen until it's
+            // released or something more specific happens.
+            list_mod_      = i;
+            list_offset_   = 0;
+            list_at_ms_    = now_ms;
+            const char* const* rows;
+            const int n = combo_rows(t, i, &rows);
+            oled.ShowList(rows, n);
+            next_draw_ms_   = now_ms + kMinRedrawIntervalMs;
+            idle_at_ms_     = now_ms;
+            showing_status_ = false;
+            last_ = t;
+            return;
+        }
         describe_pad(i, t, label, value);
         draw = true;
     } else if (t.sw1 != last_.sw1) {
@@ -940,6 +1038,28 @@ void OledUi::Service(const TelemetryState& t, uint32_t now_ms, OledScreen& oled)
     }
 
     const StatusIcons icons = icons_for(t, now_ms);
+
+    // A combo list holds the screen for as long as its modifier is down —
+    // it's a reference you read, so the idle timeout must not pull it away
+    // mid-sentence. Only the two lists that don't fit redraw, to scroll.
+    if (list_mod_ >= 0) {
+        const bool still_held = (t.pads & (1u << list_mod_)) != 0;
+        if (still_held && !draw) {
+            const char* const* rows;
+            const int n   = combo_rows(t, list_mod_, &rows);
+            const int max = n - OledScreen::kListRows;
+            if (max > 0 && (now_ms - list_at_ms_) >= kListScrollMs) {
+                list_offset_ = (list_offset_ + 1) % (max + 1);
+                list_at_ms_  = now_ms;
+                oled.ShowList(rows + list_offset_, n - list_offset_);
+                next_draw_ms_ = now_ms + kMinRedrawIntervalMs;
+            }
+            idle_at_ms_ = now_ms;   // hold off the status row while held
+            last_ = t;
+            return;
+        }
+        list_mod_ = -1;
+    }
 
     if (draw) {
         oled.ShowLine(label.Cstr(), value.Cstr(), icons);

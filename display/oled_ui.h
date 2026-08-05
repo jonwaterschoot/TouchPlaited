@@ -56,6 +56,9 @@ private:
     daisy::FixedCapStr<24> last_label_{};    // last callout, for blink repaints
     daisy::FixedCapStr<24> last_value_{};
     bool     blink_phase_  = false;  // phase the indicator block last drew at
+    int      list_mod_     = -1;     // modifier whose combo list owns the screen
+    int      list_offset_  = 0;      // first row shown, for lists over 4 rows
+    uint32_t list_at_ms_   = 0;      // when the current window went up
 };
 
 } // namespace synthux

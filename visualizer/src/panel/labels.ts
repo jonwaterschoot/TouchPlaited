@@ -27,6 +27,8 @@ const HL_TTL_MS = 1600;
 // STATE frame (rate-limited to 33 ms), so a note usually lands before its pad:
 // hold it briefly and let the pad-down claim it.
 const PENDING_NOTE_MS = 300;
+// Matches kListScrollMs in display/oled_ui.cpp.
+const LIST_SCROLL_MS = 1400;
 
 // A fresh highlight needs a deliberate move (~2 pot steps); real pots jitter
 // ±1 step forever (S36 on the test unit). An already-lit control keeps
@@ -90,6 +92,44 @@ function melodicState(mode: number, arpSub: number, running: boolean, armed: boo
     return armed ? 'Rec + play' : 'Play no rec';
   }
   return running ? 'Arp play' : 'Arp stopped';
+}
+
+/** What holding P0 / P1 / P2 unlocks, per mode — ported 1:1 from the combo
+ * tables in display/oled_ui.cpp, including the four-row screen budget that
+ * forced the ± pairs onto one row each. Rows are self-labelling, so no header
+ * row is spent naming the modifier already under your finger. */
+const COMBO_ROWS: Record<string, string[]> = {
+  'p0.seq':     ['S37 drum width', '+P2 hold: vary kit'],
+  'p0.seqrec':  ['S35 slot model b0', 'S37 slot width'],
+  'p0.pitch':   ['S35 model bank 0', 'S37 stereo width',
+                 'P10/P11 root -/+', '+P2 hold: randomize'],
+  'p0.arp':     ['S35 model bank 0', 'S37 stereo width',
+                 '+P1 hold: sound edit', '+P2 hold: vary sound'],
+  'p0.arprec':  ['S35 model bank 0', 'S37 stereo width', 'P10 undo layer',
+                 '+P1 hold: sound edit', '+P2 hold: vary sound'],
+  'p1.seq':     ['S30 reverb (drums)', 'S35 delay (drums)'],
+  'p1.seqrec':  ['S30 slot reverb send', 'S35 slot delay send'],
+  'p1.pitch':   ['S30 reverb', 'S35 delay'],
+  'p1.arp':     ['S30 reverb', 'S35 delay',
+                 'P10/P11 arp octaves', '+P0 hold: sound edit'],
+  'p2.seq':     ['P10 mel transport', 'P11 drum play/pause', '+P0 hold: vary kit'],
+  'p2.seqrec':  ['S35 slot model b1'],
+  'p2.pitch':   ['S35 model bank 1', 'P10 mel transport',
+                 'P11 drum play/pause', '+P0 hold: randomize'],
+  'p2.arp':     ['S35 model bank 1', 'P10 mel transport',
+                 'P11 drum play/pause', '+P0 hold: vary sound'],
+  'p2.arprec':  ['S35 model bank 1', 'P10 rec cycle', 'P11 drum play/pause',
+                 'P3-P7 layer gestures', '+P0 hold: vary sound'],
+};
+
+function comboRows(mod: number, s: DeviceState): string[] {
+  const seqRec = s.mode === 0 && s.recSlot !== null;
+  const arpRec = s.mode === 1 && s.arpSub === 2;
+  const ctx = seqRec ? 'seqrec'
+            : s.mode === 0 ? 'seq'
+            : s.mode === 1 ? (arpRec && mod !== 1 ? 'arprec' : 'arp')
+            : 'pitch';
+  return COMBO_ROWS[`p${mod}.${ctx}`] ?? COMBO_ROWS[`p${mod}.pitch`];
 }
 
 function holdLabel(kind: number, mode: number, recSlot: number | null): string {
@@ -273,6 +313,9 @@ export class Labels {
   private heldPads: number[] = []; // press order, newest last
   private padBaseHtml = new Map<number, string>(); // for appending note info
   private pendingNote: { channel: number; note: number; at: number } | null = null;
+  private listMod = -1;     // modifier whose combo list owns the mini screen
+  private listOffset = 0;   // first row shown, for lists over four rows
+  private listAt = 0;       // when the current window went up
   private lastHoldKind = 0; // edge-detects a hold_stage rise into a confirm flash
   private lastHoldStage = 0;
 
@@ -439,6 +482,17 @@ export class Labels {
     this.renderModel(store.state);
     this.renderStatic(store.state);
     setInterval(() => this.expire(), 250);
+    // Combo-list scroll. Only the two lists that exceed the screen's four
+    // rows ever move, and both by exactly one row — see comboRows().
+    setInterval(() => {
+      if (this.listMod < 0) return;
+      const rows = comboRows(this.listMod, this.store.state);
+      const max = rows.length - 4;
+      if (max <= 0 || performance.now() - this.listAt < LIST_SCROLL_MS) return;
+      this.listOffset = (this.listOffset + 1) % (max + 1);
+      this.listAt = performance.now();
+      this.oledMini.showList(rows.slice(this.listOffset));
+    }, 200);
   }
 
   private apply(ev: StateEvent, s: DeviceState) {
@@ -532,6 +586,14 @@ export class Labels {
           if (d) this.addLog(d.combo, html);
           // Pure modifier (P0/P1FX/P2): worth a screen line, not a log line.
           else this.screenPush(meta.name, html);
+          // A modifier going down lists what it unlocks here, and holds the
+          // screen until it's released — same as OledUi::Service.
+          if (ev.i <= 2) {
+            this.listMod = ev.i;
+            this.listOffset = 0;
+            this.listAt = performance.now();
+            this.oledMini.showList(comboRows(ev.i, s));
+          }
           // Claim a note that arrived just before this pad-down (see
           // PENDING_NOTE_MS).
           const pn = this.pendingNote;
@@ -547,6 +609,10 @@ export class Labels {
           this.heldPads = this.heldPads.filter((p) => p !== ev.i);
           this.padBaseHtml.delete(ev.i);
           this.release(meta.svgId);
+          if (ev.i === this.listMod) {
+            this.listMod = -1;
+            this.oledMini.clearList();
+          }
         }
         break;
       }
