@@ -37,6 +37,9 @@ struct TelemetryState {
                            // transport running (arp_run_on — P2+P10's other
                            // meaning, outside Rec). Armed and running are
                            // independent: a punched-out Rec keeps looping.
+                           // bits4-5 arp octave range 0..3 (P0+P10/P11) —
+                           // folded in here rather than given a field of its
+                           // own, the value being exactly two bits wide.
     uint8_t  seq_pattern;  // slot within the current genre that's actually
                            // playing, 0-based (Sequencer::VariantSlot) — S35
                            // sits behind a pickup, so its pot position is not
@@ -59,6 +62,22 @@ struct TelemetryState {
                             // holds). Edge-detect against the previous frame
                             // to catch the confirm — it stays at its fired
                             // value for as long as the gesture stays held.
+    uint8_t  sw1_latch;    // SW1's two change-latched roles, BOTH normalised to
+                           // panel order (0 left · 1 center · 2 right) so they
+                           // compare directly against `sw1`:
+                           //   bits0-1 Seq genre · bits2-3 pitched scale
+                           // SW1 only takes effect in the mode you move it in,
+                           // so after flicking it elsewhere the physical lever
+                           // routinely disagrees with what is actually loaded.
+                           // The screens show the LATCHED value and mark the
+                           // disagreement, rather than reporting the lever and
+                           // naming a genre that isn't playing. (The third
+                           // role, Arp/Mel's sub-state, is already latched in
+                           // arp_flags bits0-1 for the same reason.)
+                           // Note the firmware stores these in different index
+                           // spaces internally — seq_genre_lk is panel-ordered,
+                           // scale_lk is the raw switch value — hence the
+                           // sw1_panel_pos() on the scale half when packing.
     uint8_t  pickup_armed;     // bit i = S3(0+i) is behind a pickup right now:
                                // the pot is not driving anything until it
                                // reaches pickup_target[i]. Every playmode has

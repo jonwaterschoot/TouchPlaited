@@ -130,16 +130,33 @@ const char* const kNoteNames[12] = {
     "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B",
 };
 
-// Same scale tables as controls-meta.ts's SCALES, indexed by the
-// panel-mapped SW1 position (t.sw1) — an approximation of the actual
-// pitched note (the firmware change-latches the scale; this uses the live
-// switch), same deliberate simplification the visualizer makes.
+// Same scale tables as controls-meta.ts's SCALES, indexed by the panel-mapped
+// SW1 position — read through latched_scale() below, never off the lever.
 const int kUiScales[3][7] = {
     { 0, 2, 3, 5, 7, 8, 10 },  // Minor
     { 0, 1, 2, 3, 4, 5, 6  },  // Chromatic
     { 0, 2, 4, 5, 7, 9, 11 },  // Major
 };
 constexpr int kUiPitchBase = 60;
+
+// SW1's latched roles, unpacked from t.sw1_latch (midi/telemetry.h) — both in
+// panel order, so they compare directly against t.sw1. Everything that names
+// a genre or a scale reads these, NOT the lever: SW1 only takes effect in the
+// mode you move it in, so after flicking it elsewhere the lever routinely
+// disagrees with what is loaded, and reading it made the screen claim a genre
+// that wasn't playing (and pick pattern names out of the wrong genre's table).
+// The old kUiScales comment called using the lever "a deliberate
+// simplification" — it was a bug, and this is the fix.
+inline int latched_genre(const TelemetryState& t) { return t.sw1_latch & 0x03; }
+inline int latched_scale(const TelemetryState& t) { return (t.sw1_latch >> 2) & 0x03; }
+
+// A latched role that no longer matches the lever gets a trailing marker, so
+// "Techno*" reads as "Techno is loaded, and the switch is somewhere else" —
+// which also tells you the flick that would re-sync it is available.
+template <size_t N>
+void mark_if_stale(FixedCapStr<N>& out, int latched, int lever) {
+    if (latched != lever) out.Append("*");
+}
 
 // ── Small formatters ────────────────────────────────────────────────────────
 
@@ -327,6 +344,58 @@ void scale_notes(FixedCapStr<N>& out, int sw1, int root) {
         if (d) out.Append(" ");
         out.Append(kNoteNames[(root + kUiScales[sw1][d]) % 12]);
     }
+}
+
+// Where an octave shift actually landed: the offset (−3..+3, the range
+// P10/P11 clamps to) and the note the pads' root now sounds at. The label row
+// only ever named the direction you pressed, so after a few taps — or after
+// looking away — there was nothing on the screen saying where you were, only
+// which way you had last moved. Octave is per-mode (Basic Pitch, the arp and
+// Rec each keep their own), and t.octave is already the active one.
+template <size_t N>
+void octave_value(FixedCapStr<N>& out, const TelemetryState& t) {
+    const int off = static_cast<int>(t.octave) - 3;
+    out.Clear();
+    if (off > 0) out.Append("+");
+    out.AppendInt(off);
+    out.Append(" ");
+    FixedCapStr<8> n;
+    note_name(n, kUiPitchBase + static_cast<int>(t.root) + off * 12);
+    out.Append(n.Cstr());
+}
+
+// What P0+P10/P11 leaves you with. The range alone ("2") says little, because
+// base octave and range COMPOSE: base +1 with range 2 means the arp climbs
+// +1 -> +3, and that span is the thing you are actually setting.
+//
+// Only Arp and Hold can show the span, and the reason is worth keeping:
+// t.octave is active_octave(), which in Rec is rec_octave — while the range
+// still governs the ARP's climb from arp_octave. Pairing the range with an
+// octave that isn't the one climbing would be a confident lie, so Rec reports
+// the range on its own instead. Every variant is <= 11 chars so the value row
+// holds one font across the whole sweep (item A3).
+template <size_t N>
+void append_signed(FixedCapStr<N>& out, int v) {
+    if (v > 0) out.Append("+");
+    out.AppendInt(v);
+}
+
+template <size_t N>
+void arp_octave_span(FixedCapStr<N>& out, const TelemetryState& t) {
+    const int range = (t.arp_flags >> 4) & 0x03;
+    out.Clear();
+    if ((t.arp_flags & 0x03) == 2) {          // Rec — base octave isn't the arp's
+        if (range == 0) { out.Append("no extra"); return; }
+        out.Append("+");
+        out.AppendInt(range);
+        out.Append(" extra");
+        return;
+    }
+    const int base = static_cast<int>(t.octave) - 3;
+    append_signed(out, base);
+    if (range == 0) { out.Append(" only"); return; }
+    out.Append("..");
+    append_signed(out, base + range);
 }
 
 // blendInfo() port: what S37/Blend targets on a given engine — aux==nullptr
@@ -576,7 +645,7 @@ void describe_control(int i, const TelemetryState& t,
         // Seq: S35 keeps its pattern role under P0/P2 too — model select is
         // the combo that doesn't exist here, so there's nothing to yield to.
         if (!rec_active) {
-            pattern_value(value, t.sw1, v);
+            pattern_value(value, latched_genre(t), v);
             return;
         }
     }
@@ -595,7 +664,7 @@ void describe_pad(int i, const TelemetryState& t,
         if (t.mode == 0 && pm.seq_role) label.Append(pm.seq_role);
         else                            label.Append("Play note");
         if (t.mode != 0) {
-            int sw_a = t.sw1;
+            int sw_a = latched_scale(t);
             if (sw_a < 0 || sw_a > 2) sw_a = 1;
             int degree = i - 3;
             int oct    = static_cast<int>(t.octave) - 3;
@@ -623,12 +692,17 @@ void describe_pad(int i, const TelemetryState& t,
                 if (up)          set_label(label, "P2+P11", "Drum transport");
                 else if (in_rec) set_label(label, "P2+P10", "Rec capture");
                 else             set_label(label, "P2+P10", "Mel transport");
-            } else if (p1) {
-                set_label(label, up ? "P1+P11" : "P1+P10",
-                          up ? "Arp octaves +" : "Arp octaves -");
+            } else if (p1 && in_rec && !up) {
+                set_label(label, "P1+P10", "Undo layer");
             } else if (p0) {
-                if (in_rec && !up)      set_label(label, "P0+P10", "Undo layer");
-                else if (t.mode == 2) {
+                if (t.mode == 1) {
+                    // Octave range moved here from P1 (2026-08-05): P0 is the
+                    // pitch modifier everywhere else, and range was the lone
+                    // non-FX combo on P1.
+                    set_label(label, up ? "P0+P11" : "P0+P10",
+                              up ? "Arp octaves +" : "Arp octaves -");
+                    arp_octave_span(value, t);
+                } else if (t.mode == 2) {
                     // Root shifting is the one control on the panel with no
                     // audible landmark of its own — it clamps at C and B
                     // rather than wrapping (deliberate: the dead end IS the
@@ -641,13 +715,22 @@ void describe_pad(int i, const TelemetryState& t,
                     fn.Append(" ");
                     fn.Append(root_name(t.root));
                     set_label(label, up ? "P0+P11" : "P0+P10", fn);
-                    scale_notes(value, t.sw1, t.root);
-                } else                  set_label(label, up ? "P0+P11" : "P0+P10",
-                                                  "Root (Pitch only)");
+                    scale_notes(value, latched_scale(t), t.root);
+                } else {
+                    // "Root (Pitch only)" ran to 24 chars with the combo in
+                    // front and truncated to `P0+P10 ROOT (PITCH ON`, which
+                    // read as a fault rather than a restriction — and left
+                    // the value row empty underneath it. Split the two.
+                    set_label(label, up ? "P0+P11" : "P0+P10", "Root");
+                    value.Append("Pitch mode only");
+                }
             } else if (t.mode == 0 && t.rec_slot != 0x7F) {
                 set_label(label, up ? "P11" : "P10", up ? "Drum pitch +1" : "Drum pitch -1");
+                // Where the pitch landed, not just which way you pressed.
+                if (t.rec_slot < 7) note_name(value, t.kit[t.rec_slot][5]);
             } else {
                 set_label(label, up ? "P11" : "P10", up ? "Octave +" : "Octave -");
+                octave_value(value, t);
             }
             return;
         }
@@ -692,16 +775,18 @@ const char* const kP0SeqRec[]   = { "S35 slot model b0", "S37 slot width",
                                     "+P2 hold: vary pad" };
 const char* const kP0Pitch[]    = { "S35 model bank 0", "S37 stereo width",
                                     "P10/P11 root -/+", "+P2 hold: randomize" };
+// Arp and Arp Rec share one P0 list: since undo moved to P1 (2026-08-05) the
+// two are identical, Rec's differences all living on P1 and P2 now.
 const char* const kP0Arp[]      = { "S35 model bank 0", "S37 stereo width",
-                                    "+P1 hold: sound edit", "+P2 hold: vary sound" };
-const char* const kP0ArpRec[]   = { "S35 model bank 0", "S37 stereo width",
-                                    "P10 undo layer", "+P1 hold: sound edit",
+                                    "P10/P11 arp octaves", "+P1 hold: sound edit",
                                     "+P2 hold: vary sound" };
 const char* const kP1Seq[]      = { "S30 reverb (drums)", "S35 delay (drums)" };
 const char* const kP1SeqRec[]   = { "S30 slot reverb send", "S35 slot delay send" };
 const char* const kP1Pitch[]    = { "S30 reverb", "S35 delay" };
 const char* const kP1Arp[]      = { "S30 reverb", "S35 delay",
-                                    "P10/P11 arp octaves", "+P0 hold: sound edit" };
+                                    "+P0 hold: sound edit" };
+const char* const kP1ArpRec[]   = { "S30 reverb", "S35 delay",
+                                    "P10 undo layer", "+P0 hold: sound edit" };
 const char* const kP2Seq[]      = { "P10 mel transport", "P11 drum play/pause",
                                     "+P0 hold: vary kit" };
 const char* const kP2SeqRec[]   = { "S35 slot model b1", "+P0 hold: vary pad" };
@@ -727,12 +812,12 @@ int combo_rows(const TelemetryState& t, int mod, const char* const** rows) {
         case 0:
             if (seq_rec)      return pick_rows(kP0SeqRec, rows);
             if (t.mode == 0)  return pick_rows(kP0Seq,    rows);
-            if (arp_rec)      return pick_rows(kP0ArpRec, rows);
             if (t.mode == 1)  return pick_rows(kP0Arp,    rows);
             return pick_rows(kP0Pitch, rows);
         case 1:
             if (seq_rec)      return pick_rows(kP1SeqRec, rows);
             if (t.mode == 0)  return pick_rows(kP1Seq,    rows);
+            if (arp_rec)      return pick_rows(kP1ArpRec, rows);
             if (t.mode == 1)  return pick_rows(kP1Arp,    rows);
             return pick_rows(kP1Pitch, rows);
         default:
@@ -796,10 +881,17 @@ void status_row(const TelemetryState& t, uint32_t now_ms,
         // pattern that's playing — the more useful of the two at a glance,
         // and t.seq_pattern is the sequencer's own slot, not S35's pot
         // (which sits behind a pickup and can be parked anywhere).
+        // The GENRE THAT IS LOADED, not the lever — flicking SW1 while in
+        // Basic Pitch moves the scale, not the genre, so on returning to Seq
+        // the lever routinely points somewhere the drums aren't. `*` marks
+        // exactly that, and the pattern name comes out of the same genre's
+        // table (reading the lever picked names from the wrong one).
+        const int genre = latched_genre(t);
         label.Append(t.playing ? "Seq " : "Seq stop ");
-        label.Append((t.sw1 <= 2) ? kSw1Seq[t.sw1] : "?");
+        label.Append(kSw1Seq[genre]);
+        mark_if_stale(label, genre, t.sw1);
         if (t.clock_src != 0) label.Append(t.clock_src == 1 ? " ext" : " cv");
-        pattern_slot_value(value, t.sw1, t.seq_pattern);
+        pattern_slot_value(value, genre, t.seq_pattern);
         return;
     }
     if (t.mode == 1) {
@@ -821,8 +913,12 @@ void status_row(const TelemetryState& t, uint32_t now_ms,
         value.Append(model_name(t.model));
         return;
     }
+    // Same rule as Seq's genre above: the loaded scale, marked when the lever
+    // has since been moved in another mode.
+    const int scale = latched_scale(t);
     label.Append("Pitch ");
-    label.Append((t.sw1 <= 2) ? kSw1Pitch[t.sw1] : "?");
+    label.Append(kSw1Pitch[scale]);
+    mark_if_stale(label, scale, t.sw1);
     // Root belongs next to the scale, not on its own screen: together they
     // name the key the pads are in. 14 chars at worst ("Pitch Chromatic"
     // is 15 without it, 20 with) — inside the label budget.
@@ -1122,7 +1218,7 @@ void OledUi::Service(const TelemetryState& t, uint32_t now_ms, OledScreen& oled)
             // which minor. Root is Basic Pitch-only, so it only rides here.
             label.Append(" - ");
             label.Append(root_name(t.root));
-            scale_notes(value, t.sw1, t.root);
+            scale_notes(value, latched_scale(t), t.root);
         }
         draw = true;
     } else if (t.sw2 != last_.sw2) {

@@ -395,21 +395,26 @@ adding one is backward-compatible — but each still touches both sides plus
       handlers rather than from MANUAL, 15 lists (3 modifiers × 5 contexts:
       Seq, Seq Recording, Basic Pitch, Arp/Hold, Arp Rec):
 
+      Counts as of 2026-08-05, after the kick-curation rows and the
+      P0/P1 octave-range↔undo swap (the Arp columns moved with it):
+
       | | Seq | Seq Rec | Pitch | Arp/Hold | Arp Rec |
       |---|---|---|---|---|---|
-      | **P0** | 2 | 2 | 4 | 4 | **5** |
-      | **P1** | 2 | 2 | 2 | 4 | 4 |
-      | **P2** | 3 | 1 | 4 | 4 | **5** |
+      | **P0** | 2 | 3 | 4 | **5** | **5** |
+      | **P1** | 2 | 2 | 2 | 3 | 4 |
+      | **P2** | 3 | 2 | 4 | 4 | **5** |
 
       Two things kept this from needing real paging. Pairing the ± combos
       onto one row each (`P10/P11 root -/+`, `P10/P11 arp octaves`) cut most
       lists from 5 to 4; and making each row self-labelling (`P1+S30 …`)
-      meant no header row had to be spent naming the modifier. So **13 of 15
-      lists fit one screen exactly**, and the two that don't overflow by
+      meant no header row had to be spent naming the modifier. So **12 of 15
+      lists fit one screen exactly**, and the three that don't overflow by
       exactly one row — handled by scrolling the window down one row every
       `kListScrollMs`, which always keeps the screen full. No dependency on
       A3 after all (that's horizontal marquee for over-long values; this is
-      a vertical window over short rows).
+      a vertical window over short rows). **P0 in Arp and in Arp Rec are now
+      the same list** — since undo moved to P1, Rec's differences all live on
+      P1 and P2, so the two contexts collapsed to one table.
 
       **Two mislabels the enumeration turned up**, both now fixed:
       `process_model_select()` returns immediately on `seq_mode_on`, so
@@ -531,30 +536,30 @@ walk** before they tick. `[O]` = walked once, findings filed and fixed.
   **the feel of the new 2 s stages and the three-pulse announce is the main
   thing to judge on the second walk.** Both dials are named constants
   (`kStageAnnounceBlocks`, `kStageFillBlocks`).
-- [ ] **The 2026-08-05 pass, all code-verified only:**
-  - **Knob pickup (B1)** — in every mode, grab a pot that's armed: does the
+- [x] **The 2026-08-05 pass, all code-verified only:**
+  - [x] **Knob pickup (B1)** — in every mode, grab a pot that's armed: does the
     value row read the *stored* value in its right units, and does the track
     make the direction obvious without thinking? Check the moment of catch —
     the track should vanish, not linger. Worth hitting the rails
     specifically (a target at 0 or 127 catches on movement, not crossing).
-  - **Rec P0+P2 per-pad randomize** — pacing in the hand, and whether stage 2
+  - [x] **Rec P0+P2 per-pad randomize** — pacing in the hand, and whether stage 2
     actually lands on role-appropriate sounds often enough. Also that no pot
     jumps afterwards (both stages re-arm the layer).
-  - **Randomize no longer starts the seq** — stage 2 with the transport
+  - [x] **Randomize no longer starts the seq** — stage 2 with the transport
     stopped should stay stopped; with it running should restart at bar 0.
-  - **Rec status cycle (C5)** + the new blinking circle in Seq slot editing.
-  - **Root readouts** — `P0+P10 ROOT - D#` with the note row, `SW1 MINOR - D#`,
+  - [x] **Rec status cycle (C5)** + the new blinking circle in Seq slot editing.
+  - [x] **Root readouts** — `P0+P10 ROOT - D#` with the note row, `SW1 MINOR - D#`,
     `PITCH MINOR D#`; and confirm by ear that the pads really play D♯ minor.
-  - **ch10 velocity out** — ghosts vs. downbeats should be visibly different
+  - [x] **ch10 velocity out** — ghosts vs. downbeats should be visibly different
     velocities on whatever's listening; and a 4×4 pad controller's bottom two
     rows should drive the kit unmapped.
 
 ### Deliberate differences from the visualizer — don't "fix" without deciding
 
-- Rec drum-slot editing uses flatter "Slot X" labels vs. the web's full
+- [x] Rec drum-slot editing uses flatter "Slot X" labels vs. the web's full
   per-knob nesting (128×32 char budget) — `display/oled_ui.h`.
-- The dead-knob message is `no effect`, not `no effect on <model>`.
-- ~~No idle/status fallback~~ — resolved by A4 (2026-08-04): both sides now
+- [x] The dead-knob message is `no effect`, not `no effect on <model>`.
+- [x] ~~No idle/status fallback~~ — resolved by A4 (2026-08-04): both sides now
   show the same per-mode status row after the same 2.2 s timeout.
 
 ## Parking Lot - performance 
@@ -566,21 +571,153 @@ walk** before they tick. `[O]` = walked once, findings filed and fixed.
 
 --
 
+## Hardware test round — 2026-08-05
+
+First walk of the 2026-08-05 pass. **Passed and closed: B1's pickup screen
+and C5's Rec status-row cycle** — both confirmed in the hand, no changes
+needed. Four findings, all fixed same-day:
+
+- [x] **Arp: `P0+P10 ROOT (PITCH ON`.** "Root (Pitch only)" ran to 24 chars
+      behind the combo and truncated mid-word, reading as a fault rather than
+      a restriction — with the value row sitting empty underneath it. Split
+      across the two rows: `P0+P10 ROOT` over `Pitch mode only`. The
+      visualizer had the same combo labelled as a working root shift in
+      *every* mode, which was worse; it now gates on Basic Pitch too.
+- [x] **Seq: silent randomize against a stopped transport.** Only reachable
+      because this pass stopped stage 2 force-starting the seq — the gesture
+      fired into silence. Each stage now auditions the kick when the seq is
+      stopped (a running one is its own confirmation). Slot 0, because it is
+      the sound the curation is about.
+- [x] **Seq/Pitch: the screen named the lever, not what was loaded.** SW1 is
+      change-latched per role, so flicking it in Basic Pitch and returning to
+      Seq left the screen naming a genre that was not playing — and picking
+      pattern names out of that wrong genre's table, which is the part that
+      made it a bug rather than a cosmetic slip. The old code comment called
+      reading the lever "a deliberate simplification"; it wasn't. Both latched
+      roles are now published (`t.sw1_latch`, state byte 37, both normalised
+      to panel order) and every genre/scale/note-name read goes through them.
+      A trailing `*` marks the divergence, as suggested — `SEQ TECHNO*`.
+      Fixed in the same place: pitched **pad note names** were computed off
+      the lever too, so the visualizer's pad legends could show the wrong
+      scale entirely.
+- [x] **Octave: direction without a destination.** P10/P11 said only
+      `Octave +`. Now the value row carries `+1 D#5` — the offset within
+      −3…+3 and the note the root lands on — and, in Seq slot editing where
+      the same pads retune one drum, that slot's own note.
+
+**Second walk, same day — all four confirmed OK.** One question came out of
+it, and became the fifth change:
+
+- [x] **Arp octave range moved from P1+P10/P11 to P0+P10/P11**, swapping with
+      Rec's undo (now `P1+P10`). Raised as "why is this on P1?", and the
+      answer was that it shouldn't be: the panel's modifier grammar is
+      **P0 = sound & pitch · P1 = FX · P2 = transport**, and octave range was
+      the only P1 combo that wasn't FX. It was parked there because undo held
+      `P0+P10` in Rec, so binding range to P0 would have made one combo mean
+      two unrelated things depending on SW1 — the exact fault C11/C12 spent
+      this round removing. Swapping fixes both ends at once: `P0+P10/P11` is
+      octave range in **all three** sub-states, and undo takes `P1+P10`,
+      which nothing used. Deliberately *not* extended into "P1 owns all of
+      Rec": Rec's other two gestures are the layer ops and the capture cycle,
+      both on P2, and `P2+P10`/`P2+P11` being the melodic/drum transport pair
+      is load-bearing symmetry that C9/C12 just verified. Side effects worth
+      knowing: the P0 Arp and P0 Arp Rec combo lists became identical and
+      collapsed into one, and `P1+P10/P11` outside Rec now falls through to a
+      plain octave shift — which is what `P1+P10` already did in Basic Pitch,
+      so it is at least uniform.
+
+**Nothing outstanding — the whole pass is walked and ticked.** That covers
+section D's 2026-08-05 block (pickup, Rec per-pad randomize, no-autostart, Rec
+cycle, root readouts, ch10 velocity), A5/A6's pacing which had been carried
+unwalked since 08-04, the four first-walk fixes, the `*` marker, the
+octave-range/undo swap, and **E1**'s span readout. The swap was exercised
+incidentally — using `P0+P10/P11` is what turned up E1's empty value row.
+
 ## Open items summary
 
 The 2026-08-05 pass closed the previous list — Kick curation (all three
 parts), MIDI drum "phase 2" (velocity instead of transposition), Chiptune
 (closed as won't-ship), Root note (clamp kept, root/scale now named on
-screen), **B1** and **C5**. All are code-verified only. What's left:
+screen), **B1** and **C5**. What's left:
 
-**Needs hardware, nothing else.** Everything in section D's second walk, now
-including this pass:
-- the pickup screen (**B1**) — is the post-and-block track readable at arm's
-  length, and does the track disappear at the right moment?
-- Rec's per-pad randomize (**kick curation**) — 2 s/4 s in the hand, and does
-  stage 2 land in role often enough to feel curated?
-- the Rec status-row cycle (**C5**) — 2.6 s per phase, too fast or too slow?
-- A5/A6's pacing, still unwalked from the 2026-08-04 round.
+### Next up, once this branch is on `main` — in this order
+
+Agreed 2026-08-05. Nothing here is blocked; the ordering is deliberate,
+because each step narrows what the next one has to read.
+
+- [ ] **1 — Reorganize this file into `notesarchive/`.** Everything ticked
+      through the 2026-08-04/05 rounds is history now, and it is crowding the
+      items that are actually open: sections A–D are almost entirely `[x]`,
+      and the hardware-walk checklists have served their purpose. Move the
+      closed material out the way the rest of the project already does
+      (`notesarchive/notes_archive_2026-08.md`), keeping this file to what is
+      genuinely future work. Do this **first** — the doc sweep below is much
+      cheaper against a roadmap that only lists open items.
+- [ ] **2 — Read MANUAL and README end-to-end.** Both have been updated
+      per-change and neither has been read whole since the OLED work started.
+      The screen has since grown a status row, a pickup display, combo lists,
+      capture indicators, the `*` marker and the octave/root readouts, and
+      README still describes the project from before most of that. Check
+      against **shipped behaviour**, not against these notes — the notes are
+      what would repeat an error rather than catch it. Expect findings to
+      split into doc bugs and real bugs; file the second kind here.
+- [ ] **3 — A round of visualizer tweaks.** The app has been kept in
+      lockstep field-by-field through six protocol additions without anyone
+      standing back from it. Worth a pass in its own right now that the
+      firmware side has settled.
+
+### E. Arp/Mel screen round (filed 2026-08-05, from the second walk)
+
+Three findings on the same screen, in rising order of cost. The last one is
+the one worth doing first. Scoped here rather than bolted onto the branch that
+raised them, since two of the three need new telemetry.
+
+- [x] **E1 — `P0+P10/P11 ARP OCTAVES -` leaves the value row empty.** *Done
+      2026-08-05, as scoped: the value row now names the **span**, not the
+      range — `+1..+3`, or `+1 only` at range 0. Rec reports `+2 extra`
+      instead, because `t.octave` there is Rec's own octave while the range
+      governs the arp's climb from `arp_octave`; pairing them would be a
+      confident lie. `arp_flags` bits4-5 carry the range, so no new field and
+      no length guard. Every variant is <= 11 chars, so the value row holds
+      one font across the sweep. Hardware-verified 2026-08-05.*
+      *Original:* This is
+      unfinished business from the same round that gave plain P10/P11 a value
+      row — the combo version got the label and nothing under it. What belongs
+      there isn't the range on its own: **base octave and range compose**, so
+      the useful readout is the span the arp will actually cover — base `+1`
+      with range 2 climbs to `+3`. Something like `+1..+3` (or with note
+      names). **Cheap:** `arp_oct_range` isn't published today, but `arp_flags`
+      uses only bits 0-3 and the value is 0..3, so bits 4-5 take it with no
+      new field and no length-guard change.
+- [ ] **E2 — `P1+P10 UNDO LAYER` likewise, and the layer display generally.**
+      Two separable things, deliberately split:
+      - *The undo readout* is easy and worth doing: name **what the next press
+        will remove** — the open take, or `Layer 3` — rather than leaving the
+        row blank. `rec_layers` and `rec_mute` are already published and
+        `icons_for()` already derives the open take from them.
+      - *Bigger layer squares in the value row* is *not* just a rendering
+        change, and shouldn't be taken on its own. C10 already draws the
+        five-dot stack on the **label** row precisely so it survives every
+        callout; drawing it large in the value row either duplicates it at two
+        sizes or gives up that persistence. Agreed on the walk that **Rec's
+        layer UX needs its own pass** — this belongs in that, not ahead of it.
+- [ ] **E3 — Arp/Hold: show the pool with the held notes marked.** The best of
+      the three: a note row in the style of the root-note readout, with a
+      marker row aligning a filled/hollow shape under each pad.
+      **The catch that decides the design: in Hold, the pool is not the pads.**
+      `Arp::notes_[]` latches — a note stays in the pool after you lift, and a
+      re-touch toggles it off — so building this from `t.pads` (which *is*
+      published) would look correct in Arp and be silently useless in Hold,
+      which is the exact state where the display earns its keep: fingers off,
+      four notes latched, nothing on the panel telling you which four. Needs
+      `Arp::PoolMask()` (7 bits, one accessor over `notes_[]`) and one
+      published byte.
+      Two implementation notes so they aren't rediscovered: the markers must
+      be **drawn, not written** — Font_6x8 accepts ASCII 32-126 only and
+      `WriteString` aborts the whole string on the first rejected char, so
+      filled shapes can't be glyphs (draw them like `StatusIcons` does). And
+      the layout fits: 32 px is four 8-px rows, this needs label + notes +
+      markers, leaving one spare.
 
 **Still genuinely open:**
 - **A3** — value-row font stepping. Deferred by decision, not blocked;
@@ -588,11 +725,18 @@ including this pass:
 - **`kDrumKick` is two engines wide** (21 Bass drum, 10 FM 2-op) — option (c)
   of the old kick-curation item, untouched. Now that the pools are a table,
   widening one is a one-line edit plus an audition pass; it's a taste call,
-  not a code problem.
+  not a code problem. **Open question (2026-08-05): can more kicks come from
+  existing engines, or do they need writing?** Two routes, and they are not
+  equally expensive. (a) A pool entry is an engine *plus a parameter
+  preset* — several non-drum engines sit in kick territory at the right
+  harmonics/decay (Waveshaping and the 2-op FM already do; Modal and Particle
+  plausibly), so widening may be preset work rather than DSP work. (b) A
+  purpose-written engine is a real addition to `thirdparty/plaits`, worth it
+  only if (a) is exhausted. Audition (a) before considering (b).
+
 - **Weight → audio level.** MIDI out now carries the pattern's accents as
   velocity, but the *audio* still fires every step at full level — weight is
   only a density gate there. Making ghosts quieter internally is arguably the
   point of ghost notes, but it changes the shipped feel of every pattern, so
   it's filed rather than done.
-- **C6** — the standing per-mode audit, and the parking lot below.
 

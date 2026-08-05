@@ -85,6 +85,11 @@ static float seq_drive_lk  = 0.0f;
 static float seq_var_lk    = 0.0f;   // S35 in Seq = pattern variant within genre
 static int   seq_genre_lk  = 1;      // SW1 in Seq = genre (0 IDM 1 Techno 2 Electro);
                                       // starts at Techno; change-latched (see SW1 handler)
+// SW1's other change-latched role, declared up here beside the genre because
+// service_telemetry() publishes both together (t.sw1_latch) long before the
+// scale system itself is defined. Raw switch order, not panel order — it
+// indexes kScales directly; sw1_panel_pos() normalises it on the wire.
+static int   scale_lk      = 0;
 static float seq_vol_lk    = 1.0f;   // S36 in Seq = drum group volume
 static float seq_width_lk  = 0.0f;   // P0+S37 in Seq = drum-group stereo width (0 = mono)
 
@@ -1308,6 +1313,13 @@ static void service_telemetry() {
     int sw2_raw = touch.switches().A();
     t.sw1 = static_cast<uint8_t>(sw1_panel_pos(touch.switches().B()));
     t.sw2 = kSw2Map[(sw2_raw >= 0 && sw2_raw <= 2) ? sw2_raw : 0];
+    // What SW1's two latched roles actually hold, as opposed to where the
+    // lever is sitting — the screens report the loaded genre/scale and flag
+    // the difference, so flicking SW1 in one mode can't make another mode
+    // claim a genre that isn't playing. Both normalised to panel order:
+    // seq_genre_lk already is (see the SW1 handler), scale_lk is raw.
+    t.sw1_latch = static_cast<uint8_t>((seq_genre_lk & 0x03)
+                                       | ((sw1_panel_pos(scale_lk) & 0x03) << 2));
 
     t.led      = led_lit ? 127 : 0;
     // Per-playmode sound independence (21/07/26): the model in view is the
@@ -1356,7 +1368,8 @@ static void service_telemetry() {
     t.arp_flags = static_cast<uint8_t>(
         (arp_state == ArpState::HOLD ? 1 : arp_state == ArpState::REC ? 2 : 0)
         | (rec_armed ? 0x04 : 0x00)
-        | (arp_run_on ? 0x08 : 0x00));
+        | (arp_run_on ? 0x08 : 0x00)
+        | ((arp_oct_range & 0x03) << 4));
     t.seq_pattern = static_cast<uint8_t>(seq.VariantSlot());
     capture_pickups(t);
     const uint32_t now_ms = System::GetNow();
@@ -1416,10 +1429,10 @@ static const int kScales[3][7] = {
     { 0, 2, 3, 5,  7,  8,  10 },
 };
 
-// SW1 is change-latched per role (scale here, genre in Seq): a switch has no
-// value to "cross", so the pickup equivalent is ignoring the position it
-// acquired while serving the other role until it moves again (see SW1 handler).
-static int scale_lk = 0;
+// scale_lk (declared with seq_genre_lk near the top) is change-latched per
+// role: a switch has no value to "cross", so the pickup equivalent is
+// ignoring the position it acquired while serving the other role until it
+// moves again (see SW1 handler).
 
 static float compute_note(int pad) {
     int degree = pad - 3;
@@ -1870,8 +1883,15 @@ static volatile uint32_t  se_hold_count = 0;
 static volatile bool      se_fired      = false;
 
 static void fire_hold_stage(int stage) {
-    // In Seq the running sequencer plays the new sounds; no extra audition.
-    if (!seq_mode_on) {
+    // A running sequencer plays the new sounds itself, so Seq needed no
+    // audition — but now that stage 2 no longer force-starts the transport,
+    // randomizing against a stopped seq is a real state, and it used to fire
+    // in total silence. Audition the kick: it's slot 0, it's the sound the
+    // curation is about, and one hit is enough to say "that landed".
+    if (seq_mode_on) {
+        if (!seq.IsActive())
+            pool.AuditionWithParams(drum_slots[0].note, drum_params(0), VoiceGroup::kDrum);
+    } else {
         if (current_mode == PlayMode::ARP_MEL) {
             pool.AuditionWithParams(root_note_f(),
                 arp_state == ArpState::REC ? rec_params(arp_decay_lk)
@@ -3560,17 +3580,28 @@ int main() {
             } else if (rec_mode == RecMode::IDLE && !seq_mode_on
                        && current_mode == PlayMode::ARP_MEL
                        && arp_state == ArpState::REC
-                       && touch.pads().IsTouched(0)) {
-                // P0+P10 in Rec = undo: clears the open take first, then pops
-                // committed layers newest-first (root-down is parked here).
-                // Clearing a specific/all layers is now P2+pad (see the
+                       && touch.pads().IsTouched(1)) {
+                // P1+P10 in Rec = undo: clears the open take first, then pops
+                // committed layers newest-first. Moved off P0 2026-08-05 —
+                // see the octave-range branch below for the whole argument.
+                // Clearing a specific/all layers is still P2+pad (see the
                 // P2-layer hold block in AudioCallback and SetOnRelease).
                 if (note_rec.Undo()) { led_event = LedEvent::NUMBERED; led_event_data = 1; }
                 else                 { led_event = LedEvent::LIMIT; }
             } else if (rec_mode == RecMode::IDLE && !seq_mode_on
                        && current_mode == PlayMode::ARP_MEL
-                       && touch.pads().IsTouched(1)) {
-                // P1+P10 = arp octave range down (0–3 extra octaves).
+                       && touch.pads().IsTouched(0)) {
+                // P0+P10 = arp octave range down (0–3 extra octaves).
+                // Swapped with undo 2026-08-05. The panel's modifier grammar
+                // is P0 = sound & pitch, P1 = FX, P2 = transport, and octave
+                // range was the one P1 combo that wasn't FX — a pitch control
+                // sitting on the effects modifier. It was there because undo
+                // owned P0+P10 in Rec, so binding range to P0 would have made
+                // one combo mean two unrelated things depending on SW1.
+                // Swapping fixes both at once: range is now P0 in all three
+                // sub-states, and undo takes P1, which is otherwise unused on
+                // these two pads. Range stays reachable from Rec on purpose —
+                // a latched Hold arp keeps playing behind it.
                 if (arp_oct_range > 0) {
                     arp_oct_range--;
                     led_event      = LedEvent::NUMBERED;
@@ -3613,8 +3644,10 @@ int main() {
                 }
             } else if (rec_mode == RecMode::IDLE && !seq_mode_on
                        && current_mode == PlayMode::ARP_MEL
-                       && touch.pads().IsTouched(1)) {
-                // P1+P11 = arp octave range up (0–3 extra octaves).
+                       && touch.pads().IsTouched(0)) {
+                // P0+P11 = arp octave range up — see the P10 branch for why
+                // this moved off P1. P0+P11 was entirely unbound in Arp/Mel,
+                // so this half of the swap collided with nothing.
                 if (arp_oct_range < 3) {
                     arp_oct_range++;
                     led_event      = LedEvent::NUMBERED;

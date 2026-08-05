@@ -136,6 +136,9 @@ export function applySysex(data: Uint8Array, store: DeviceStore): boolean {
         // "unknown", so keep the pre-v8 default of running.
         store.setArpSub(p[22] & 0x03, (p[22] & 0x04) !== 0,
                         p.length >= 28 ? (p[22] & 0x08) !== 0 : true);
+        // bits4-5 arp octave range, added v10. Pre-v10 they read 0, which is
+        // also the range's own default, so no version guard buys anything.
+        store.setArpRange((p[22] >> 4) & 0x03);
       }
       if (p.length >= 25) {
         const stage = p.length >= 27 ? p[25] : 0;
@@ -148,6 +151,12 @@ export function applySysex(data: Uint8Array, store: DeviceStore): boolean {
         for (let i = 0; i < 8; i++) targets.push(p[29 + i] / 127);
         store.setPickup(p[28], targets);
       }
+      // SW1's two change-latched roles, both in panel order. Pre-v10 frames
+      // never published them, and the lever was all the old build had — so
+      // fall back to it rather than to a constant, keeping old firmware
+      // exactly as accurate (and as wrong) as it was before.
+      if (p.length >= 38) store.setSw1Latch(p[37] & 0x03, (p[37] >> 2) & 0x03);
+      else store.setSw1Latch(p[10], p[10]);
       return true;
     }
     case FrameType.EVENT: {

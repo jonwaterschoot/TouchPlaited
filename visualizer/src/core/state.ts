@@ -45,6 +45,9 @@ export interface DeviceState {
   arpRunning: boolean;    // melodic transport (P2+P10 outside Rec) — gates
                           // the arp and the Rec loop together; independent
                           // of recArmed, a punched-out Rec still loops
+  arpRange: number;       // arp octave range 0..3 — extra octaves the arp
+                          // climbs ABOVE its base octave, so the two compose:
+                          // base +1 with range 2 spans +1..+3
   seqPattern: number;     // Seq pattern slot playing within the genre, 0-based
   holdKind: number;       // 0 none, 1 P0+P2, 2 rec entry, 3 layer clear,
                           // 4 layer copy, 5 rec save — a hold building
@@ -61,6 +64,13 @@ export interface DeviceState {
                           // Every playmode has its own pickup layer, so every
                           // hand-off between them puts knobs in this state
   pickupTarget: number[]; // 0..1 per S30..S37; meaningless where the bit is 0
+  genreLatched: number;   // SW1 only takes effect in the mode you move it in,
+  scaleLatched: number;   // so these are what is actually LOADED, while swA is
+                          // merely where the lever sits. They diverge as soon
+                          // as you flick SW1 in another mode, and everything
+                          // that names a genre or scale must read these — swA
+                          // is only for "has the lever moved" and for marking
+                          // the divergence. Both panel order, like swA.
 }
 
 export type StateEvent =
@@ -82,7 +92,9 @@ export type StateEvent =
   | { kind: 'clockSrc'; v: number }
   | { kind: 'arpSub'; sub: number; armed: boolean; running: boolean;
       prevSub: number; prevArmed: boolean; prevRunning: boolean }
+  | { kind: 'arpRange'; v: number }
   | { kind: 'seqPattern'; v: number }
+  | { kind: 'sw1Latch'; genre: number; scale: number }
   | { kind: 'hold'; holdKind: number; progress: number; stage: number; outcome: number }
   | { kind: 'pickup'; armed: number; targets: number[] }
   | { kind: 'connected'; v: boolean }
@@ -113,6 +125,7 @@ function initialState(): DeviceState {
     recMute: 0,
     clockSrc: 0,
     arpSub: 0,
+    arpRange: 0,
     recArmed: false,
     arpRunning: true,   // device default: the plain arp sounds from boot
     seqPattern: 0,
@@ -122,6 +135,8 @@ function initialState(): DeviceState {
     holdOutcome: 0,
     pickupArmed: 0,
     pickupTarget: new Array(8).fill(0),
+    genreLatched: 1,   // Techno, matching seq_genre_lk's boot default
+    scaleLatched: 1,   // scale follows the lever at boot; 1 = swA's default
   };
 }
 
@@ -261,11 +276,29 @@ export class DeviceStore {
     this.emit({ kind: 'arpSub', sub, armed, running, prevSub, prevArmed, prevRunning });
   }
 
+  /** Arp octave range. Its own setter rather than a field on setArpSub:
+   * that event carries prev values so listeners can name a transition, and a
+   * range tweak is not a sub-state move. */
+  setArpRange(v: number) {
+    if (this.state.arpRange === v) return;
+    this.state.arpRange = v;
+    this.emit({ kind: 'arpRange', v });
+  }
+
   /** Which pattern slot the drum sequencer is actually playing. */
   setSeqPattern(v: number) {
     if (this.state.seqPattern === v) return;
     this.state.seqPattern = v;
     this.emit({ kind: 'seqPattern', v });
+  }
+
+  /** What SW1's two roles actually hold, as opposed to where the lever sits.
+   * Emitted together: a single frame can move both (a restore, a reconnect). */
+  setSw1Latch(genre: number, scale: number) {
+    if (this.state.genreLatched === genre && this.state.scaleLatched === scale) return;
+    this.state.genreLatched = genre;
+    this.state.scaleLatched = scale;
+    this.emit({ kind: 'sw1Latch', genre, scale });
   }
 
   /** Which pots are behind a pickup, and what each one has to reach. Only

@@ -17,7 +17,7 @@ import {
   CONTROLS, PADS, SW1_POSITIONS, SW2_POSITIONS, MODE_NAMES, modelName,
   DRUM_NOTES, noteName, fxValueLabel, engineKnobLabel, formatKnobValue,
   ENGINE_KNOBS, pitchedNote, arpOrderName, patternValue, patternSlotValue,
-  densityValue, chanceValue, ROOT_NAMES, scaleNotes,
+  densityValue, chanceValue, ROOT_NAMES, scaleNotes, PITCH_BASE,
 } from '../core/controls-meta';
 import type { KnobParam } from '../core/controls-meta';
 
@@ -106,15 +106,17 @@ const COMBO_ROWS: Record<string, string[]> = {
   'p0.seqrec':  ['S35 slot model b0', 'S37 slot width', '+P2 hold: vary pad'],
   'p0.pitch':   ['S35 model bank 0', 'S37 stereo width',
                  'P10/P11 root -/+', '+P2 hold: randomize'],
+  // Arp and Arp Rec share one P0 list: since undo moved to P1 (2026-08-05)
+  // the two are identical, Rec's differences all living on P1 and P2 now.
   'p0.arp':     ['S35 model bank 0', 'S37 stereo width',
-                 '+P1 hold: sound edit', '+P2 hold: vary sound'],
-  'p0.arprec':  ['S35 model bank 0', 'S37 stereo width', 'P10 undo layer',
-                 '+P1 hold: sound edit', '+P2 hold: vary sound'],
+                 'P10/P11 arp octaves', '+P1 hold: sound edit',
+                 '+P2 hold: vary sound'],
   'p1.seq':     ['S30 reverb (drums)', 'S35 delay (drums)'],
   'p1.seqrec':  ['S30 slot reverb send', 'S35 slot delay send'],
   'p1.pitch':   ['S30 reverb', 'S35 delay'],
-  'p1.arp':     ['S30 reverb', 'S35 delay',
-                 'P10/P11 arp octaves', '+P0 hold: sound edit'],
+  'p1.arp':     ['S30 reverb', 'S35 delay', '+P0 hold: sound edit'],
+  'p1.arprec':  ['S30 reverb', 'S35 delay', 'P10 undo layer',
+                 '+P0 hold: sound edit'],
   'p2.seq':     ['P10 mel transport', 'P11 drum play/pause', '+P0 hold: vary kit'],
   'p2.seqrec':  ['S35 slot model b1', '+P0 hold: vary pad'],
   'p2.pitch':   ['S35 model bank 1', 'P10 mel transport',
@@ -130,7 +132,9 @@ function comboRows(mod: number, s: DeviceState): string[] {
   const arpRec = s.mode === 1 && s.arpSub === 2;
   const ctx = seqRec ? 'seqrec'
             : s.mode === 0 ? 'seq'
-            : s.mode === 1 ? (arpRec && mod !== 1 ? 'arprec' : 'arp')
+            // P0's list is the same in Arp and Arp Rec since undo left it;
+            // P1 and P2 both have Rec-specific rows.
+            : s.mode === 1 ? (arpRec && mod !== 0 ? 'arprec' : 'arp')
             : 'pitch';
   return COMBO_ROWS[`p${mod}.${ctx}`] ?? COMBO_ROWS[`p${mod}.pitch`];
 }
@@ -272,6 +276,9 @@ function describeControl(
   return { combo: meta.name, fn: fn ?? meta.main };
 }
 
+/** Octave offsets read as positions, so an explicit + earns its character. */
+const signed = (v: number): string => (v > 0 ? `+${v}` : `${v}`);
+
 /** Name a pad press including modifier gestures; null = pure modifier, not
  * worth a log line on its own. */
 function describePad(i: number, s: DeviceState): { combo: string; fn: string } | null {
@@ -288,18 +295,44 @@ function describePad(i: number, s: DeviceState): { combo: string; fn: string } |
   // multi-hold = clear all) — the pad neither sounds nor records.
   if (inRec && s.pads[2] && i >= 3 && i <= 7)
     return { combo: `P2 + P${i}`, fn: `Layer ${i - 2} mute · hold = clear` };
-  if (inRec && s.pads[0] && i === 10)
-    return { combo: 'P0 + P10', fn: 'Undo · open take, then newest layer' };
+  if (inRec && s.pads[1] && i === 10)
+    return { combo: 'P1 + P10', fn: 'Undo · open take, then newest layer' };
   // Root shifting transposes the whole scale (compute_note() adds the root
   // before the degree offsets), and it clamps at C/B rather than wrapping —
   // deliberately, since on a unit with no screen the dead end is the only
   // landmark there is. Name where it landed, and the scale it puts the pads in.
-  if (i === 10 && s.pads[0])
-    return { combo: 'P0 + P10', fn: `Root −1 → ${ROOT_NAMES[s.root] ?? '?'} · ${scaleNotes(s.swA, s.root)}` };
-  if (i === 11 && s.pads[0])
-    return { combo: 'P0 + P11', fn: `Root +1 → ${ROOT_NAMES[s.root] ?? '?'} · ${scaleNotes(s.swA, s.root)}` };
-  if (i === 10) return { combo: 'P10', fn: s.mode === 0 ? 'Drum pitch −1' : 'Octave −' };
-  if (i === 11) return { combo: 'P11', fn: s.mode === 0 ? 'Drum pitch +1' : 'Octave +' };
+  // Root is Basic Pitch-only in the firmware; the other modes have to say so
+  // rather than describing a shift that won't happen.
+  if ((i === 10 || i === 11) && s.pads[0]) {
+    const dir = i === 11 ? '+1' : '−1';
+    // Arp/Mel gives these pads to the arp's octave range (moved off P1
+    // 2026-08-05 — P0 is the pitch modifier, and range was P1's one non-FX
+    // combo). Root stays Basic Pitch-only; elsewhere the combo is unbound.
+    // Base octave and range compose, so name the span the arp will cover —
+    // except in Rec, where s.octave is Rec's own octave while the range still
+    // governs the arp's climb, so pairing them would be a confident lie.
+    if (s.mode === 1) {
+      const span = s.arpSub === 2
+        ? (s.arpRange === 0 ? 'no extra octaves' : `+${s.arpRange} extra octaves`)
+        : (s.arpRange === 0
+            ? `${signed(s.octave)} only`
+            : `${signed(s.octave)}..${signed(s.octave + s.arpRange)}`);
+      return { combo: `P0 + P${i}`, fn: `Arp octave range ${i === 11 ? '+' : '−'} · ${span}` };
+    }
+    return s.mode === 2
+      ? { combo: `P0 + P${i}`, fn: `Root ${dir} → ${ROOT_NAMES[s.root] ?? '?'} · ${scaleNotes(s.scaleLatched, s.root)}` }
+      : { combo: `P0 + P${i}`, fn: 'Root · Pitch mode only' };
+  }
+  // Name where the shift landed, not just which way it went: after a few taps
+  // the direction alone tells you nothing about where you are.
+  if (i === 10 || i === 11) {
+    const dir = i === 11 ? '+' : '−';
+    const slot = s.mode === 0 && s.recSlot !== null ? s.kit?.[s.recSlot] : undefined;
+    if (slot) return { combo: `P${i}`, fn: `Drum pitch ${dir}1 · ${noteName(slot.note)}` };
+    if (s.mode === 0) return { combo: `P${i}`, fn: `Drum pitch ${dir}1` };
+    const off = s.octave;
+    return { combo: `P${i}`, fn: `Octave ${dir} · ${off > 0 ? '+' : ''}${off} ${noteName(PITCH_BASE + s.root + off * 12)}` };
+  }
   if (i >= 3 && i <= 9)
     return { combo: meta.name, fn: (s.mode === 0 && meta.seqRole) || 'Play note' };
   return null; // P0 / P1FX / P2 alone are modifiers
@@ -594,7 +627,7 @@ export class Labels {
                    && !s.pads[0] && !s.pads[2]) {
           // Bare S35 in Seq is the pattern variant — name it and show its
           // position in the genre, not a meaningless %.
-          value = patternValue(s.swA, shown);
+          value = patternValue(s.genreLatched, shown);
         } else if (meta.name === 'S33' && s.mode === 0 && s.recSlot === null) {
           // Seq Density: name the stage instead of a raw %.
           value = densityValue(shown);
@@ -676,7 +709,7 @@ export class Labels {
           // In Basic Pitch, SW1 names a scale — and a scale is a scale *from
           // somewhere*, so it carries the root and the notes it lands on.
           const suffix = s.mode === 2
-            ? ` - ${ROOT_NAMES[s.root] ?? '?'} <span>${scaleNotes(s.swA, s.root)}</span>`
+            ? ` - ${ROOT_NAMES[s.root] ?? '?'} <span>${scaleNotes(s.scaleLatched, s.root)}</span>`
             : '';
           this.addLog('SW1', `<b>SW1</b> <span>${names[ev.v] ?? ev.v}</span>${suffix}`);
         } else {
@@ -858,7 +891,7 @@ export class Labels {
         value = s.clockSrc !== 0
           ? 'ext' : `${Math.round(60 + s.controls[1] * 120)} BPM`;
       } else if (s.mode === 0 && s.recSlot === null && i === 5) {
-        value = patternValue(s.swA, s.controls[5]);
+        value = patternValue(s.genreLatched, s.controls[5]);
       } else if (s.mode === 0 && s.recSlot === null && i === 3) {
         value = densityValue(s.controls[3]);
       } else if (s.mode === 0 && s.recSlot === null && i === 4) {
@@ -963,7 +996,7 @@ export class Labels {
         if (i >= 3 && i <= 9) {
           text = s.mode === 0
             ? (PADS[i].seqRole ?? text)
-            : noteName(pitchedNote(i, s.swA, s.root, s.octave));
+            : noteName(pitchedNote(i, s.scaleLatched, s.root, s.octave));
         } else if (PADS[i].hint) {
           text = `${text}\n${PADS[i].hint}`;
         }
@@ -1092,11 +1125,15 @@ export class Labels {
       // Transport rides the label row so the value row can name the pattern
       // that's actually playing (s.seqPattern, the device's own slot — S35's
       // pot is behind a pickup and can be parked anywhere).
-      const genre = ['IDM', 'Techno', 'Electro'][s.swA] ?? '?';
+      // The genre that is LOADED, not the lever: flicking SW1 in another mode
+      // moves that mode's role, so on return the lever routinely points
+      // somewhere the drums aren't. `*` marks that divergence.
+      const genre = ['IDM', 'Techno', 'Electro'][s.genreLatched] ?? '?';
+      const stale = s.genreLatched !== s.swA ? '*' : '';
       const ext = s.clockSrc === 1 ? ' ext' : s.clockSrc === 2 ? ' cv' : '';
       this.oledMini.setStatus(
-        `${s.playing ? 'Seq' : 'Seq stop'} ${genre}${ext}`,
-        patternSlotValue(s.swA, s.seqPattern));
+        `${s.playing ? 'Seq' : 'Seq stop'} ${genre}${stale}${ext}`,
+        patternSlotValue(s.genreLatched, s.seqPattern));
     } else if (s.mode === 1) {
       const sub = ['Arp', 'Hold', 'Rec'][s.arpSub] ?? 'Arp';
       // In Rec, which state you're in matters more than the model — armed and
@@ -1110,9 +1147,10 @@ export class Labels {
     } else {
       // Scale and root belong together — they name the key the pads are in,
       // and "Minor" alone never said which minor.
-      const scale = ['Minor', 'Chromatic', 'Major'][s.swA] ?? '?';
+      const scale = ['Minor', 'Chromatic', 'Major'][s.scaleLatched] ?? '?';
+      const stale = s.scaleLatched !== s.swA ? '*' : '';
       this.oledMini.setStatus(
-        `Pitch ${scale} ${ROOT_NAMES[s.root] ?? '?'}`, modelName(s.model));
+        `Pitch ${scale}${stale} ${ROOT_NAMES[s.root] ?? '?'}`, modelName(s.model));
     }
   }
 
