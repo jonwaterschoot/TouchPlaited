@@ -1,6 +1,6 @@
 # TouchPlaited
 
-A Synthux Simple Touch firmware based on Mutable Instruments Plaits (Émilie Gillet, MIT License): a 7-voice touch synth plus a 16-step generative drum sequencer, playable at the same time (though limited by voice stealing). All 24 Plaits models are available (the 16 original + the 8 new ones).
+A Synthux Simple Touch firmware based on Mutable Instruments Plaits (Émilie Gillet, MIT License): a 6-voice touch synth plus a 16-step generative drum sequencer, playable at the same time (though limited by voice stealing). All 24 Plaits models are built in (the 16 original + the 8 new ones); 23 are selectable from the panel — Chiptune sits out because its free-running arpeggiator never lands on the knob.
 
 ![The visualizer webapp mirroring the panel live](img/TouchPlaited_dynamicvisualizer.png)
 
@@ -20,7 +20,9 @@ Three playmodes, picked with the right toggle (**SW2**):
 
 All three can run at once — the drum sequencer and the melodic modes are independent and keep playing across mode switches. A fader (S37) mixes each sound's OUT/AUX outputs.
 
-**MIDI in/out** on USB and on TRS (USART1, D13/D14 — for hardware-modded boards): notes on ch1 (pitched, chromatic) and ch10 (GM drums), CC20–31 for sound and sequencer functions, the pads/sequencer mirrored to MIDI out, and full clock sync on both MIDI and CV (S43 in / S40 out) — it follows an external clock (with start/stop) and sends its own when there isn't one.
+**MIDI in/out** on USB and on TRS (USART1, D13/D14 — for hardware-modded boards): notes on ch1 (pitched, chromatic) and ch10 (GM drums, laid out as a 4×4 grid and carrying the pattern's own accents as velocity), CC20–31 for sound and sequencer functions plus CC85–88 for the reverb/delay sends, the pads/sequencer mirrored to MIDI out, and full clock sync on both MIDI and CV (S43 in / S40 out) — it follows an external clock (with start/stop) and sends its own when there isn't one.
+
+**Two screens, optional both.** An I2C 128×32 OLED (SSD1306, D11/D12 — see [Hardware mods](MANUAL.md#hardware-mods)) mounts on the faceplate and names whatever you just touched, with its value; it falls back to a per-mode status row when you stop, draws a progress bar for every held gesture, shows a track-and-post display for a knob that's waiting for pickup, and lists what a modifier pad unlocks while you hold it. The [visualizer webapp](https://jonwaterschoot.github.io/TouchPlaited/visualizer/) shows the same telemetry — plus the whole panel, live — on a screen you already have.
 
 ## Quick start — your first five minutes
 

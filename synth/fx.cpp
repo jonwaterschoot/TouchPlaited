@@ -13,7 +13,8 @@ namespace {
 // .sdram_bss is NOLOAD — nothing zeroes it at startup, Init() must.
 // A delay line is one sequential read + write per sample: cache-friendly, so
 // SDRAM latency is not the per-sample tax it was for the physical-model
-// engines (see notes.md FX resource analysis).
+// engines (see notesarchive/notes_archive_2026-07.md → "Reverb / delay FX
+// send", the resource analysis).
 // Buffers are per-instance members (Reverb::buffer_, StereoDelay::buffer_l_/
 // buffer_r_) now that each of the 4 FX groups owns its own Reverb + Stereo
 // Delay (21/07/26 follow-up) — was one shared global buffer per DSP type.

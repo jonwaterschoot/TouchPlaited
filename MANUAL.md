@@ -252,9 +252,9 @@ All arp knobs go through pickup on mode entry, so pots that served another mode 
 
 | Press | Lands in | Screen | LED |
 |-------|----------|--------|-----|
-| from stopped | **capturing** — clock runs, pads record | `REC + PLAY` | 3 blinks |
-| again | **looping, punched out** — committed layers keep playing, the open take commits, nothing new is captured | `PLAY NO REC` | 2 blinks |
-| again | **stopped** — loop and capture both stop; layers are kept | `REC STOPPED` | 1 blink |
+| from stopped | **capturing** — clock runs, pads record | `Rec + play` | 3 blinks |
+| again | **looping, punched out** — committed layers keep playing, the open take commits, nothing new is captured | `Play no rec` | 2 blinks |
+| again | **stopped** — loop and capture both stop; layers are kept | `Rec stopped` | 1 blink |
 
 The punch-out step commits the open take, so the stop step can never lose one. Listening back before punching in again is the middle state. P2+P10 keeps its plain transport meaning everywhere else (Arp, Hold, and every other playmode).
 
@@ -262,7 +262,7 @@ Holding **P0**, **P1** or **P2** on its own lists what that modifier unlocks in 
 
 While SW1 is in Rec the screen carries a persistent indicator block in the top right, the one thing that survives whatever callout is showing: a **blinking circle** while capture is live, and **five dots** for the layer stack — filled = committed, hollow = muted, a pulsing outline on the take currently being recorded into, a small tick for each free slot. So which layer you are filling, and whether anything is going into it, are readable at a glance without pressing anything.
 
-Because arming and running are independent, the screen names the *combination* rather than the flag you just moved — `REC + PLAY` (looping and capturing), `PLAY NO REC` (looping, punched out), `REC STOPPED` (transport stopped, nothing sounding). Outside Rec the same combo reads `ARP PLAY` / `ARP STOPPED`, or `MEL PLAY` / `MEL STOPPED` when you hit it from Seq or Basic Pitch. The idle status row shows the same wording, so what a press told you and what the screen settles back to always agree.
+Because arming and running are independent, the screen names the *combination* rather than the flag you just moved — `Rec + play` (looping and capturing), `Play no rec` (looping, punched out), `Rec stopped` (transport stopped, nothing sounding). Outside Rec the same combo reads `Arp play` / `Arp stopped`, or `Mel play` / `Mel stopped` when you hit it from Seq or Basic Pitch. The idle status row shows the same wording, so what a press told you and what the screen settles back to always agree.
 
 **Rec-only knobs** (S32–S35 while SW1 is in Rec — replace Division/Swing/Density/Order; S31 decay stays the shared arp knob above, S30 drive switches to Rec's own independent value):
 
@@ -296,7 +296,7 @@ To shape whichever sound is currently in view (the arp's in Arp/Hold, Rec's whil
 
 | Gesture | Result |
 |---------|--------|
-| **P0 + P1 hold ~1 s** | Toggle **sound edit**: the knobs become S30 drive · S31 decay · S32 harmonics · S33 timbre · S34 morph on that sound (the Basic Pitch layout), and the Arp/Hold or Rec functions freeze. The screen counts the hold down — `P0+P1 SOUND EDIT` over a filling bar, reading `KNOBS EDIT THE SOUND` on the way in and `BACK TO ARP KNOBS` on the way out — then flashes `SOUND EDIT` or `ARP KNOBS`; the LED pulses once slowly, then accelerates. Entry = 3 rapid blinks + an audition; with the arp/loop running every trigger is live feedback. Toggle again (2 blinks), flick SW1, or leave and re-enter the mode to get the normal knobs back — every hand-off is pickup-protected |
+| **P0 + P1 hold ~1 s** | Toggle **sound edit**: the knobs become S30 drive · S31 decay · S32 harmonics · S33 timbre · S34 morph on that sound (the Basic Pitch layout), and the Arp/Hold or Rec functions freeze. The screen counts the hold down — `P0+P1 SOUND EDIT` over a filling bar, reading `KNOBS EDIT THE SOUND` on the way in and `BACK TO ARP KNOBS` on the way out — then flashes `Sound edit` or `Arp knobs`; the LED pulses once slowly, then accelerates. Entry = 3 rapid blinks + an audition; with the arp/loop running every trigger is live feedback. Toggle again (2 blinks), flick SW1, or leave and re-enter the mode to get the normal knobs back — every hand-off is pickup-protected |
 | P0 / P2 + S35 | Model select on the in-view sound (bank 0 / bank 1) — works without leaving play |
 | P0 + P2 hold 2 s / 4 s | Vary the in-view sound around where it is — tight (±0.10) / wide (±0.25); the engine stays |
 
@@ -376,6 +376,8 @@ While the sequencer runs it fires the slot being edited every other step (8th no
 | P10 alone | Pitch the drum down 1 semitone |
 | P11 alone | Pitch the drum up 1 semitone |
 
+P10/P11 keep retuning the slot even with P2 held, so the two transport combos (P2+P11 drums, P2+P10 melody) are the one thing you cannot reach while editing a drum — save or cancel first.
+
 ### Randomizing just this pad
 
 | Gesture | Result |
@@ -392,8 +394,8 @@ every knob against the slot's new values, so nothing jumps afterwards. See
 
 | Gesture | Result |
 |---------|--------|
-| Hold the *source pad* alone for **1.2 s** | **Confirm** — saves edits, exits recording (3 rapid blinks). The screen shows `HOLD P5 TO SAVE` with a filling bar while you hold, then flashes `SAVED`. Keeping the pad held after the save is ignored — it can't re-enter recording or copy; release everything and start a fresh 2 s hold to edit again |
-| Tap any *other* pad (0.05–1.2 s) then release | **Cancel** — restores original slot, exits recording; the screen flashes `CANCELLED` |
+| Hold the *source pad* alone for **1.2 s** | **Confirm** — saves edits, exits recording (3 rapid blinks). The screen shows `HOLD P5 TO SAVE` with a filling bar while you hold, then flashes `Saved`. Keeping the pad held after the save is ignored — it can't re-enter recording or copy; release everything and start a fresh 2 s hold to edit again |
+| Tap any *other* pad (0.05–1.2 s) then release | **Cancel** — restores original slot, exits recording; the screen flashes `Cancelled` |
 | Hold *source pad* + hold *another pad* for **1.2 s** | **Copy** — the accelerating countdown animation restarts while both pads are down, then the clone lands with an affirmation on both channels: the copied sound plays on the target and the LED gives 3 rapid blinks; repeat to copy to more pads |
 
 ---
@@ -407,7 +409,7 @@ Octave is per-mode: Basic Pitch, the arp (Arp/Hold) and Rec each remember their 
 | P10 | Octave down (range −3 to +3) — whichever of Basic Pitch/Arp/Hold/Rec is currently active |
 | P11 | Octave up (disabled while P2 is held — P2+P11 is the seq play/pause combo) |
 | P0 + P10 / P11 | **Basic Pitch:** root semitone − / + (within one octave) · **Arp/Mel:** arp octave range − / + (0–3 extra octaves the arp climbs) · no effect in Seq |
-| P1 + P10 | *(Arp/Mel's Rec state only)* undo layer — see *Recording into the loop* |
+| P1 + P10 | *(Arp/Mel's Rec state only)* undo layer — see *Rec layer gestures* |
 
 **The screen names the span, not the range.** Base octave and range compose —
 base `+1` with range 2 means the arp climbs `+1` to `+3` — so `P0+P10/P11`
@@ -528,7 +530,7 @@ change (`P0+P2 P5 SOUND`) and the LED counts it down like every other hold.
 | Hold P2, then tap P11 | Toggle drum seq play / pause (2 blinks = paused; 3 blinks = playing) |
 | Hold P2, then tap P10 | Toggle the arp's transport (2 blinks = paused; 3 blinks = playing) — **except while SW1 is in Rec, where it cycles capturing (3 blinks) → looping, punched out (2) → stopped (1); see *Arming and transport* under Arp/Mel** |
 
-The order matters: **P2 first**. While P2 is held, P10/P11's octave functions are disabled; after both are released they work normally again. Starting the seq from a pitched mode before ever entering Seq generates a drum kit automatically. Stopping the arp's transport closes its open gates; starting it again resumes in phase with the master tempo. In Rec the stop lives one step further round the same cycle: punching out (disarming) only stops new capture, and a second press stops the loop too.
+The order matters: **P2 first**. While P2 is held, P10/P11's octave functions are disabled; after both are released they work normally again. The one exception is Seq **Recording**, where P10/P11 stay on drum pitch and neither transport combo fires — save or cancel out of the slot first. Starting the seq from a pitched mode before ever entering Seq generates a drum kit automatically. Stopping the arp's transport closes its open gates; starting it again resumes in phase with the master tempo. In Rec the stop lives one step further round the same cycle: punching out (disarming) only stops new capture, and a second press stops the loop too.
 
 ---
 
@@ -635,7 +637,7 @@ Not reachable over MIDI: model select (S35), pattern/variant select, the arp con
 - Pad presses in Basic Pitch (and Rec live notes in Arp/Mel) send NoteOn/NoteOff on **channel 1** — the actual pitch you hear, with scale/octave/root applied. The NoteOff always matches even if you shift octave or root while holding the pad.
 - In Arp/Mel, every arp step and Rec-loop note goes out on **channel 1** as it sounds — record the arp into a DAW, or drive external gear from it.
 - Drum hits — sequencer steps and Seq-mode pad taps — go out on **channel 10** as NoteOn+NoteOff pairs using the bold GM notes in the table above.
-- The pads aren't pressure-sensitive, so all outgoing notes use velocity 100.
+- The pads aren't pressure-sensitive, so everything you *play* leaves at velocity 100 — ch1 notes and ch10 pad taps alike. Sequencer steps are the exception: they carry the pattern's own accents (see the weight table above).
 - Knob moves are not sent, and incoming notes/CCs are never echoed back out (clock and start/stop are — see below).
 
 ### Clock sync — MIDI and CV
@@ -668,8 +670,8 @@ TouchPlaited always puts a clock on its outputs, and follows one when you give i
 | 3 blinks | Mode / scale / arp-state position 3 (SW2 Up or SW1 left flick); also: Seq resumed |
 | N blinks | Numbered feedback — arp octave range (1–4 = range 0–3), Rec layer cleared (its number) |
 | 3 rapid blinks | Confirm — recording saved, copy completed, Seq entered/re-randomized, transport started, sound edit entered, Rec cleared |
-| 3 fast triple | At a limit — octave/root range, Rec layers/notes full, nothing to undo/clear |
-| Accelerating blink | Hold in progress — recording entry (2 s) or copy (1.2 s); speeds up as the threshold nears |
+| 3 fast triple | At a limit — root, arp octave range, Rec layers/notes full, nothing to undo/clear. The **base** octave (plain P10/P11) is the exception: it clamps silently at ±3, and the screen's `+3 D#5` readout is what tells you |
+| Accelerating blink | Hold in progress — any of them: the P0+P2 stages, recording entry (2 s), copy / layer clear / save (1.2 s), sound edit (1 s); speeds up as the threshold nears. The long build-ups (P0+P2, recording entry) open with three slow pulses first — see *Re-randomize gestures* |
 | Short rapid burst | Recording entered (the 2 s hold landed) |
 | Fast double blink | Recording mode active — one double blink per audible hit of the slot being edited, in sync with the audio (unlike the single beat flash) |
 | Single flash on beat | Quarter-note pulse — from the sequencer, or from the Rec loop as a metronome while the seq is stopped. Lowest priority: shows only when the LED is otherwise idle, and stays off during Recording, for ~2 s after leaving it, and around any other blink |
@@ -716,7 +718,7 @@ The 24 Plaits models are spread over the two shift pads: hold **P0** and turn S3
 
 \* Starred engines (Six-Op 2–4, and 19–23) are the **morph-decay engines**: their real decay lives on the model's MORPH parameter — the DX7 envelope time for Six-Op, damping/tail for 19–23 — so S31 Decay drives it and S34 Morph has no effect (see *Unified Decay*). In Seq mode, S37 Tightness compresses the tails of 19–23. Six-Op additionally renders identical OUT and AUX signals, so the S37 blend fader and P0+S37 stereo width do nothing on 2–4.
 
-The random drum kits draw from a curated subset of these: kicks from 21 and 10 (an FM kick), snares/claps from 22 and 17, hats from 23 and 17, toms from 21 and 20, perc from 20/22/23. Particle (18) is deliberately excluded — its sporadic crackle reads as a hardware fault in a kit.
+The random drum kits draw from a curated subset of these: kicks from 21 and 10 (an FM kick), snares/claps from 22 and 17, closed hats from 23 and 17, open hat from 23 alone, toms from 21 and 20, perc from 20/22/23. Particle (18) is deliberately excluded — its sporadic crackle reads as a hardware fault in a kit.
 
 ---
 
@@ -728,6 +730,6 @@ Optional physical mods for anyone modding their own Simple Touch. None of these 
 
 **2. CV clock jacks.** S43 (clock in) and S40 (clock out) — see *Clock sync* above — use Daisy Seed pins **A11** and **D25** on this build. Those were just the first free pins taken in order, not a deliberate choice, so if you're wiring your own jacks, check what's actually free/convenient on your board rather than assuming those two.
 
-**3. OLED screen.** Optional I2C 128×32 add-on (SSD1306) on **D11/D12**, sharing the MPR121 touch bus. Mirrors the last-touched control (combo, function, value) on the faceplate. After ~2 s untouched it falls back to a per-mode status row — Seq shows genre and transport, Rec shows which pad you're editing and cycles between what's loaded in it and the two ways out (`HOLD P5 SAVE`, `+PAD COPIES`), Arp/Mel and Basic Pitch show the sub-state and the loaded model; Basic Pitch adds the root next to the scale. Hold a combo with a build-up (see *Re-randomize gestures* and *Recording*) and the screen shows a progress bar with a note saying what crossing the next threshold does, then flashes what changed. **A knob that's waiting for pickup** (see *Knob pickup*) gets its own screen: the value row shows the **stored** value that's actually in effect, in its normal units, and a track underneath carries a tall post at the value the pot has to reach and a block at where the pot is now — drive the block onto the post and the knob takes over, at which point the track disappears. A blinking circle top-right marks the two states you have to leave deliberately: Seq slot editing, and live capture in Arp/Mel Rec. If you'd rather not add hardware, the [visualizer webapp](#visualizer-webapp) shows the same live telemetry on a screen you already have.
+**3. OLED screen.** Optional I2C 128×32 add-on (SSD1306) on **D11/D12**, sharing the MPR121 touch bus. Mirrors the last-touched control (combo, function, value) on the faceplate. After ~2 s untouched it falls back to a per-mode status row — Seq shows genre and transport, Rec shows which pad you're editing and cycles between what's loaded in it and the two ways out (`Hold P5 save`, `+pad copies`), Arp/Mel and Basic Pitch show the sub-state and the loaded model; Basic Pitch adds the root next to the scale. (Throughout this manual, screen text is quoted as it is drawn: the top label row and the bottom note row are rendered in capitals, the big value row in between keeps the case shown here.) Hold a combo with a build-up (see *Re-randomize gestures* and *Recording*) and the screen shows a progress bar with a note saying what crossing the next threshold does, then flashes what changed. **A knob that's waiting for pickup** (see *Knob pickup*) gets its own screen: the value row shows the **stored** value that's actually in effect, in its normal units, and a track underneath carries a tall post at the value the pot has to reach and a block at where the pot is now — drive the block onto the post and the knob takes over, at which point the track disappears. A blinking circle top-right marks the two states you have to leave deliberately: Seq slot editing, and live capture in Arp/Mel Rec. If you'd rather not add hardware, the [visualizer webapp](#visualizer-webapp) shows the same live telemetry on a screen you already have.
 
 On power-up it runs a one-time boot animation before handing off to that normal display: "TouchPlaited" materializes letter by letter (*Plaited* emphasized one font size up), holds, then disintegrates into scattering particles, then settles into a status line reporting whether SettingsJournal found and restored a prior session or this is a fresh/reset unit — see [`display/oled_boot.cpp`](display/oled_boot.cpp) / [`oled_boot.h`](display/oled_boot.h). The user LED slow-blinks for the duration (see *LED blink codes* above) and flashes once when it's done, so a unit with no screen attached still shows boot progress and a ready signal.

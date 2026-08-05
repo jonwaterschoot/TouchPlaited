@@ -514,7 +514,7 @@ static bool rec_snd_edit = false;
 // Defaults: division center (1/16), steady full density, order random.
 static float arp_drive_lk = 0.0f, arp_div_lk  = 0.5f, arp_swing_lk = 0.0f,
              arp_dens_lk  = 1.0f, arp_decay_lk = 0.5f, arp_order_lk = 1.0f;
-static int   arp_oct_range = 0;   // P1+P10/P11, 0–3 extra octaves
+static int   arp_oct_range = 0;   // P0+P10/P11, 0–3 extra octaves
 
 // Rec-only knob layer (S32-S35 while SW1=Rec — 20/07/26 notes,
 // notesarchive/arp-mel-plan-archive.md §7/C10). S31 decay stays the shared
@@ -912,7 +912,8 @@ static void exit_rec_snd_edit() {
 static VoiceParams arp_params(float decay);
 static VoiceParams rec_params(float decay);
 
-// ─── MIDI (mapping design in notes.md → "MIDI mapping sketch") ────────────────
+// ─── MIDI (mapping design: notesarchive/notes_archive_2026-07.md →
+//     "MIDI mapping sketch") ─────────────────────────────────────────────────
 // Channel split: ch1 = pitched — the note number IS the pitch, bypassing the
 // pad scale/root/octave logic — ch10 = drums via the GM map. CC20–31 and
 // 85–88 map to *functions*, not pots; a CC write re-arms that pot's pickup so
