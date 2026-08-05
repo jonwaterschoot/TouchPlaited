@@ -51,13 +51,13 @@ SW1 picks the sub-state — **Hold** (left) · **Arp** (center) · **Rec** (righ
 | P3–P9 | Arp: feed the pool while held · Hold: latch, re-touch removes | Rec: play + record; **hold P2 + a pad, see below, for layer gestures** | notes in, ch 1 |
 | P10 / P11 | Base octave − / + — **own octave per sub-state** (Arp/Hold vs Rec) | | — |
 | **Hold P0 (shift)** | | | |
-| P0 + P10 / P11 | Root semitone − / + (Basic Pitch only) · **in Rec: P0+P10 tap = undo layer** | | — |
+| P0 + P10 / P11 | Octave range − / + (0–3 extra octaves the arp climbs) | | — |
 | P0 + S35 | Model select, bank 0 — on the arp's sound (Arp/Hold) or Rec's own sound (Rec) | | — |
 | P0 + S37 | Stereo width | | — |
 | P0 + P1 hold 1 s | **Sound edit** toggle — knobs become S30 drive · S31 decay · S32 harmonics · S33 timbre · S34 morph on whichever sound is in view (arp's own in Arp/Hold, Rec's own in Rec); functions freeze until toggled back | | — |
 | P0 + P2 hold 2 s / 4 s | Vary the in-view sound — tight / wide | | — |
 | **Hold P1 / P2 (shift)** | | | |
-| P1 + P10 / P11 | Octave range − / + (0–3 extra octaves the arp climbs) | | — |
+| P1 + P10 | *(Rec only)* Undo layer | | — |
 | P1 + S30 / P1 + S35 | Reverb / delay send — **own send per sub-state** | | — |
 | P2 + S35 | Model select, bank 1 — same in-view-sound rule as P0+S35 | | — |
 | P2 + pad P3–P7 (Rec only) | Tap = mute/unmute that layer · hold = clear that layer · hold ≥2 pads = clear all layers | | — |
@@ -235,7 +235,7 @@ An arpeggiator plus a layered note recorder. SW1 picks the sub-state (see *SW1* 
 | S32 | Division — the arp's rate against the master tempo: 1/4 · 1/8 · 1/8T · 1/16 · 1/16T · 1/32, center = 1/16 | — |
 | S33 | Swing — delays odd arp steps, 0 to ~50% of the division | — |
 | S34 | Density — Euclidean fill over a 16-step cycle. Upper half: steady fill from silence (left of full) to all steps (full right). Lower half: the same fill sweep with a 75% chance roll on each sounding step. The note order holds its place on masked steps | — |
-| S35 | Order — how the arp walks the pool: played / up / down / ping-pong / random (default). Octave range (P1+P10/P11) expands the walk | — |
+| S35 | Order — how the arp walks the pool: played / up / down / ping-pong / random (default). Octave range (P0+P10/P11) expands the walk | — |
 | S36 | Output level — the arp's own; Rec has a separate one | 26 (Basic Pitch only) |
 | S37 | Blend — OUT↔AUX, written into every trigger; the arp's own value, independent of Rec's. Hold P0: stereo width, which stays shared across Basic Pitch/Arp/Rec | — |
 | P1 + S30 / P1 + S35 | Reverb / delay — the arp's own fully independent instance (send *and* character); Rec has a separate one | — |
@@ -277,7 +277,7 @@ Because arming and running are independent, the screen names the *combination* r
 
 | Gesture | Result |
 |---------|--------|
-| P0 + P10 tap | **Undo** — clears the open take first, then pops committed layers newest-first; when nothing is left, the clock resets and waits for a fresh first note |
+| P1 + P10 tap | **Undo** — clears the open take first, then pops committed layers newest-first; when nothing is left, the clock resets and waits for a fresh first note |
 | P2 + pad (tap) | **Mute/unmute** that committed layer — instant LED blink of the layer number (no lead-up), LIMIT if there's no such layer |
 | P2 + pad (hold ~1.2 s) | **Clear that layer** — the LED shows the same accelerating countdown as every other hold gesture in this manual while building, then blinks the layer number on release. The countdown is what tells a clear apart from a quick mute tap on the same pad |
 | P2 + ≥2 pads (hold ~1.2 s together) | **Clear all layers** — same accelerating countdown, ending in 3 rapid blinks instead of a layer number |
@@ -406,16 +406,24 @@ Octave is per-mode: Basic Pitch, the arp (Arp/Hold) and Rec each remember their 
 |---------|--------|
 | P10 | Octave down (range −3 to +3) — whichever of Basic Pitch/Arp/Hold/Rec is currently active |
 | P11 | Octave up (disabled while P2 is held — P2+P11 is the seq play/pause combo) |
-| P0 + P10 | **Basic Pitch only:** root semitone down (within one octave) — in Arp/Mel's Rec state P0+P10 is **undo** instead; has no effect in Arp/Hold |
-| P0 + P11 | **Basic Pitch only:** root semitone up — no effect in Arp/Mel |
+| P0 + P10 / P11 | **Basic Pitch:** root semitone − / + (within one octave) · **Arp/Mel:** arp octave range − / + (0–3 extra octaves the arp climbs) · no effect in Seq |
+| P1 + P10 | *(Arp/Mel's Rec state only)* undo layer — see *Recording into the loop* |
+
+**Why P0 owns both.** The panel's modifiers have a grammar — **P0 = sound and
+pitch**, **P1 = FX**, **P2 = transport** — and octave range is a pitch
+control, so it belongs on P0 with root and the model banks. It sat on P1 until
+2026-08-05 only because undo already owned `P0+P10` in Rec, which would have
+made one combo mean two unrelated things depending on SW1. Swapping the two
+fixed both ends: range is now `P0+P10/P11` in all three Arp/Mel sub-states,
+and undo took `P1+P10`, which nothing else used. Range stays adjustable from
+Rec on purpose — a latched Hold arp keeps playing behind it.
 
 **The screen names the octave you land on**, not just the direction you
 pressed: P10/P11 read `Octave -` over a value like `+1 D#5` — the offset
 within the −3…+3 range, and the note the pads' root now sounds at. In Seq
 while editing a drum slot, where P10/P11 retune that one drum instead, the
-value is the slot's own note. Outside Basic Pitch, **P0+P10 / P0+P11** say
+value is the slot's own note. In Seq, where `P0+P10/P11` is unbound, it says
 `Root` over `Pitch mode only` rather than naming a shift that will not happen.
-| P1 + P10 / P11 | *(Arp/Mel only)* octave range down / up — 0–3 extra octaves the arp climbs beyond the base octave |
 
 **Root clamps at C and B — it does not wrap.** Wrapping would be two lines of
 code and it was deliberately not done: root is the one control with no

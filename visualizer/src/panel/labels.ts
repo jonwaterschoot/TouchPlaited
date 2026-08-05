@@ -106,15 +106,17 @@ const COMBO_ROWS: Record<string, string[]> = {
   'p0.seqrec':  ['S35 slot model b0', 'S37 slot width', '+P2 hold: vary pad'],
   'p0.pitch':   ['S35 model bank 0', 'S37 stereo width',
                  'P10/P11 root -/+', '+P2 hold: randomize'],
+  // Arp and Arp Rec share one P0 list: since undo moved to P1 (2026-08-05)
+  // the two are identical, Rec's differences all living on P1 and P2 now.
   'p0.arp':     ['S35 model bank 0', 'S37 stereo width',
-                 '+P1 hold: sound edit', '+P2 hold: vary sound'],
-  'p0.arprec':  ['S35 model bank 0', 'S37 stereo width', 'P10 undo layer',
-                 '+P1 hold: sound edit', '+P2 hold: vary sound'],
+                 'P10/P11 arp octaves', '+P1 hold: sound edit',
+                 '+P2 hold: vary sound'],
   'p1.seq':     ['S30 reverb (drums)', 'S35 delay (drums)'],
   'p1.seqrec':  ['S30 slot reverb send', 'S35 slot delay send'],
   'p1.pitch':   ['S30 reverb', 'S35 delay'],
-  'p1.arp':     ['S30 reverb', 'S35 delay',
-                 'P10/P11 arp octaves', '+P0 hold: sound edit'],
+  'p1.arp':     ['S30 reverb', 'S35 delay', '+P0 hold: sound edit'],
+  'p1.arprec':  ['S30 reverb', 'S35 delay', 'P10 undo layer',
+                 '+P0 hold: sound edit'],
   'p2.seq':     ['P10 mel transport', 'P11 drum play/pause', '+P0 hold: vary kit'],
   'p2.seqrec':  ['S35 slot model b1', '+P0 hold: vary pad'],
   'p2.pitch':   ['S35 model bank 1', 'P10 mel transport',
@@ -130,7 +132,9 @@ function comboRows(mod: number, s: DeviceState): string[] {
   const arpRec = s.mode === 1 && s.arpSub === 2;
   const ctx = seqRec ? 'seqrec'
             : s.mode === 0 ? 'seq'
-            : s.mode === 1 ? (arpRec && mod !== 1 ? 'arprec' : 'arp')
+            // P0's list is the same in Arp and Arp Rec since undo left it;
+            // P1 and P2 both have Rec-specific rows.
+            : s.mode === 1 ? (arpRec && mod !== 0 ? 'arprec' : 'arp')
             : 'pitch';
   return COMBO_ROWS[`p${mod}.${ctx}`] ?? COMBO_ROWS[`p${mod}.pitch`];
 }
@@ -288,8 +292,8 @@ function describePad(i: number, s: DeviceState): { combo: string; fn: string } |
   // multi-hold = clear all) — the pad neither sounds nor records.
   if (inRec && s.pads[2] && i >= 3 && i <= 7)
     return { combo: `P2 + P${i}`, fn: `Layer ${i - 2} mute · hold = clear` };
-  if (inRec && s.pads[0] && i === 10)
-    return { combo: 'P0 + P10', fn: 'Undo · open take, then newest layer' };
+  if (inRec && s.pads[1] && i === 10)
+    return { combo: 'P1 + P10', fn: 'Undo · open take, then newest layer' };
   // Root shifting transposes the whole scale (compute_note() adds the root
   // before the degree offsets), and it clamps at C/B rather than wrapping —
   // deliberately, since on a unit with no screen the dead end is the only
@@ -298,6 +302,11 @@ function describePad(i: number, s: DeviceState): { combo: string; fn: string } |
   // rather than describing a shift that won't happen.
   if ((i === 10 || i === 11) && s.pads[0]) {
     const dir = i === 11 ? '+1' : '−1';
+    // Arp/Mel gives these pads to the arp's octave range (moved off P1
+    // 2026-08-05 — P0 is the pitch modifier, and range was P1's one non-FX
+    // combo). Root stays Basic Pitch-only; elsewhere the combo is unbound.
+    if (s.mode === 1)
+      return { combo: `P0 + P${i}`, fn: `Arp octave range ${i === 11 ? '+' : '−'} (0–3 extra)` };
     return s.mode === 2
       ? { combo: `P0 + P${i}`, fn: `Root ${dir} → ${ROOT_NAMES[s.root] ?? '?'} · ${scaleNotes(s.scaleLatched, s.root)}` }
       : { combo: `P0 + P${i}`, fn: 'Root · Pitch mode only' };

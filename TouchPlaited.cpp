@@ -3579,17 +3579,28 @@ int main() {
             } else if (rec_mode == RecMode::IDLE && !seq_mode_on
                        && current_mode == PlayMode::ARP_MEL
                        && arp_state == ArpState::REC
-                       && touch.pads().IsTouched(0)) {
-                // P0+P10 in Rec = undo: clears the open take first, then pops
-                // committed layers newest-first (root-down is parked here).
-                // Clearing a specific/all layers is now P2+pad (see the
+                       && touch.pads().IsTouched(1)) {
+                // P1+P10 in Rec = undo: clears the open take first, then pops
+                // committed layers newest-first. Moved off P0 2026-08-05 —
+                // see the octave-range branch below for the whole argument.
+                // Clearing a specific/all layers is still P2+pad (see the
                 // P2-layer hold block in AudioCallback and SetOnRelease).
                 if (note_rec.Undo()) { led_event = LedEvent::NUMBERED; led_event_data = 1; }
                 else                 { led_event = LedEvent::LIMIT; }
             } else if (rec_mode == RecMode::IDLE && !seq_mode_on
                        && current_mode == PlayMode::ARP_MEL
-                       && touch.pads().IsTouched(1)) {
-                // P1+P10 = arp octave range down (0–3 extra octaves).
+                       && touch.pads().IsTouched(0)) {
+                // P0+P10 = arp octave range down (0–3 extra octaves).
+                // Swapped with undo 2026-08-05. The panel's modifier grammar
+                // is P0 = sound & pitch, P1 = FX, P2 = transport, and octave
+                // range was the one P1 combo that wasn't FX — a pitch control
+                // sitting on the effects modifier. It was there because undo
+                // owned P0+P10 in Rec, so binding range to P0 would have made
+                // one combo mean two unrelated things depending on SW1.
+                // Swapping fixes both at once: range is now P0 in all three
+                // sub-states, and undo takes P1, which is otherwise unused on
+                // these two pads. Range stays reachable from Rec on purpose —
+                // a latched Hold arp keeps playing behind it.
                 if (arp_oct_range > 0) {
                     arp_oct_range--;
                     led_event      = LedEvent::NUMBERED;
@@ -3632,8 +3643,10 @@ int main() {
                 }
             } else if (rec_mode == RecMode::IDLE && !seq_mode_on
                        && current_mode == PlayMode::ARP_MEL
-                       && touch.pads().IsTouched(1)) {
-                // P1+P11 = arp octave range up (0–3 extra octaves).
+                       && touch.pads().IsTouched(0)) {
+                // P0+P11 = arp octave range up — see the P10 branch for why
+                // this moved off P1. P0+P11 was entirely unbound in Arp/Mel,
+                // so this half of the swap collided with nothing.
                 if (arp_oct_range < 3) {
                     arp_oct_range++;
                     led_event      = LedEvent::NUMBERED;

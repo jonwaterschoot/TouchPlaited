@@ -658,12 +658,16 @@ void describe_pad(int i, const TelemetryState& t,
                 if (up)          set_label(label, "P2+P11", "Drum transport");
                 else if (in_rec) set_label(label, "P2+P10", "Rec capture");
                 else             set_label(label, "P2+P10", "Mel transport");
-            } else if (p1) {
-                set_label(label, up ? "P1+P11" : "P1+P10",
-                          up ? "Arp octaves +" : "Arp octaves -");
+            } else if (p1 && in_rec && !up) {
+                set_label(label, "P1+P10", "Undo layer");
             } else if (p0) {
-                if (in_rec && !up)      set_label(label, "P0+P10", "Undo layer");
-                else if (t.mode == 2) {
+                if (t.mode == 1) {
+                    // Octave range moved here from P1 (2026-08-05): P0 is the
+                    // pitch modifier everywhere else, and range was the lone
+                    // non-FX combo on P1.
+                    set_label(label, up ? "P0+P11" : "P0+P10",
+                              up ? "Arp octaves +" : "Arp octaves -");
+                } else if (t.mode == 2) {
                     // Root shifting is the one control on the panel with no
                     // audible landmark of its own — it clamps at C and B
                     // rather than wrapping (deliberate: the dead end IS the
@@ -736,16 +740,18 @@ const char* const kP0SeqRec[]   = { "S35 slot model b0", "S37 slot width",
                                     "+P2 hold: vary pad" };
 const char* const kP0Pitch[]    = { "S35 model bank 0", "S37 stereo width",
                                     "P10/P11 root -/+", "+P2 hold: randomize" };
+// Arp and Arp Rec share one P0 list: since undo moved to P1 (2026-08-05) the
+// two are identical, Rec's differences all living on P1 and P2 now.
 const char* const kP0Arp[]      = { "S35 model bank 0", "S37 stereo width",
-                                    "+P1 hold: sound edit", "+P2 hold: vary sound" };
-const char* const kP0ArpRec[]   = { "S35 model bank 0", "S37 stereo width",
-                                    "P10 undo layer", "+P1 hold: sound edit",
+                                    "P10/P11 arp octaves", "+P1 hold: sound edit",
                                     "+P2 hold: vary sound" };
 const char* const kP1Seq[]      = { "S30 reverb (drums)", "S35 delay (drums)" };
 const char* const kP1SeqRec[]   = { "S30 slot reverb send", "S35 slot delay send" };
 const char* const kP1Pitch[]    = { "S30 reverb", "S35 delay" };
 const char* const kP1Arp[]      = { "S30 reverb", "S35 delay",
-                                    "P10/P11 arp octaves", "+P0 hold: sound edit" };
+                                    "+P0 hold: sound edit" };
+const char* const kP1ArpRec[]   = { "S30 reverb", "S35 delay",
+                                    "P10 undo layer", "+P0 hold: sound edit" };
 const char* const kP2Seq[]      = { "P10 mel transport", "P11 drum play/pause",
                                     "+P0 hold: vary kit" };
 const char* const kP2SeqRec[]   = { "S35 slot model b1", "+P0 hold: vary pad" };
@@ -771,12 +777,12 @@ int combo_rows(const TelemetryState& t, int mod, const char* const** rows) {
         case 0:
             if (seq_rec)      return pick_rows(kP0SeqRec, rows);
             if (t.mode == 0)  return pick_rows(kP0Seq,    rows);
-            if (arp_rec)      return pick_rows(kP0ArpRec, rows);
             if (t.mode == 1)  return pick_rows(kP0Arp,    rows);
             return pick_rows(kP0Pitch, rows);
         case 1:
             if (seq_rec)      return pick_rows(kP1SeqRec, rows);
             if (t.mode == 0)  return pick_rows(kP1Seq,    rows);
+            if (arp_rec)      return pick_rows(kP1ArpRec, rows);
             if (t.mode == 1)  return pick_rows(kP1Arp,    rows);
             return pick_rows(kP1Pitch, rows);
         default:
