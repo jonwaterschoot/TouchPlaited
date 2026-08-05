@@ -42,9 +42,13 @@ export interface DeviceState {
   arpSub: number;         // Arp/Mel sub-state: 0 Arp, 1 Hold, 2 Rec — the
                           // device's change-latched state, NOT the SW1 lever
   recArmed: boolean;      // Rec capture armed (P2+P10)
+  arpRunning: boolean;    // melodic transport (P2+P10 outside Rec) — gates
+                          // the arp and the Rec loop together; independent
+                          // of recArmed, a punched-out Rec still loops
+  seqPattern: number;     // Seq pattern slot playing within the genre, 0-based
   holdKind: number;       // 0 none, 1 P0+P2, 2 rec entry, 3 layer clear,
-                          // 4 layer copy — a hold building toward a
-                          // threshold; same precedence as the device LED
+                          // 4 layer copy, 5 rec save — a hold building
+                          // toward a threshold; same precedence as the LED
   holdProgress: number;   // 0..1, fraction of the way to holdKind's threshold
   holdStage: number;      // confirms fired so far for the current hold — 0
                           // while building; edge-detect a rise to catch a
@@ -52,6 +56,11 @@ export interface DeviceState {
                           // the single-stage holds)
   holdOutcome: number;    // holdKind 3 only, at the instant holdStage hits 1:
                           // 0 n/a, 1 success, 2 empty (nothing to clear)
+  pickupArmed: number;    // bitmask, bit i = S3(0+i) is behind a pickup: the
+                          // pot drives nothing until it reaches pickupTarget[i].
+                          // Every playmode has its own pickup layer, so every
+                          // hand-off between them puts knobs in this state
+  pickupTarget: number[]; // 0..1 per S30..S37; meaningless where the bit is 0
 }
 
 export type StateEvent =
@@ -71,8 +80,11 @@ export type StateEvent =
   | { kind: 'kit' }
   | { kind: 'recLayers'; layers: number; mute: number; prevLayers: number; prevMute: number }
   | { kind: 'clockSrc'; v: number }
-  | { kind: 'arpSub'; sub: number; armed: boolean; prevSub: number; prevArmed: boolean }
+  | { kind: 'arpSub'; sub: number; armed: boolean; running: boolean;
+      prevSub: number; prevArmed: boolean; prevRunning: boolean }
+  | { kind: 'seqPattern'; v: number }
   | { kind: 'hold'; holdKind: number; progress: number; stage: number; outcome: number }
+  | { kind: 'pickup'; armed: number; targets: number[] }
   | { kind: 'connected'; v: boolean }
   | { kind: 'note'; channel: number; note: number; on: boolean } // transient, not stored
   | { kind: 'sync' }; // emitted after a bulk update; views should repaint all
@@ -102,10 +114,14 @@ function initialState(): DeviceState {
     clockSrc: 0,
     arpSub: 0,
     recArmed: false,
+    arpRunning: true,   // device default: the plain arp sounds from boot
+    seqPattern: 0,
     holdKind: 0,
     holdProgress: 0,
     holdStage: 0,
     holdOutcome: 0,
+    pickupArmed: 0,
+    pickupTarget: new Array(8).fill(0),
   };
 }
 
@@ -230,16 +246,39 @@ export class DeviceStore {
     this.emit({ kind: 'clockSrc', v });
   }
 
-  /** Arp/Mel sub-state (change-latched on the device) + Rec armed flag —
-   * carries the previous values so listeners can log the specific transition
-   * (arm/disarm vs a sub-state move) without re-deriving it. */
-  setArpSub(sub: number, armed: boolean) {
+  /** Arp/Mel sub-state (change-latched on the device) + Rec armed flag +
+   * melodic transport — carries the previous values so listeners can log the
+   * specific transition (arm/disarm vs. play/stop vs. a sub-state move)
+   * without re-deriving it. */
+  setArpSub(sub: number, armed: boolean, running: boolean) {
     const prevSub = this.state.arpSub;
     const prevArmed = this.state.recArmed;
-    if (sub === prevSub && armed === prevArmed) return;
+    const prevRunning = this.state.arpRunning;
+    if (sub === prevSub && armed === prevArmed && running === prevRunning) return;
     this.state.arpSub = sub;
     this.state.recArmed = armed;
-    this.emit({ kind: 'arpSub', sub, armed, prevSub, prevArmed });
+    this.state.arpRunning = running;
+    this.emit({ kind: 'arpSub', sub, armed, running, prevSub, prevArmed, prevRunning });
+  }
+
+  /** Which pattern slot the drum sequencer is actually playing. */
+  setSeqPattern(v: number) {
+    if (this.state.seqPattern === v) return;
+    this.state.seqPattern = v;
+    this.emit({ kind: 'seqPattern', v });
+  }
+
+  /** Which pots are behind a pickup, and what each one has to reach. Only
+   * the armed slots are compared: an unarmed slot's target is stale by
+   * definition, and letting it churn would emit on every frame. */
+  setPickup(armed: number, targets: number[]) {
+    let changed = this.state.pickupArmed !== armed;
+    for (let i = 0; i < 8 && !changed; i++)
+      if ((armed >> i) & 1) changed = this.state.pickupTarget[i] !== targets[i];
+    if (!changed) return;
+    this.state.pickupArmed = armed;
+    this.state.pickupTarget = targets;
+    this.emit({ kind: 'pickup', armed, targets });
   }
 
   /** A hold building toward a threshold (P0+P2, rec entry, layer clear,

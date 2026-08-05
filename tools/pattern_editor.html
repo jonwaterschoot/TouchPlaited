@@ -1148,16 +1148,17 @@ function persist(){ localStorage.setItem(WIP, JSON.stringify(Array.from(grid)));
 // ── import ───────────────────────────────────────────────────────────────────
 // Parse a kPat_ table out of C header text; returns Uint8Array(NT*NS) or null.
 function parseTable(txt){
-  const nums = (txt.replace(/\/\/[^\n]*/g, "").match(/0x[0-9a-fA-F]+|\d+/g) || [])
+  // drop line comments, then drop everything up to the initializer's opening
+  // brace (declaration + symbol name, which may itself contain stray digits
+  // like the "00" index prefix or the "8" in "uint8_t") if one is present
+  const body = txt.replace(/\/\/[^\n]*/g, "").replace(/^[\s\S]*?=\s*\{/, "");
+  const nums = (body.match(/0x[0-9a-fA-F]+|\d+/g) || [])
     .map(x => parseInt(x, x.startsWith("0x") ? 16 : 10))
     .filter(x => x <= 0x34);
-  // drop the leading 7 and 64 of a "[7][64]" declaration if present
-  const vals = nums.length >= NT*NS + 2 && nums[0] === 7 && nums[1] === 64
-    ? nums.slice(2) : nums;
-  if (vals.length < NT*NS){
-    status(`import: found only <b>${vals.length}</b> of ${NT*NS} values`); return null;
+  if (nums.length < NT*NS){
+    status(`import: found only <b>${nums.length}</b> of ${NT*NS} values`); return null;
   }
-  return Uint8Array.from(vals.slice(0, NT*NS));
+  return Uint8Array.from(nums.slice(0, NT*NS));
 }
 $("doimp").onclick = () => {
   const vals = parseTable($("imp").value);

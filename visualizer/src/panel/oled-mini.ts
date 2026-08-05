@@ -48,6 +48,27 @@ function truncate(s: string, n: number): string {
   return s.length <= n ? s : s.slice(0, n);
 }
 
+/** Right-aligned indicator block on the label row — mirrors StatusIcons in
+ * display/oled_screen.h, same geometry and same blink period. The only thing
+ * on this screen that survives whatever callout is showing. */
+export interface StatusIcons {
+  rec: boolean;      // capture live: a circle, top right, blinking
+  layers: number;    // committed NoteRec layers, -1 = draw no dots
+  mute: number;      // bit i = layer i muted
+  open: number;      // layer being recorded into, -1 = none
+}
+const NO_ICONS: StatusIcons = { rec: false, layers: -1, mute: 0, open: -1 };
+const REC_CX = 123, REC_CY = 3, REC_R = 3;
+const DOT_X0 = 88, DOT_PITCH = 6, DOT_W = 4;
+const LABEL_CHARS_DOTS = 14;
+const LABEL_CHARS_REC = 19;
+// Matches kBlinkMs in display/oled_ui.cpp.
+const BLINK_MS = 400;
+// Matches OledScreen::kListRows — 32 px / an 8 px font.
+const LIST_ROWS = 4;
+// ShowPickup geometry: Font_7x10 value at y 12..21, track at y 24..31.
+const PICKUP_VALUE_Y = 12;
+
 /** Same stepping as oled_screen.cpp:ShowLine() — largest font whose char
  * count fits, in char-count terms (not measured pixel width, matching the
  * hardware exactly since these are fixed-advance bitmap fonts). */
@@ -73,7 +94,14 @@ export class OledMini {
   private progressMode = false; // showing a hold's progress bar, not label/value
   private progressLabel = '';
   private progressPct = 0; // 0..1
+  private progressNote = ''; // what crossing the next threshold does
   private flashTimer: ReturnType<typeof setTimeout> | null = null; // confirm text owns the screen
+  private icons: StatusIcons = NO_ICONS;
+  private listRows: string[] | null = null; // combo list owns the screen
+  // Set only while the shown control is armed behind a pickup; both values
+  // are 0..127, as the wire carries them.
+  private pickup: { pot: number; target: number } | null = null;
+  private blinkPhase = false;
   private cell = 4; // device px per logical pixel — set for real by place()
 
   constructor(private overlay: HTMLElement, private panel: Panel, private screen: {
@@ -102,12 +130,23 @@ export class OledMini {
     // screen, checked on a slow tick rather than a one-shot timer so a burst
     // of activity doesn't need to keep rescheduling anything.
     setInterval(() => {
+      if (this.listRows !== null) return;  // held modifier owns the screen
       if (this.active && performance.now() - this.shownAt > IDLE_MS) {
         this.active = false;
         this.progressMode = false;
         this.draw();
       }
     }, 300);
+    // Capture-indicator pulse. The firmware forces the same redraw from
+    // OledUi::Service when the phase flips (kBlinkMs); here it's a timer,
+    // and like there it only runs while something is actually animating.
+    setInterval(() => {
+      if (!this.icons.rec && this.icons.open < 0) return;
+      const phase = (Math.floor(performance.now() / BLINK_MS) % 2) !== 0;
+      if (phase === this.blinkPhase) return;
+      this.blinkPhase = phase;
+      if (!this.progressMode && this.flashTimer === null) this.draw();
+    }, BLINK_MS / 4);
   }
 
   /** The one thing currently happening — a knob turn, a pad hint, a switch
@@ -120,9 +159,28 @@ export class OledMini {
    * last win. */
   show(label: string, value: string) {
     if (this.progressMode || this.flashTimer !== null) return;
+    this.listRows = null;
     this.active = true;
     this.label = label;
     this.value = value;
+    this.pickup = null;
+    this.shownAt = performance.now();
+    this.draw();
+  }
+
+  /** A pot that's armed behind a pickup — mirrors OledScreen::ShowPickup()
+   * (display/oled_screen.cpp), same geometry. `value` is the STORED value in
+   * its own units, the one actually in effect; the track underneath carries
+   * both positions, a tall post at the target and a slider block at the pot.
+   * Drive the block onto the post and the pot takes over — no arithmetic, and
+   * it reads the same whether the value is a BPM, a note name or a word. */
+  showPickup(label: string, value: string, pot: number, target: number) {
+    if (this.progressMode || this.flashTimer !== null) return;
+    this.listRows = null;
+    this.active = true;
+    this.label = label;
+    this.value = value;
+    this.pickup = { pot, target };
     this.shownAt = performance.now();
     this.draw();
   }
@@ -139,12 +197,15 @@ export class OledMini {
    * label row as show(), value row replaced by a filled bar. Fires on every
    * STATE frame while the hold is live, same as a continuously-turning
    * knob would, so the bar visibly fills. */
-  showProgress(label: string, pct: number) {
+  showProgress(label: string, pct: number, note = '') {
     if (this.flashTimer !== null) return; // a confirm is still on screen
+    this.listRows = null;
+    this.pickup = null;
     this.active = true;
     this.progressMode = true;
     this.progressLabel = label;
     this.progressPct = pct;
+    this.progressNote = note;
     this.shownAt = performance.now();
     this.draw();
   }
@@ -154,6 +215,8 @@ export class OledMini {
    * matching the firmware's own held-open redraw throttle, then releases
    * back to whatever showProgress()/show() calls land next. */
   confirmFlash(label: string, text: string) {
+    this.listRows = null;
+    this.pickup = null;
     this.active = true;
     this.progressMode = false;
     this.shownAt = performance.now();
@@ -167,12 +230,44 @@ export class OledMini {
     }, CONFIRM_FLASH_MS);
   }
 
-  /** Releases the screen back to normal show()/setStatus() calls once
-   * hold_kind returns to 0 — doesn't redraw itself, same as the physical
-   * screen: it just holds the last-drawn frame until something else
-   * changes. */
+  /** Releases the screen once hold_kind returns to 0, and hands it straight
+   * back to the status row — matching OledUi::Service, which forces that
+   * redraw on the same edge so a finished bar can't sit frozen on the panel
+   * (a hold's end changes nothing else the priority chain watches). */
   clearProgress() {
+    if (!this.progressMode) return;
     this.progressMode = false;
+    this.active = false;
+    if (this.flashTimer === null) this.draw();
+  }
+
+  /** Four rows of Font_6x8 — the whole 32 px height, no label/value split.
+   * The combo list a held modifier shows; only the first LIST_ROWS entries
+   * are drawn, so a caller scrolls by advancing the slice it passes.
+   * Mirrors OledScreen::ShowList() (display/oled_screen.cpp). */
+  showList(rows: string[]) {
+    this.active = true;
+    this.pickup = null;
+    this.progressMode = false;
+    this.listRows = rows;
+    this.shownAt = performance.now();
+    this.draw();
+  }
+
+  /** Releases a combo list when its modifier comes up. */
+  clearList() {
+    if (this.listRows === null) return;
+    this.listRows = null;
+    this.active = false;
+    this.draw();
+  }
+
+  private layoutList(rows: string[]) {
+    this.bits.fill(0);
+    const shown = Math.min(rows.length, LIST_ROWS);
+    for (let i = 0; i < shown; i++)
+      this.blitText(FONT_6X8, truncate(rows[i].toUpperCase(), LABEL_CHARS),
+                    1, i * FONT_6X8.height);
   }
 
   /** Home-screen content: what shows when nothing's been touched recently. */
@@ -183,8 +278,18 @@ export class OledMini {
   }
 
   private draw() {
+    if (this.active && this.listRows !== null) {
+      this.layoutList(this.listRows);
+      this.rasterize();
+      return;
+    }
     if (this.active && this.progressMode) {
-      this.layoutProgress(this.progressLabel, this.progressPct);
+      this.layoutProgress(this.progressLabel, this.progressPct, this.progressNote);
+      this.rasterize();
+      return;
+    }
+    if (this.active && this.pickup !== null) {
+      this.layoutPickup(this.label, this.value, this.pickup.pot, this.pickup.target);
       this.rasterize();
       return;
     }
@@ -195,6 +300,27 @@ export class OledMini {
     const value = this.active ? this.value : this.idleValue;
     this.layoutText(label, value);
     this.rasterize();
+  }
+
+  /** Label row as layoutText(), a fixed Font_7x10 value row (nothing here
+   * changes size mid-hunt — the stored value doesn't move while you look for
+   * it), and a pickup track across the bottom. Identical geometry to the
+   * firmware's OledScreen::ShowPickup(). */
+  private layoutPickup(label: string, value: string, pot: number, target: number) {
+    this.bits.fill(0);
+    this.blitText(FONT_6X8, truncate(label.toUpperCase(), LABEL_CHARS), 1, 0);
+    if (value) {
+      const maxChars = Math.floor(W / FONT_7X10.width);
+      this.blitText(FONT_7X10, truncate(value, maxChars), 1, PICKUP_VALUE_Y);
+    }
+    const X0 = 1, X1 = 126, SPAN = X1 - X0;
+    const at = (v: number) => X0 + Math.round((Math.max(0, Math.min(127, v)) * SPAN) / 127);
+    for (let x = X0; x <= X1; x++) this.setBit(x, 30);
+    const tx = at(target);
+    this.drawRectFilled(tx, 24, tx + 1, 31);          // where it has to get to
+    const px = at(pot);
+    this.drawRectFilled(Math.max(X0, px - 2), 27,
+                        Math.min(X1, px + 2), 29);    // where it is now
   }
 
   /** Blit `font`'s glyphs for `text` into the bit-grid starting at (x0, y0),
@@ -218,13 +344,63 @@ export class OledMini {
    * Font_6x8 for the value row (oled_screen.cpp:ShowLine). */
   private layoutText(label: string, value: string) {
     this.bits.fill(0);
-    this.blitText(FONT_6X8, truncate(label.toUpperCase(), LABEL_CHARS), 1, 0);
+
+    // Indicator block first — it owns the right end of the label row, so the
+    // label's budget depends on what's drawn here.
+    const ic = this.icons;
+    let budget = LABEL_CHARS;
+    const blink = (Math.floor(performance.now() / BLINK_MS) % 2) !== 0;
+    if (ic.layers >= 0) {
+      budget = LABEL_CHARS_DOTS;
+      for (let i = 0; i < 5; i++) {
+        const x0 = DOT_X0 + i * DOT_PITCH;
+        const x1 = x0 + DOT_W - 1;
+        if (i === ic.open) {
+          // The take being recorded into pulses with the rec circle.
+          if (blink) this.drawRectFilled(x0, 2, x1, 5);
+          else this.drawRectOutline(x0, 2, x1, 5);
+        } else if (i < ic.layers) {
+          if (((ic.mute >> i) & 1) === 0) this.drawRectFilled(x0, 2, x1, 5);
+          else this.drawRectOutline(x0, 2, x1, 5);
+        } else {
+          this.drawRectFilled(x0 + 1, 3, x0 + 2, 4);
+        }
+      }
+    } else if (ic.rec) {
+      budget = LABEL_CHARS_REC;
+    }
+    if (ic.rec && blink) this.drawCircleOutline(REC_CX, REC_CY, REC_R);
+
+    this.blitText(FONT_6X8, truncate(label.toUpperCase(), budget), 1, 0);
 
     if (value) {
       const font = pickValueFont(value.length);
       const maxChars = Math.floor(W / font.width);
       this.blitText(font, truncate(value, maxChars), 1, H - font.height);
     }
+  }
+
+  /** Same midpoint-circle outline the firmware's DrawCircle() rasterizes. */
+  private drawCircleOutline(cx: number, cy: number, r: number) {
+    let x = r, y = 0, err = 1 - r;
+    while (x >= y) {
+      for (const [dx, dy] of [[x, y], [y, x], [-x, y], [-y, x],
+                              [-x, -y], [-y, -x], [x, -y], [y, -x]] as const)
+        this.setBit(cx + dx, cy + dy);
+      y++;
+      if (err < 0) err += 2 * y + 1;
+      else { x--; err += 2 * (y - x) + 1; }
+    }
+  }
+
+  /** The persistent indicator block; redraws immediately so a state change
+   * (arming, a layer committing) shows without waiting for the blink tick. */
+  setIcons(icons: StatusIcons) {
+    const a = this.icons;
+    if (a.rec === icons.rec && a.layers === icons.layers
+        && a.mute === icons.mute && a.open === icons.open) return;
+    this.icons = icons;
+    if (!this.progressMode && this.flashTimer === null) this.draw();
   }
 
   private setBit(x: number, y: number) {
@@ -241,19 +417,23 @@ export class OledMini {
       for (let x = x1; x <= x2; x++) this.setBit(x, y);
   }
 
-  /** Label row as layoutText(), value row replaced by an outlined bar filled
-   * left-to-right by `pct` — identical geometry to the firmware's
+  /** Label row as layoutText(), middle row an outlined bar filled
+   * left-to-right by `pct`, bottom row a Font_6x8 note saying what crossing
+   * the threshold does — identical geometry to the firmware's
    * OledScreen::ShowProgress() (display/oled_screen.cpp). */
-  private layoutProgress(label: string, pct: number) {
+  private layoutProgress(label: string, pct: number, note: string) {
     this.bits.fill(0);
     this.blitText(FONT_6X8, truncate(label.toUpperCase(), LABEL_CHARS), 1, 0);
 
-    const OX1 = 1, OY1 = 16, OX2 = 126, OY2 = 27;
+    const OX1 = 1, OY1 = 12, OX2 = 126, OY2 = 21;
     this.drawRectOutline(OX1, OY1, OX2, OY2);
     const FX1 = OX1 + 2, FY1 = OY1 + 2, FY2 = OY2 - 2;
     const maxW = OX2 - 2 - FX1; // inner width at 100%
     const fillW = Math.max(0, Math.min(maxW, Math.round(maxW * pct)));
     if (fillW > 0) this.drawRectFilled(FX1, FY1, FX1 + fillW - 1, FY2);
+
+    if (note)
+      this.blitText(FONT_6X8, truncate(note.toUpperCase(), LABEL_CHARS), 1, H - FONT_6X8.height);
   }
 
   /** Paint each lit bit-grid pixel as an inset square — the visible

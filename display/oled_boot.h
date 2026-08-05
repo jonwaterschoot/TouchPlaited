@@ -18,10 +18,11 @@ namespace synthux {
 // that scatter outward and fall away; once the screen is clear it settles
 // into a status line via OledScreen::ShowLine reporting whether
 // SettingsJournal found and restored a prior session or this is a
-// fresh/reset unit, held for another 2s before Run() returns. After that
-// the status line just sits there regardless — OledUi has no idle fallback
-// (see its header) so it holds until the first touch triggers a real
-// redraw.
+// fresh/reset unit, held for another 2s before Run() returns. It survives a
+// while longer after that: OledUi starts its idle clock on its first
+// Service() call rather than at reset, so the line gets one full kIdleMs on
+// screen before the device's own status row takes over (or sooner, if
+// something is touched first).
 //
 // The whole sequence also drives the single user LED (slow blink while
 // "loading", one quick flash once the status line is about to show) so a

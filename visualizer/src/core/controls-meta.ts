@@ -2,6 +2,10 @@
 // visualizer overlay today and by the future manual / virtual-device modes.
 // Sources: README.md panel drawing and MANUAL.md tables.
 
+import {
+  GENRE_NAMES, GENRE_PATTERN_COUNT, GENRE_PATTERN_IDX, SEQ_PATTERN_NAMES,
+} from './patterns-gen';
+
 export interface ControlMeta {
   svgId: string;
   name: string;      // silk-screen designator, e.g. "S31"
@@ -16,8 +20,8 @@ export const CONTROLS: ControlMeta[] = [
   { svgId: 'knob-s30', name: 'S30', main: 'Drive', seq: 'Drive', arp: 'Drive', fx: 'Reverb' },
   { svgId: 'knob-s31', name: 'S31', main: 'Decay', seq: 'Tempo', arp: 'Decay' },
   { svgId: 'knob-s32', name: 'S32', main: 'Harmonics', seq: 'Swing', arp: 'Division' },
-  { svgId: 'knob-s33', name: 'S33', main: 'Timbre', seq: 'Density', arp: 'Swing' },
-  { svgId: 'knob-s34', name: 'S34', main: 'Morph', seq: 'Punch', arp: 'Density' },
+  { svgId: 'knob-s33', name: 'S33', main: 'Timbre', seq: 'Pattern density', arp: 'Swing' },
+  { svgId: 'knob-s34', name: 'S34', main: 'Morph', seq: 'Step chance', arp: 'Density' },
   { svgId: 'knob-s35', name: 'S35', main: 'Model sel', seq: 'Pattern', arp: 'Order', fx: 'Delay' },
   { svgId: 'fader-s36', name: 'S36', main: 'Volume', seq: 'Volume', arp: 'Volume' },
   { svgId: 'fader-s37', name: 'S37', main: 'Blend', seq: 'Tightness', arp: 'Blend' },
@@ -158,6 +162,57 @@ export function arpOrderName(v: number): string {
   return ARP_ORDERS[Math.min(4, Math.max(0, Math.floor(v * 5)))];
 }
 
+/** Seq S35 (Pattern): name of the selected pattern + its position within the
+ * current genre, e.g. "fourfloor 1/6" — mirrors Sequencer::pattern_index()'s
+ * quantization (synth/sequencer.h) so the displayed slot always matches what
+ * actually plays. genre is SW1 (0 IDM 1 Techno 2 Electro). */
+export function patternValue(genre: number, v: number): string {
+  const g = genre >= 0 && genre < GENRE_NAMES.length ? genre : 0;
+  const n = GENRE_PATTERN_COUNT[g];
+  const vi = Math.min(n - 1, Math.floor(v * n));
+  const idx = GENRE_PATTERN_IDX[g][vi];
+  return `${SEQ_PATTERN_NAMES[idx]} ${vi + 1}/${n}`;
+}
+
+/** Same as patternValue(), but from an already-resolved slot index (the
+ * device's own `Sequencer::VariantSlot`, published as byte 27) rather than a
+ * knob position — what the status row needs, since S35's pot is behind a
+ * pickup and may not be where the playing pattern is. Mirrors
+ * pattern_slot_value() in display/oled_ui.cpp. */
+export function patternSlotValue(genre: number, slot: number): string {
+  const g = genre >= 0 && genre < GENRE_NAMES.length ? genre : 0;
+  const n = GENRE_PATTERN_COUNT[g];
+  const vi = slot >= 0 && slot < n ? slot : 0;
+  return `${SEQ_PATTERN_NAMES[GENRE_PATTERN_IDX[g][vi]]} ${vi + 1}/${n}`;
+}
+
+/** Seq S33 (Density): which weight layers survive at each stage — index 0 =
+ * stage 1. Mirrors the same four strings in display/oled_ui.cpp's
+ * kDensityWords, including their <= 11-char budget (the firmware's value row
+ * keeps one font across the sweep at that length). */
+export const DENSITY_WORDS = ['layer 4', 'layers 3-4', 'layers 2-4', 'layers 1-4'];
+
+/** Mirrors Sequencer::SetDensity's quantization (synth/sequencer.h) exactly,
+ * so the displayed stage always matches what's actually playing. */
+export function densityValue(v: number): string {
+  let d = 1 + Math.floor(v * 3 + 0.5);
+  d = Math.min(4, Math.max(1, d));
+  return DENSITY_WORDS[d - 1];
+}
+
+/** Seq S34 (Chance): a three-zone control, not a percentage — a raw knob %
+ * read as "100% = always plays" when full right is in fact the *sparsest*
+ * setting. Mirrors eval_step()'s curve in synth/sequencer.h (miss rate x1 at
+ * centre, up to kChanceExtraMax = 3 at full right) and chance_value() in
+ * display/oled_ui.cpp. */
+export function chanceValue(v: number): string {
+  const DEAD = 0.02;
+  if (v <= DEAD) return 'always fire';
+  if (v >= 0.5 - DEAD && v <= 0.5 + DEAD) return 'as authored';
+  if (v < 0.5) return `fuller ${Math.round((0.5 - v) * 200)}%`;
+  return `sparse ${(1 + (v - 0.5) * 4).toFixed(1)}x`;
+}
+
 export type KnobParam = 'harmonics' | 'timbre' | 'morph' | 'decay';
 
 /** Engine-aware value rendering: quantized selectors show the selected item
@@ -203,15 +258,22 @@ export function engineKnobLabel(
 export const MIDI_PITCH_CH = 0; // ch 1 — pitched notes, global CCs
 export const MIDI_DRUM_CH = 9;  // ch 10 — GM drum notes
 
-/** Pad index → outgoing GM drum note (P3..P9; sequencer + Seq-mode taps). */
+/** Pad index → outgoing GM drum note (P3..P9; sequencer + Seq-mode taps).
+ * The anchors of the standard 4×4 grid a pad controller lands on, so its
+ * bottom two rows drive the kit with no remapping — mirrors kDrumSlotGm in
+ * TouchPlaited.cpp:
+ *     48  49  50  51
+ *     44  45 [46 OHH] 47
+ *     40 [41 TOM][42 CHH][43 PERC]
+ *    [36 KICK] 37 [38 SNARE][39 CLAP]  */
 export const DRUM_NOTES: Record<number, number> = {
   3: 36, // Kick
   4: 38, // Snare
   5: 42, // Closed hat
   6: 46, // Open hat
   7: 39, // Clap
-  8: 45, // Tom
-  9: 37, // Perc
+  8: 41, // Tom
+  9: 43, // Perc
 };
 
 /** Pitched-note math, mirroring TouchPlaited.cpp compute_note(): the scale
@@ -273,7 +335,7 @@ export const CCS: CcMeta[] = [
   { cc: 27, name: 'Seq tempo', shadows: 'S31 Seq' },
   { cc: 28, name: 'Seq shuffle', shadows: 'S32 Seq' },
   { cc: 29, name: 'Seq density', shadows: 'S33 Seq' },
-  { cc: 30, name: 'Kick punch', shadows: 'S34 Seq' },
+  { cc: 30, name: 'Seq chance', shadows: 'S34 Seq' },
   { cc: 31, name: 'Seq tightness', shadows: 'S37 Seq' },
   { cc: 85, name: 'Reverb (pitched)', shadows: 'P1+S30', fxKind: 'reverb' },
   { cc: 86, name: 'Reverb (drums)', shadows: 'P1+S30 Seq', fxKind: 'reverb' },
@@ -285,4 +347,18 @@ const NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 
 
 export function noteName(n: number): string {
   return `${NOTE_NAMES[n % 12]}${Math.floor(n / 12) - 1}`;
+}
+
+/** The root as a bare pitch class — root is octave-less by design on the
+ * device (the octave lives in its own per-mode store). */
+export const ROOT_NAMES = NOTE_NAMES;
+
+/** The seven pads as pitch classes from the current root, in order:
+ * "D# F F# G# A# B C#". Mirrors display/oled_ui.cpp's scale_notes(): what
+ * makes it visible that shifting the root transposes the whole scale rather
+ * than only retuning the first pad. */
+export function scaleNotes(swA: number, root: number): string {
+  const scale = SCALES[swA] ?? SCALES[1];
+  const r = ((root % 12) + 12) % 12;
+  return scale.map((d) => NOTE_NAMES[(r + d) % 12]).join(' ');
 }

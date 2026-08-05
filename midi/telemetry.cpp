@@ -27,8 +27,15 @@ bool StateChanged(const TelemetryState& a, const TelemetryState& b) {
     if (a.clock_src != b.clock_src || a.arp_flags != b.arp_flags) return true;
     if (a.hold_kind != b.hold_kind || a.hold_progress != b.hold_progress) return true;
     if (a.hold_stage != b.hold_stage || a.hold_outcome != b.hold_outcome) return true;
+    if (a.seq_pattern != b.seq_pattern) return true;
+    if (a.pickup_armed != b.pickup_armed) return true;
     for (int i = 0; i < 8; i++)
         if (a.controls[i] != b.controls[i]) return true;
+    // Targets only matter where a pot is actually armed — an unarmed slot's
+    // stale target must not keep the frame rate pinned at the 33 ms floor.
+    for (int i = 0; i < 8; i++)
+        if ((a.pickup_armed >> i) & 1)
+            if (a.pickup_target[i] != b.pickup_target[i]) return true;
     return false;
 }
 
@@ -69,7 +76,7 @@ void Telemetry::Service(const TelemetryState& s, uint32_t now_ms, MidiIO& midi) 
 }
 
 void Telemetry::SendState(const TelemetryState& s, uint32_t now_ms, MidiIO& midi) {
-    uint8_t f[34];
+    uint8_t f[44];
     f[0] = 0xF0; f[1] = 0x7D; f[2] = 0x54; f[3] = 0x50; f[4] = 0x01;
     f[5]  = kFrameState;
     f[6]  = static_cast<uint8_t>(s.pads & 0x7F);         // P0..P6
@@ -88,12 +95,17 @@ void Telemetry::SendState(const TelemetryState& s, uint32_t now_ms, MidiIO& midi
     f[25] = s.rec_layers & 0x7F;   // NoteRec committed layer count, 0..5
     f[26] = s.rec_mute & 0x7F;     // bit i = NoteRec layer i muted
     f[27] = s.clock_src & 0x7F;    // 0 internal, 1 MIDI, 2 CV
-    f[28] = s.arp_flags & 0x7F;    // bits0-1 sub-state, bit2 Rec armed
-    f[29] = s.hold_kind & 0x7F;    // 0 none, 1 P0+P2, 2 rec entry, 3 layer clear, 4 layer copy
+    f[28] = s.arp_flags & 0x7F;    // bits0-1 sub-state, bit2 Rec armed, bit3 melodic transport
+    f[29] = s.hold_kind & 0x7F;    // 0 none, 1 P0+P2, 2 rec entry, 3 layer clear,
+                                   // 4 layer copy, 5 rec save, 6 rec cancel,
+                                   // 7 P0+P1 sound edit
     f[30] = s.hold_progress & 0x7F;
     f[31] = s.hold_stage & 0x7F;   // confirms fired so far for the current hold
-    f[32] = s.hold_outcome & 0x7F; // hold_kind 3 only: 0 n/a, 1 success, 2 empty
-    f[33] = 0xF7;
+    f[32] = s.hold_outcome & 0x7F; // kind 3: 1 cleared, 2 empty · kind 7: 1 entered, 2 left
+    f[33] = s.seq_pattern & 0x7F;  // playing slot within the genre, 0-based
+    f[34] = s.pickup_armed & 0x7F; // bit i = S3(0+i) waiting for pickup
+    for (int i = 0; i < 8; i++) f[35 + i] = s.pickup_target[i] & 0x7F;
+    f[43] = 0xF7;
     midi.SendSysexUsb(f, sizeof(f));
     last_state_ = s;
     state_ms_   = now_ms;

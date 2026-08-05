@@ -13,11 +13,30 @@
 // Plain decimal 0–4 therefore still means "deterministic weight" — old tables
 // read unchanged; 0x23 reads as "weight 3 at 50%".
 //
-// A step is audible when (weight + density) >= kThreshold (5).
-//   density 1 → only weight=4 (strong) steps fire
-//   density 2 → weight 3–4 fire (main pattern)
-//   density 3 → weight 2–4 fire (ghosts audible)
-//   density 4 → weight 1–4 fire (everything)
+// A step is audible when (weight + density) >= kThreshold (5). Density is
+// clamped to 1–4 (SetDensity) — S33's travel never reaches a fully silent
+// state:
+//   density 1 → only weight=4 (strong) steps fire   — display: "layer 4"
+//   density 2 → weight 3–4 fire (main pattern)       — display: "layers 3-4"
+//   density 3 → weight 2–4 fire (ghosts audible)      — display: "layers 2-4"
+//   density 4 → weight 1–4 fire (everything)          — display: "layers 1-4"
+// (display/oled_ui.cpp's density_value() and the visualizer's
+// densityValue() must stay in lockstep with SetDensity's quantization and
+// these four strings. They name the layers rather than the feel — "strong"
+// and "ghosts" described how it sounds, not what the knob just did — and are
+// all ≤11 chars so the OLED's value row keeps one font across the sweep.)
+//
+// S34 (chance) rolls a step's own authored chance nibble (above) by default
+// — SetChance(0.5), the pickup default, reproduces that exactly. Below 0.5
+// it interpolates every chance<4-authored step toward always-fires; above
+// 0.5 it scales the authored miss rate up (steps get sparser, up to
+// kChanceExtraMax x at full right). Steps authored "always" (c=0, e.g. a
+// four-on-the-floor kick) are never touched by this knob — it only adds or
+// removes chance on steps the pattern already marked as probabilistic.
+// It is displayed as a zone, never a percentage ("always fire" / "fuller
+// 60%" / "as authored" / "sparse 2.4x" — chance_value() in
+// display/oled_ui.cpp, chanceValue() in the visualizer): a raw knob % read
+// as "100% = always plays" when full right is in fact the sparsest setting.
 //
 // Track order: 0=Kick 1=Snare 2=CHH 3=OHH 4=Clap 5=Tom 6=Perc
 //   (matches pad_slots[0..6])
@@ -129,13 +148,26 @@ public:
     // S32 0..1 → 0–50% swing delay on odd steps
     void SetShuffle(float v) { shuffle_ = v * 0.5f; }
 
-    // S33 0..1 → integer density 0–4
+    // S33 0..1 → integer density 1–4 (never fully silent). Quantization must
+    // match display/oled_ui.cpp's density_value() and the visualizer's
+    // densityValue() exactly, so the displayed stage always matches what's
+    // actually playing.
     void SetDensity(float v) {
-        int d    = static_cast<int>(v * 4.f + 0.5f);
-        density_ = static_cast<uint8_t>(d > 4 ? 4 : d);
+        int d = 1 + static_cast<int>(v * 3.f + 0.5f);
+        if (d < 1) d = 1;
+        if (d > 4) d = 4;
+        density_ = static_cast<uint8_t>(d);
     }
 
-    // SW1 B() → genre (0=Techno 1=Electro 2=IDM; order fixed in gen_patterns.py).
+    // S34 0..1 → chance layer over each step's authored chance nibble.
+    // 0.5 (the pickup default) reproduces the pattern exactly as authored;
+    // below that, probabilistic steps fire more often (toward "always" at
+    // 0); above it, they fire less often (down to silent at 1). See the
+    // header comment and eval_step() for the exact curve.
+    void SetChance(float v) { chance_ = v < 0.f ? 0.f : (v > 1.f ? 1.f : v); }
+
+    // SW1 B() → genre (0=IDM 1=Techno 2=Electro, physical left/center/right;
+    // order fixed in gen_patterns.py).
     void SetGenre(int g) {
         if (g >= 0 && g < kGenres) genre_ = g;
     }
@@ -183,8 +215,8 @@ public:
             fire_pending_ = false;
             triggered     = eval_step();
             step_fired_   = true;
-            // Quarter-note beat marker on steps 0, 4, 8, 12 — fires even at density=0
-            // so tempo is always visible in the LED.
+            // Quarter-note beat marker on steps 0, 4, 8, 12 — independent of
+            // the density mask, so tempo is always visible in the LED.
             beat_fired_   = ((step_ % 4) == 0);
         }
 
@@ -201,8 +233,27 @@ public:
 
     bool BeatFired() const { return beat_fired_; }
 
+    // The authored weight (1–4) of track t's most recent firing step, 0 if it
+    // didn't fire. Only meaningful for the block Tick() returned its bit in.
+    // Exists so MIDI out can carry the pattern's own accents as velocity —
+    // ch10 plays each slot at a fixed pitch, so velocity is the only
+    // expressive axis it has (TouchPlaited.cpp's drum_velocity()).
+    uint8_t StepWeight(int t) const {
+        return (t >= 0 && t < kTracks) ? last_weight_[t] : 0;
+    }
+
     // True on the block where a 16th step fired (regardless of density mask).
     bool StepFired() const { return step_fired_; }
+
+    // Which slot within the current genre is actually playing (0-based) —
+    // published in telemetry so both screens can name the pattern without
+    // re-deriving it from S35's pot position, which sits behind a pickup and
+    // so can be parked anywhere.
+    int VariantSlot() const {
+        const int n  = kGenrePatternCount[genre_];
+        const int vi = static_cast<int>(variant_ * static_cast<float>(n));
+        return vi >= n ? n - 1 : vi;
+    }
 
 private:
     bool     active_       = false;
@@ -210,7 +261,7 @@ private:
     bool     step_fired_   = false;
     int      step_         = 0;
     int      bar_          = 0;
-    int      genre_        = 0;
+    int      genre_        = 1;  // Techno — matches seq_genre_lk's boot default
     float    variant_      = 0.f;
     uint32_t clock_        = 0;
     uint32_t step_blocks_  = 31;    // ~120 BPM at 4 ms/block
@@ -222,7 +273,9 @@ private:
     float    midi_clk_acc_ = 0.f;   // master 24 ppqn generator phase
     uint8_t  density_      = 2;
     float    shuffle_      = 0.f;
+    float    chance_       = 0.5f;  // 0.5 = pattern's own chance, untouched
     uint32_t rng_          = 0x2545F491;  // xorshift32 state (any non-zero seed)
+    uint8_t  last_weight_[kTracks] = {};  // weight of each track's last firing step
 
     uint32_t next_rand() {
         rng_ ^= rng_ << 13;
@@ -261,15 +314,30 @@ private:
         int     idx  = bar_ * kSteps + step_;
         const uint8_t (*pat)[64] = kSeqPatterns[pattern_index()];
         for (int t = 0; t < kTracks; t++) {
+            last_weight_[t] = 0;
             uint8_t v = pat[t][idx];
             uint8_t w = v & 0x0F;
             if (w == 0) continue;
             if (static_cast<uint32_t>(w) + density_ < kThreshold) continue;
-            // Chance nibble: 0 = always, 1 = 75%, 2 = 50%, 3 = 25%.
+            // Chance nibble: 0 = always (never touched by chance_ — see the
+            // header comment), 1 = 75%, 2 = 50%, 3 = 25% as authored.
+            // chance_ (S34) scales the miss rate around that authored value:
+            // 0.5 leaves it exactly as authored; below stretches toward
+            // always-fires; above stretches toward silent, up to
+            // kChanceExtraMax x the authored miss rate.
             uint8_t c = v >> 4;
-            if (c > 0 && (next_rand() & 0xFF) >= static_cast<uint32_t>(4 - c) * 64) {
-                continue;
+            if (c > 0) {
+                constexpr float kChanceExtraMax = 3.f;
+                float authored_p = static_cast<float>(4 - c) * 64.f;  // out of 256
+                float miss       = 256.f - authored_p;
+                float scale = (chance_ <= 0.5f)
+                    ? (chance_ * 2.f)
+                    : (1.f + (chance_ - 0.5f) * 2.f * (kChanceExtraMax - 1.f));
+                float eff_p = 256.f - miss * scale;
+                if (eff_p < 0.f) eff_p = 0.f;
+                if (static_cast<float>(next_rand() & 0xFF) >= eff_p) continue;
             }
+            last_weight_[t] = w;
             mask |= static_cast<uint8_t>(1u << t);
         }
         return mask;

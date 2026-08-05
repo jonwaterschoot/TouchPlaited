@@ -56,7 +56,7 @@ export class MockTransport implements Transport {
       s.setPlaying(false);
       s.setSeqStep(null);
       s.setClockSrc(0);
-      s.setArpSub(0, false);
+      s.setArpSub(0, false, true);
       s.setRecLayers(0, 0);
       s.setControl(1 + i, 0.5 - 0.45 * Math.cos(phase * Math.PI * 2));
       s.setLed(0);
@@ -127,7 +127,7 @@ export class MockTransport implements Transport {
       s.setSw('B', 1);
       s.setSw('A', 2); // lever on Rec
       const u = t - 24; // 0..7
-      s.setArpSub(2, u > 0.6 && u < 5.4);
+      s.setArpSub(2, u > 0.6 && u < 5.4, true);
       const layers = Math.min(5, Math.max(0, Math.floor((u - 0.6) / 0.9) + 1));
       s.setRecLayers(layers, u > 3.4 && layers >= 2 ? 0b00010 : 0);
       s.setClockSrc(u > 5.6 ? 2 : 0);

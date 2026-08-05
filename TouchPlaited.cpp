@@ -74,17 +74,19 @@ static bool seq_entered_once = false;   // first SW2-Up entry auto-starts the se
 // Seq settings, stored separately from the pots. They only follow a pot after
 // it picks up (crosses the stored value) inside Seq mode — so using the same
 // pot in another mode, or re-entering Seq, never jumps a setting.
-// Defaults match the Sequencer class defaults (120 BPM, no shuffle, density 2).
-static float seq_tempo_lk = 0.5f;
-static float seq_shuf_lk  = 0.0f;
-static float seq_dens_lk  = 0.5f;
-static float seq_punch_lk = 0.0f;
-static float seq_tight_lk = 0.5f;
-static float seq_drive_lk = 0.0f;
-static float seq_var_lk   = 0.0f;   // S35 in Seq = pattern variant within genre
-static int   seq_genre_lk = 0;      // SW1 in Seq = genre; change-latched (see SW1 handler)
-static float seq_vol_lk   = 1.0f;   // S36 in Seq = drum group volume
-static float seq_width_lk = 0.0f;   // P0+S37 in Seq = drum-group stereo width (0 = mono)
+// Defaults match the Sequencer class defaults (120 BPM, no shuffle, density
+// 2, chance 0.5 = pattern's own chance nibbles untouched).
+static float seq_tempo_lk  = 0.5f;
+static float seq_shuf_lk   = 0.0f;
+static float seq_dens_lk   = 0.5f;
+static float seq_chance_lk = 0.5f;  // S34 in Seq — see Sequencer::SetChance
+static float seq_tight_lk  = 0.5f;
+static float seq_drive_lk  = 0.0f;
+static float seq_var_lk    = 0.0f;   // S35 in Seq = pattern variant within genre
+static int   seq_genre_lk  = 1;      // SW1 in Seq = genre (0 IDM 1 Techno 2 Electro);
+                                      // starts at Techno; change-latched (see SW1 handler)
+static float seq_vol_lk    = 1.0f;   // S36 in Seq = drum group volume
+static float seq_width_lk  = 0.0f;   // P0+S37 in Seq = drum-group stereo width (0 = mono)
 
 // Pitched-mode fader state. Volume (S36) and blend (S37) go through pickup:
 // S37 doubles as the width control while P0 is held, and recording borrows
@@ -330,6 +332,18 @@ static const DrumOpt kDrumPerc[]  = {
     { 22, 0.05f,0.20f, 0.05f,0.35f, 0.30f,0.60f, 0.3f,0.5f, 66.f,80.f },
 };
 
+// Which pool each kit slot draws from, and the role volume that comes with
+// it — the single source of truth for both whole-kit generation and the
+// "is this slot still playing its own role" test below. Splitting it out of
+// generate_drum_random() is what made per-slot randomizing (Rec P0+P2) and
+// the off-pool snap-back possible without a second copy of the table.
+struct DrumPool { const DrumOpt* opts; int n; float volume; };
+static const DrumPool kDrumPools[kPadSlots] = {
+    { kDrumKick,  2, 0.90f }, { kDrumSnare, 2, 0.80f }, { kDrumCHH,  2, 0.55f },
+    { kDrumOHH,   1, 0.65f }, { kDrumClap,  2, 0.75f }, { kDrumTom,  2, 0.70f },
+    { kDrumPerc,  3, 0.50f },
+};
+
 static void fill_drum_slot(PadSlot& s, const DrumOpt* opts, int n) {
     const DrumOpt& o = opts[static_cast<int>(rand_f() * n) % n];
     s.engine    = o.e;
@@ -340,14 +354,27 @@ static void fill_drum_slot(PadSlot& s, const DrumOpt* opts, int n) {
     s.note      = rand_range(o.nlo, o.nhi);
 }
 
+// True while slot i is still on one of the engines its role is curated for.
+// Rec mode's S35 reaches all 24 engines, so a slot can be pointed at anything
+// by hand — this is how the randomizers tell "a kick that needs varying" from
+// "a Speech engine somebody parked on the kick pad".
+static bool slot_engine_in_pool(int i, int engine) {
+    const DrumPool& p = kDrumPools[i];
+    for (int j = 0; j < p.n; j++)
+        if (p.opts[j].e == engine) return true;
+    return false;
+}
+
+// Re-pick slot i from its own curated pool: new engine, new params, role
+// volume. The "stick to kick models" primitive — every randomizer that
+// replaces a sound goes through here, so none of them can wander off-role.
+static void fill_drum_slot_from_pool(int i) {
+    fill_drum_slot(drum_slots[i], kDrumPools[i].opts, kDrumPools[i].n);
+    drum_slots[i].volume = kDrumPools[i].volume;
+}
+
 static void generate_drum_random() {
-    fill_drum_slot(drum_slots[0], kDrumKick,  2); drum_slots[0].volume = 0.90f;
-    fill_drum_slot(drum_slots[1], kDrumSnare, 2); drum_slots[1].volume = 0.80f;
-    fill_drum_slot(drum_slots[2], kDrumCHH,   2); drum_slots[2].volume = 0.55f;
-    fill_drum_slot(drum_slots[3], kDrumOHH,   1); drum_slots[3].volume = 0.65f;
-    fill_drum_slot(drum_slots[4], kDrumClap,  2); drum_slots[4].volume = 0.75f;
-    fill_drum_slot(drum_slots[5], kDrumTom,   2); drum_slots[5].volume = 0.70f;
-    fill_drum_slot(drum_slots[6], kDrumPerc,  3); drum_slots[6].volume = 0.50f;
+    for (int i = 0; i < kPadSlots; i++) fill_drum_slot_from_pool(i);
     // slot.drive is a ratio of the overall S30 drive in seq mode; 1.0 = follow fully.
     // Blend/width/FX-send trims reset with the kit: a mono flag, AUX-only blend
     // or dry-trimmed send from an old kit shouldn't silently reshape whatever
@@ -363,13 +390,18 @@ static void generate_drum_random() {
 }
 
 // Render params for drum slot i exactly as a seq trigger shapes them (tail→
-// morph via tightness, kick punch, overall drive × slot ratio). Shared by
-// triggers and rec-mode auditions, so tweaking a drum against the paused seq
-// sounds the same as it will when the pattern runs.
+// morph via tightness, kick punch riding drive, overall drive × slot ratio).
+// Shared by triggers and rec-mode auditions, so tweaking a drum against the
+// paused seq sounds the same as it will when the pattern runs.
+//
+// Kick punch used to be its own S34 knob; that knob is now Chance (a
+// sequencer-wide control, see Sequencer::SetChance) and punch instead rides
+// S30 Drive — turning the kick up pushes both together, so there's no
+// dedicated knob to go dead on models that don't need it (2026-08-04).
 static VoiceParams drum_params(int i) {
     const PadSlot& s = drum_slots[i];
     VoiceParams p = slot_params(s, seq_tight_lk);
-    if (i == 0) p.timbre = p.timbre + seq_punch_lk * (1.0f - p.timbre);
+    if (i == 0) p.timbre = p.timbre + seq_drive_lk * (1.0f - p.timbre);
     p.drive = clampf(seq_drive_lk * s.drive);
     return p;
 }
@@ -383,13 +415,26 @@ static void trigger_drum(int i, float vel = 1.0f) {
     pool.NoteOnWithParams(16 + i, drum_slots[i].note, p, VoiceGroup::kDrum);
 }
 
-// Seq P0+P2 stage 1: nudge params of the current kit — same engines, same notes.
+// Vary one slot in place: same engine, same note, params nudged. The unit
+// both the whole-kit stage 1 and Rec's per-pad stage 1 are built from.
+static void mutate_drum_slot_soft(int i) {
+    auto& s = drum_slots[i];
+    s.harmonics = clampf(s.harmonics + rand_range(-0.10f, 0.10f));
+    s.timbre    = clampf(s.timbre    + rand_range(-0.10f, 0.10f));
+    s.decay     = clampf(s.decay     + rand_range(-0.08f, 0.08f));
+}
+
+// Seq P0+P2 stage 1: nudge params of the current kit — same engines, same
+// notes, with one exception. A slot sitting on an engine outside its own
+// curated pool (Rec mode's S35 reaches all 24) is re-picked from that pool
+// instead of jittered: jittering it left the kick pad on whatever non-kick
+// model had been chosen by hand, so "vary kit" could never bring the kit
+// back to kit-shaped sounds. In-pool slots are untouched by the snap, so
+// this is still "same kit, new variation" for a kit that was randomized.
 static void mutate_drum_soft() {
     for (int i = 0; i < kPadSlots; i++) {
-        auto& s = drum_slots[i];
-        s.harmonics = clampf(s.harmonics + rand_range(-0.10f, 0.10f));
-        s.timbre    = clampf(s.timbre    + rand_range(-0.10f, 0.10f));
-        s.decay     = clampf(s.decay     + rand_range(-0.08f, 0.08f));
+        if (!slot_engine_in_pool(i, drum_slots[i].engine)) fill_drum_slot_from_pool(i);
+        else                                               mutate_drum_slot_soft(i);
     }
 }
 
@@ -566,6 +611,16 @@ static volatile uint8_t  p2layer_outcome[5] = { 0, 0, 0, 0, 0 };
 // off), consumed once per block in AudioCallback.
 static volatile uint32_t arp_ext_ticks = 0;
 
+// Switch3 raw (0 center, 1 up, 2 down) → panel position (0 left, 1 center,
+// 2 right). Anything that has to agree with what the panel/OLED prints must
+// go through this — the Seq genre indexes the pattern registry, whose order
+// is panel order. Scale and the Arp sub-state deliberately keep consuming the
+// raw value: their tables are written against up/down/center directly.
+static int sw1_panel_pos(int sw_raw) {
+    static const uint8_t kMap[3] = { 1, 2, 0 };
+    return kMap[(sw_raw >= 0 && sw_raw <= 2) ? sw_raw : 0];
+}
+
 // SW1 (B()): pos1=left-flick=3 blinks, center=2, pos2=right-flick=1 blink
 static int sw1_blink_count(int sw) {
     return (sw == 2) ? 1 : (sw == 0) ? 2 : 3;
@@ -590,11 +645,10 @@ static PadSlot          rec_backup;          // saved state, restored on cancel
 static int               entry_hold_pad    = -1;
 static volatile uint32_t entry_hold_count  = 0;
 static bool              entry_wait_clear  = false;
-// Set alongside rec_entry_flash (the LED's own confirm signal) at the exact
-// instant entry fires; entry_hold_count resets to 0 in that same ISR call,
-// so compute_hold_telemetry() can't catch the threshold-crossing frame by
-// polling the counter — it consumes and clears this flag instead.
-static volatile bool     entry_just_confirmed = false;
+// Rec entry's confirm is published through fire_confirm() (below) at the
+// exact instant entry fires: entry_hold_count resets to 0 in that same ISR
+// call, so compute_hold_telemetry() can't catch the threshold-crossing frame
+// by polling the counter.
 
 // Secondary pad tracking for cancel / copy while in recording. copy_hold_anim
 // mirrors the copy hold progress (only while the source pad is also down) for
@@ -602,10 +656,35 @@ static volatile bool     entry_just_confirmed = false;
 static int               cancel_pad     = -1;
 static uint32_t          cancel_count   = 0;
 static volatile uint32_t copy_hold_anim = 0;
-// Same idea as entry_just_confirmed above: copy_hold_anim/cancel_count both
-// reset to 0 in the same block that fires the copy, so this is the only
-// trace of the completion compute_hold_telemetry() can still see.
-static volatile bool     copy_just_confirmed = false;
+// Same idea as rec entry above: copy_hold_anim/cancel_count both reset to 0
+// in the same block that fires the copy, so fire_confirm() is the only trace
+// of the completion compute_hold_telemetry() can still see.
+
+// ─── Confirm latch ────────────────────────────────────────────────────────────
+// A threshold firing is a one-shot. The counters behind it reset in the same
+// ISR block, so "it just fired" used to live for exactly one main-loop pass —
+// and both consumers sample slower than that: OledUi::Service sits behind an
+// 80 ms redraw throttle and Telemetry::SendState behind a 33 ms rate limit,
+// so a confirm landing inside either window was lost outright. That's why
+// "RECORDING" only appeared sometimes and the entry bar looked stuck at ~98%.
+// The ISR now posts the confirm here; the main loop turns it into a latch
+// that keeps reporting for kConfirmLatchMs, comfortably longer than either
+// window, so every consumer sees at least one frame carrying it.
+// Kept shorter than OledUi's own kConfirmFlashMs (220 ms) on purpose: by the
+// time the screen releases the flash the latch is long expired, so the bar
+// can't flicker back in behind it.
+static constexpr uint32_t kConfirmLatchMs = 120;
+static volatile uint8_t   pending_confirm_kind    = 0;  // 0 = nothing posted
+static volatile uint8_t   pending_confirm_stage   = 0;
+static volatile uint8_t   pending_confirm_outcome = 0;
+
+// ISR-side: post a confirm. kind/stage/outcome match TelemetryState's
+// hold_kind/hold_stage/hold_outcome (midi/telemetry.h).
+static inline void fire_confirm(uint8_t kind, uint8_t stage, uint8_t outcome = 0) {
+    pending_confirm_stage   = stage;
+    pending_confirm_outcome = outcome;
+    pending_confirm_kind    = kind;   // written last — it's the "ready" flag
+}
 
 // Set on rec entry; the main loop plays a short LED burst before settling
 // into the recording heartbeat.
@@ -619,7 +698,8 @@ static volatile bool rec_hit_flash = false;
 // Knob pickup — the pot takes effect once it reaches or crosses the stored
 // value. Inclusive comparison + a near-window, so targets at the pot extremes
 // (0.0 / 1.0) are reachable — a strict crossing test can never fire there,
-// which is how S30/S34 went dead after seq re-entry with drive/punch at zero.
+// which is how S30/S34 went dead after seq re-entry with drive/chance at
+// their rails.
 // Rail targets additionally catch on deliberate movement (~3%, like the width
 // MoveCatch): a pot can sit fractionally under its rail forever, which left
 // knobs armed to 1.0 feeling dead — the arp Density/Order defaults were
@@ -750,7 +830,7 @@ static void rearm_seq_pickups() {
     seq_pu31.arm_to(seq_tempo_lk, kn.s31().Value());
     seq_pu32.arm_to(seq_shuf_lk,  kn.s32().Value());
     seq_pu33.arm_to(seq_dens_lk,  kn.s33().Value());
-    seq_pu34.arm_to(seq_punch_lk, kn.s34().Value());
+    seq_pu34.arm_to(seq_chance_lk, kn.s34().Value());
     seq_pu35.arm_to(seq_var_lk,   kn.s35().Value());
     seq_pu36.arm_to(seq_vol_lk,   kn.s36().Value());
     seq_pu37.arm_to(seq_tight_lk, kn.s37().Value());
@@ -837,8 +917,24 @@ static constexpr uint8_t kMidiPitchCh  = 0;    // ch1
 static constexpr uint8_t kMidiDrumCh   = 9;    // ch10
 static constexpr int     kMidiSlotBase = 32;   // pool slot ids: pads 0–6, drums 16–22, MIDI 32+note
 
-// GM percussion → drum slot (kick, snare, CHH, OHH, clap, tom, perc). Phase 1:
-// the note picks the slot, the slot's stored pitch plays — same as a pad hit.
+// GM percussion → drum slot (kick, snare, CHH, OHH, clap, tom, perc). The
+// note picks the slot and the slot's stored pitch plays — same as a pad hit.
+//
+// "Phase 2" was originally going to add transposition: a note within ±6 of a
+// slot's anchor would play the slot pitched. Dropped deliberately (2026-08-05)
+// — the seven slots are drums, each already carries its own tuned pitch as
+// part of the sound, and a transposing kick pad is a different instrument, not
+// a played one. **Velocity is the expressive axis instead** — honoured on the
+// way in (below) and now generated on the way out (drum_velocity()).
+//
+// The anchors match the standard 4×4 grid controllers land on, so a pad
+// controller's bottom two rows drive the kit with no remapping:
+//     48  49  50  51
+//     44  45 [46 OHH] 47
+//     40 [41 TOM][42 CHH][43 PERC]
+//    [36 KICK] 37 [38 SNARE][39 CLAP]
+// The wider GM aliases stay accepted so a general drum track still lands
+// somewhere sensible; only 43 moved (it was a tom alias, it is Perc's anchor).
 static int gm_to_drum_slot(uint8_t note) {
     switch (note) {
         case 35: case 36:                               return 0;  // kicks
@@ -846,14 +942,30 @@ static int gm_to_drum_slot(uint8_t note) {
         case 42: case 44:                               return 2;  // closed + pedal hat
         case 46:                                        return 3;  // open hat
         case 39:                                        return 4;  // clap
-        case 41: case 43: case 45: case 47: case 48:
-        case 50:                                        return 5;  // toms
-        case 37: case 54: case 56: case 75: case 76:    return 6;  // rim/tamb/cowbell/clave/woodblock
+        case 41: case 45: case 47: case 48: case 50:    return 5;  // toms
+        case 37: case 43: case 54: case 56:
+        case 75: case 76:                               return 6;  // perc/rim/tamb/cowbell/clave/woodblock
         default:                                        return -1;
     }
 }
-// GM note sent out per drum slot (pad hits in Seq mode + seq steps).
-static const uint8_t kDrumSlotGm[kPadSlots] = { 36, 38, 42, 46, 39, 45, 37 };
+// GM note sent out per drum slot (pad hits in Seq mode + seq steps) — the
+// anchors of the grid above, so what we send is what we listen for.
+static const uint8_t kDrumSlotGm[kPadSlots] = { 36, 38, 42, 46, 39, 41, 43 };
+
+// A step's authored weight (Sequencer's 1–4 accent tier) → GM velocity. With
+// pitch fixed per slot, velocity is the only expressive axis ch10 has, and
+// every hit used to leave as a flat 100 — a ghost note and a downbeat kick
+// were indistinguishable to whatever was listening. Weight 0 is the fallback
+// for hits with no step behind them (pad taps, the forced rec-slot trigger).
+static uint8_t drum_velocity(uint8_t weight) {
+    switch (weight) {
+        case 1:  return 45;    // ghost
+        case 2:  return 70;    // light accent
+        case 3:  return 95;    // medium
+        case 4:  return 120;   // strong
+        default: return 100;
+    }
+}
 
 // Pitched note sent out per pad slot, remembered so the NoteOff matches even
 // if octave/root changed while the pad was held. -1 = nothing sent.
@@ -933,7 +1045,8 @@ static void on_midi_cc(uint8_t /*ch*/, uint8_t cc, uint8_t val) {
                  seq.SetShuffle(v);                                          break;
         case 29: seq_dens_lk = v;  seq_pu33.arm_to(v, kn.s33().Value());
                  seq.SetDensity(v);                                          break;
-        case 30: seq_punch_lk = v; seq_pu34.arm_to(v, kn.s34().Value());     break;
+        case 30: seq_chance_lk = v; seq_pu34.arm_to(v, kn.s34().Value());
+                 seq.SetChance(v);                                          break;
         case 31: seq_tight_lk = v; seq_pu37.arm_to(v, kn.s37().Value());     break;
         // FX mirror values, same center-off encoding as the P1 knob layer
         // (64 ≈ off; below = character A, above = character B, wet grows
@@ -1062,7 +1175,98 @@ static OledUi oled_ui;
 // against the previous frame to catch the confirm flash. `outcome` is only
 // meaningful for hold_kind 3 at the instant stage becomes 1: 1 success,
 // 2 empty (nothing was there to clear).
-static void compute_hold_telemetry(uint8_t& kind, uint8_t& progress, uint8_t& stage, uint8_t& outcome);
+static void compute_hold_telemetry(uint32_t now_ms, uint8_t& kind, uint8_t& progress,
+                                   uint8_t& stage, uint8_t& outcome);
+
+// ─── Which pickup is live on each pot right now (telemetry B1) ────────────────
+// `KnobPickup::caught` has always known whether a pot is doing anything; what
+// was missing was the map from "current mode + layer + held modifier" to the
+// eight pickups actually in play, so nothing downstream could say it. Without
+// that the screen printed the raw pot position whether or not it meant
+// anything — you could sweep a knob through its whole travel, watch the number
+// move, and hear nothing.
+//
+// The layer selection below mirrors the knob-application block in
+// AudioCallback exactly (same order, same guards); if a role moves there, it
+// moves here. Only value-crossing pickups are reported: the movement-catches
+// (P0+S37 width, the P1 FX mirror knobs, Rec's S35 bank select) engage on any
+// deliberate ~3% nudge, so there is no target to aim at and no dead travel to
+// warn about — reporting them would put a marker on screen that the very next
+// turn of the pot satisfies.
+static void capture_pickups(TelemetryState& t) {
+    const KnobPickup* pu[8] = { nullptr, nullptr, nullptr, nullptr,
+                                nullptr, nullptr, nullptr, nullptr };
+    auto& kn = touch.knobs();
+    const bool p0    = touch.pads().IsTouched(0);
+    const bool p2    = touch.pads().IsTouched(2);
+    const bool p1_fx = touch.pads().IsTouched(1) && !p0 && !p2
+                       && rec_mode == RecMode::IDLE;
+
+    if (rec_mode == RecMode::RECORDING && rec_slot >= 0) {
+        // Slot editing borrows the whole panel. P1 swaps S30/S35 to the
+        // slot's own send trims; S35's bare role is the bank select, which
+        // is a dead-zone catch and so stays unreported either way.
+        const bool p1_snd = is_drum_mode && touch.pads().IsTouched(1) && !p0 && !p2;
+        pu[0] = p1_snd ? &rec_k30fx : &rec_k30;
+        pu[1] = &rec_k31;
+        pu[2] = &rec_k32;
+        pu[3] = &rec_k33;
+        pu[4] = &rec_k34;
+        if (p1_snd) pu[5] = &rec_k35fx;
+        pu[6] = &rec_k36;
+        if (!p0) pu[7] = &rec_k37;      // P0 held = width, a MoveCatch
+    } else if (seq_mode_on) {
+        if (!p1_fx) pu[0] = &seq_pu30;
+        pu[1] = &seq_pu31;
+        pu[2] = &seq_pu32;
+        pu[3] = &seq_pu33;
+        pu[4] = &seq_pu34;
+        if (!p1_fx) pu[5] = &seq_pu35;
+        pu[6] = &seq_pu36;
+        if (!p0) pu[7] = &seq_pu37;
+    } else if (current_mode == PlayMode::ARP_MEL) {
+        if (arp_snd_edit) {
+            if (!p1_fx) pu[0] = &arp_se30;
+            pu[1] = &arp_se31; pu[2] = &arp_se32; pu[3] = &arp_se33; pu[4] = &arp_se34;
+        } else if (rec_snd_edit) {
+            if (!p1_fx) pu[0] = &rec_se30;
+            pu[1] = &rec_se31; pu[2] = &rec_se32; pu[3] = &rec_se33; pu[4] = &rec_se34;
+        } else if (arp_state == ArpState::REC) {
+            if (!p1_fx) pu[0] = &rec_pu30;
+            pu[1] = &arp_pu31;   // decay is the one knob genuinely shared with Arp/Hold
+            pu[2] = &rec_pu32; pu[3] = &rec_pu33; pu[4] = &rec_pu34;
+            if (!p1_fx && !p0 && !p2) pu[5] = &rec_pu35;
+        } else {
+            if (!p1_fx) pu[0] = &arp_pu30;
+            pu[1] = &arp_pu31; pu[2] = &arp_pu32; pu[3] = &arp_pu33; pu[4] = &arp_pu34;
+            if (!p1_fx && !p0 && !p2) pu[5] = &arp_pu35;
+        }
+        pu[6] = arp_state == ArpState::REC ? &rec_pu_vol   : &arp_pu_vol;
+        if (!p0) pu[7] = arp_state == ArpState::REC ? &rec_pu_blend : &arp_pu_blend;
+    } else {
+        // Basic Pitch: the pots feed eff_* through the CC pickups, which are
+        // force-caught at boot and only re-arm after a MIDI CC write — so
+        // these are normally all live, and the one time they are not is
+        // exactly the case with no other feedback at all.
+        if (!p1_fx) pu[0] = &cc_pu_drive;
+        pu[1] = &cc_pu_d;
+        pu[2] = &cc_pu_h;
+        pu[3] = &cc_pu_t;
+        pu[4] = &cc_pu_m;
+        pu[6] = &pitch_pu_vol;
+        if (!p0) pu[7] = &pitch_pu_blend;
+    }
+
+    t.pickup_armed = 0;
+    for (int i = 0; i < 8; i++) {
+        t.pickup_target[i] = 0;
+        if (pu[i] == nullptr || pu[i]->caught) continue;
+        t.pickup_armed |= static_cast<uint8_t>(1u << i);
+        int x = static_cast<int>(pu[i]->thresh * 127.f + 0.5f);
+        t.pickup_target[i] = static_cast<uint8_t>(x < 0 ? 0 : (x > 127 ? 127 : x));
+    }
+    (void)kn;
+}
 
 static void service_telemetry() {
     TelemetryState t;
@@ -1098,13 +1302,11 @@ static void service_telemetry() {
     }
 
     // Switch3 raw (0 center, 1 up, 2 down) → panel positions. SW1 (switches
-    // B): down=Minor is panel-left; up=Major panel-right. SW2 (switches A):
-    // up=Seq is panel-top.
-    static const uint8_t kSw1Map[3] = { 1, 2, 0 };
+    // B): down=Minor is panel-left; up=Major panel-right — shared with the
+    // Seq genre latch via sw1_panel_pos. SW2 (switches A): up=Seq is panel-top.
     static const uint8_t kSw2Map[3] = { 1, 0, 2 };
-    int sw1_raw = touch.switches().B();
     int sw2_raw = touch.switches().A();
-    t.sw1 = kSw1Map[(sw1_raw >= 0 && sw1_raw <= 2) ? sw1_raw : 0];
+    t.sw1 = static_cast<uint8_t>(sw1_panel_pos(touch.switches().B()));
     t.sw2 = kSw2Map[(sw2_raw >= 0 && sw2_raw <= 2) ? sw2_raw : 0];
 
     t.led      = led_lit ? 127 : 0;
@@ -1153,8 +1355,12 @@ static void service_telemetry() {
                                        : ext_clock_src == ClockSrc::CV ? 2 : 0);
     t.arp_flags = static_cast<uint8_t>(
         (arp_state == ArpState::HOLD ? 1 : arp_state == ArpState::REC ? 2 : 0)
-        | (rec_armed ? 0x04 : 0x00));
-    compute_hold_telemetry(t.hold_kind, t.hold_progress, t.hold_stage, t.hold_outcome);
+        | (rec_armed ? 0x04 : 0x00)
+        | (arp_run_on ? 0x08 : 0x00));
+    t.seq_pattern = static_cast<uint8_t>(seq.VariantSlot());
+    capture_pickups(t);
+    const uint32_t now_ms = System::GetNow();
+    compute_hold_telemetry(now_ms, t.hold_kind, t.hold_progress, t.hold_stage, t.hold_outcome);
     for (int i = 0; i < kPadSlots; i++) {
         const PadSlot& s = drum_slots[i];
         t.kit[i][0] = static_cast<uint8_t>(s.engine) & 0x7F;
@@ -1166,7 +1372,6 @@ static void service_telemetry() {
         t.kit[i][5] = static_cast<uint8_t>(n < 0 ? 0 : (n > 127 ? 127 : n));
     }
 
-    const uint32_t now_ms = System::GetNow();
     telemetry.Service(t, now_ms, midi);
     // Same snapshot the visualizer decodes, straight to the physical
     // screen — see display/oled_ui.h.
@@ -1191,8 +1396,10 @@ static void delay_serviced(uint32_t ms) {
 static bool  rec_bank_caught[2]  = { false, false };
 static float rec_bank_thresh[2]  = { 0.f,   0.f   };
 
-// Hold timer: rec_pad alone held ≥ kLongHoldBlocks (800ms) → confirm.
-static uint32_t rec_hold_count    = 0;
+// Hold timer: rec_pad alone held ≥ kLongHoldBlocks → confirm. Volatile
+// because compute_hold_telemetry() reads it from the main loop to draw the
+// save bar, same as every other hold counter.
+static volatile uint32_t rec_hold_count = 0;
 static bool     rec_entry_released = false;  // must release pad once after entry before confirm can fire
 
 // Steady re-audition pulse while editing (only when the seq isn't already
@@ -1513,25 +1720,13 @@ static void blink_confirm() {
 
 // ─── Recording mode helpers ───────────────────────────────────────────────────
 // Called from AudioCallback (ISR context) — no blocking calls.
-static void enter_rec_mode(int slot) {
-    rec_mode   = RecMode::RECORDING;
-    rec_slot   = slot;
-    rec_backup = live_slots()[slot];
-    rec_hold_count     = 0;
-    rec_entry_released = false;
-    rec_tick           = 0;
-    rec_retrig_tick    = 0;
-    cancel_pad         = -1;
-    cancel_count       = 0;
-    copy_hold_anim     = 0;
-    rec_p1_last        = false;   // P1 already down at entry = fresh press edge
-    rec_entry_flash    = true;    // main loop: entry burst before the heartbeat
-    entry_just_confirmed = true;  // service_telemetry: OLED/visualizer confirm flash
-    rec_hit_flash      = false;
-
-    // Arm knob pickups to the slot's actual values: each pot takes effect only
-    // when it reaches the value it is editing — no jumps, works from either
-    // direction (arming at the pot's own position made upward moves dead).
+// Arm the recording knob layer against a slot's actual stored values: each
+// pot takes effect only when it reaches the value it is editing — no jumps,
+// works from either direction (arming at the pot's own position made upward
+// moves dead). Called on entry, and again whenever a randomize replaces the
+// slot under the pots, which would otherwise leave every pickup armed to a
+// value the slot no longer has.
+static void arm_rec_slot_pickups(int slot) {
     const auto& sl = live_slots()[slot];
     rec_k30.arm_to(sl.drive,     touch.knobs().s30().Value());
     rec_k31.arm_to(sl.decay,     touch.knobs().s31().Value());
@@ -1546,6 +1741,25 @@ static void enter_rec_mode(int slot) {
     float s35 = touch.knobs().s35().Value();
     rec_bank_caught[0]  = rec_bank_caught[1] = false;
     rec_bank_thresh[0]  = rec_bank_thresh[1] = s35;
+}
+
+static void enter_rec_mode(int slot) {
+    rec_mode   = RecMode::RECORDING;
+    rec_slot   = slot;
+    rec_backup = live_slots()[slot];
+    rec_hold_count     = 0;
+    rec_entry_released = false;
+    rec_tick           = 0;
+    rec_retrig_tick    = 0;
+    cancel_pad         = -1;
+    cancel_count       = 0;
+    copy_hold_anim     = 0;
+    rec_p1_last        = false;   // P1 already down at entry = fresh press edge
+    rec_entry_flash    = true;    // main loop: entry burst before the heartbeat
+    fire_confirm(2, 1);           // service_telemetry: OLED/visualizer confirm flash
+    rec_hit_flash      = false;
+
+    arm_rec_slot_pickups(slot);
 
     pool.AllNotesOff();
     // While the seq is running it force-fires this slot every step, so a
@@ -1574,6 +1788,7 @@ static void cancel_rec_mode() {
     pool.AllNotesOff();
     rearm_seq_pickups();   // rec borrowed these pots; require fresh pickup
     beat_led_hold = kBeatLedHoldBlocks;
+    fire_confirm(6, 1);    // "Cancelled" — the edits went back to rec_backup
 }
 
 static void confirm_rec_mode() {
@@ -1588,16 +1803,71 @@ static void confirm_rec_mode() {
     rearm_seq_pickups();   // rec borrowed these pots; require fresh pickup
     beat_led_hold = kBeatLedHoldBlocks;
     led_event = LedEvent::CONFIRM;
+    fire_confirm(5, 1);    // "Saved"
+}
+
+// ─── Hold pacing ──────────────────────────────────────────────────────────────
+// Block size 192 at 48kHz = 4ms/block.
+//
+// Every build-up gesture spends its first `announce` blocks holding an empty
+// bar while the screen names what it's building toward (display/oled_ui.cpp's
+// hold_note()) and the LED pulses slowly, then fills over the rest with the
+// LED accelerating. Two hardware findings (2026-08-04) drove this:
+//   - a stage's confirm flash owns the screen for kConfirmFlashMs, during
+//     which the *next* stage's counter keeps running — with no announce
+//     window that time came straight out of the bar, so it reappeared
+//     already ~a fifth full and looked like it started halfway. The announce
+//     window is sized well above the flash so the flash lands inside it and
+//     the bar always visibly starts from empty.
+//   - one second per stage left no time to read what the stage does and
+//     stop there, so the stages are longer now.
+// Tune these two first if the pacing still feels off on hardware.
+static constexpr uint32_t kStageAnnounceBlocks = 150;  // 600 ms
+static constexpr uint32_t kStageFillBlocks     = 350;  // 1400 ms
+static constexpr uint32_t kStageBlocks = kStageAnnounceBlocks + kStageFillBlocks;
+// Rec entry keeps its 2 s total (kRecEntryHoldBlocks) and just reserves the
+// head of it the same way; the 1.2 s holds (kLongHoldBlocks — layer copy,
+// rec save) get a proportionally shorter one.
+static constexpr uint32_t kRecEntryAnnounceBlocks = 150;  // 600 ms
+static constexpr uint32_t kShortAnnounceBlocks    = 75;   // 300 ms
+
+// Fraction of the way through a build-up, as the bar should draw it: 0 for
+// the whole announce window, then 0..127 across the fill.
+static uint8_t hold_progress_of(uint32_t count, uint32_t announce, uint32_t total) {
+    if (count <= announce) return 0;
+    const uint32_t span = total > announce ? total - announce : 1;
+    const uint32_t done = count - announce;
+    return static_cast<uint8_t>(done >= span ? 127 : done * 127u / span);
 }
 
 // ─── P0+P2 hold state (ISR-writable, main-loop-readable) ──────────────────────
-// Block size 192 at 48kHz = 4ms/block.  500 blocks = 2000ms.
-// Stages at 1s and 2s in every playmode; Basic Pitch adds a 3rd at 3s that
+// Stages every kStageBlocks in every playmode; Basic Pitch adds a 3rd that
 // drops the randomize snapshots and restores the clean live-knob sound.
 static volatile uint32_t p0p2_hold_count  = 0;
 static volatile uint32_t p0p2_stage_fired = 0;
 static volatile bool     p0p2_all_done    = false;
 static bool p0p2_fired1 = false, p0p2_fired2 = false, p0p2_fired3 = false;
+
+// ─── P0+P2 inside Rec: the same gesture, scoped to one pad ────────────────────
+// The whole-kit randomize is all-or-nothing: it replaces seven sounds when
+// usually only one is wrong. In Rec you are already pointed at a single slot,
+// so the same combo varies just that one — stage 1 nudges the sound it has,
+// stage 2 re-picks it from the slot's own curated pool (kDrumPools), which is
+// the per-instrument version of "stick to kick models". Two stages, same
+// kStageBlocks pacing as everywhere else.
+static volatile uint32_t rec_p0p2_hold_count  = 0;
+static volatile uint32_t rec_p0p2_stage_fired = 0;
+static volatile bool     rec_p0p2_all_done    = false;
+static bool rec_p0p2_fired1 = false, rec_p0p2_fired2 = false;
+
+// ─── P0+P1 sound-edit hold (ISR-writable, main-loop-readable) ─────────────────
+// The one build-up gesture that had no screen feedback of any kind: it
+// silently changes what every knob in the mode means, and until it fired
+// there was nothing to say it was coming. Same shape as the others now —
+// counter here, bar and confirm through compute_hold_telemetry().
+static constexpr uint32_t kSndEditHoldBlocks = 250;  // 1000 ms
+static volatile uint32_t  se_hold_count = 0;
+static volatile bool      se_fired      = false;
 
 static void fire_hold_stage(int stage) {
     // In Seq the running sequencer plays the new sounds; no extra audition.
@@ -1612,17 +1882,61 @@ static void fire_hold_stage(int stage) {
         }
     }
     p0p2_stage_fired = static_cast<uint32_t>(stage);
+    // Release before the latch expires and p0p2_fired1/2/3 are cleared by the
+    // next block — without this the confirm would vanish with them.
+    fire_confirm(1, static_cast<uint8_t>(stage));
+}
+
+// Rec's per-pad randomize stage: land the change on the audition voice so it
+// is audible immediately, and re-arm the knob layer against the slot's new
+// values (see arm_rec_slot_pickups). With the seq running the slot is
+// force-fired every other step, so it re-sounds on its own.
+static void fire_rec_slot_stage(int stage) {
+    if (rec_slot < 0) return;
+    arm_rec_slot_pickups(rec_slot);
+    if (!(seq_mode_on && seq.IsActive()))
+        pool.AuditionWithParams(drum_slots[rec_slot].note, drum_params(rec_slot),
+                                VoiceGroup::kDrum);
+    rec_hit_flash        = true;
+    rec_p0p2_stage_fired = static_cast<uint32_t>(stage);
+    fire_confirm(8, static_cast<uint8_t>(stage));
 }
 
 // Same signal the LED loop (below) blinks from, reduced to a 0..127 fraction
 // plus a confirm edge for the OLED/visualizer progress bar instead of a
 // blink rate/rhythm — see the forward declaration above for why this lives
 // here and not there, and for what `stage`/`outcome` mean.
-static void compute_hold_telemetry(uint8_t& kind, uint8_t& progress, uint8_t& stage, uint8_t& outcome) {
+static void compute_hold_telemetry(uint32_t now_ms, uint8_t& kind, uint8_t& progress,
+                                   uint8_t& stage, uint8_t& outcome) {
     kind     = 0;
     progress = 0;
     stage    = 0;
     outcome  = 0;
+
+    // 0) A confirm posted by the ISR (see the confirm latch above) outranks
+    // everything, including a hold that's already building toward its next
+    // threshold — the gesture that just completed is the news. Held for
+    // kConfirmLatchMs so neither consumer's throttle can miss it; once it
+    // expires the chain below resumes from whatever's still live.
+    static uint8_t  latch_kind = 0, latch_stage = 0, latch_outcome = 0;
+    static uint32_t latch_until = 0;
+    if (pending_confirm_kind != 0) {
+        latch_kind    = pending_confirm_kind;
+        latch_stage   = pending_confirm_stage;
+        latch_outcome = pending_confirm_outcome;
+        latch_until   = now_ms + kConfirmLatchMs;
+        pending_confirm_kind = 0;
+    }
+    if (latch_kind != 0) {
+        if (static_cast<int32_t>(now_ms - latch_until) < 0) {
+            kind     = latch_kind;
+            stage    = latch_stage;
+            outcome  = latch_outcome;
+            progress = 127;
+            return;
+        }
+        latch_kind = 0;
+    }
 
     // 1) P0+P2 hold (re-randomize in Seq, vary sound in Arp/Mel) — highest
     // priority, matches the LED loop's own comment. p0p2_hold_count runs
@@ -1640,25 +1954,40 @@ static void compute_hold_telemetry(uint8_t& kind, uint8_t& progress, uint8_t& st
             progress = 127;
             return;
         }
-        const uint32_t lo = p0p2_fired2 ? 500u : (p0p2_fired1 ? 250u : 0u);
-        const uint32_t hi = p0p2_fired2 ? 750u : (p0p2_fired1 ? 500u : 250u);
-        const uint32_t count = p0p2_hold_count < hi ? p0p2_hold_count : hi;
-        progress = static_cast<uint8_t>(std::min<uint32_t>(127, (count - lo) * 127u / (hi - lo)));
+        // Stages are equal-length, so the current one's elapsed time is just
+        // the remainder — each fills its own 0..127 after its announce
+        // window (see kStageAnnounceBlocks).
+        const uint32_t lo    = static_cast<uint32_t>(stage) * kStageBlocks;
+        const uint32_t count = p0p2_hold_count > lo ? p0p2_hold_count - lo : 0u;
+        progress = hold_progress_of(count, kStageAnnounceBlocks, kStageBlocks);
         return;
     }
 
-    // 2) Recording entry (hold a drum pad kRecEntryHoldBlocks = 2s).
-    // entry_hold_count resets to 0 in the same ISR call that fires entry —
-    // the flag catches the frame the live counter can't.
-    if (entry_just_confirmed) {
-        entry_just_confirmed = false; // consumed — telemetry's own copy of the signal
-        kind = 2; stage = 1; progress = 127;
+    // 1b) The same combo inside Rec, scoped to the slot being edited. Its own
+    // kind (8) rather than a mode-dependent reading of kind 1: the label, the
+    // note row and the confirm all say "this pad", not "the kit". Two stages,
+    // so no all-done third window to rescale around.
+    if ((rec_p0p2_hold_count > 0 || rec_p0p2_all_done)
+            && rec_mode == RecMode::RECORDING) {
+        kind  = 8;
+        stage = static_cast<uint8_t>((rec_p0p2_fired1 ? 1 : 0) + (rec_p0p2_fired2 ? 1 : 0));
+        if (rec_p0p2_all_done) {
+            progress = 127;
+            return;
+        }
+        const uint32_t lo    = static_cast<uint32_t>(stage) * kStageBlocks;
+        const uint32_t count = rec_p0p2_hold_count > lo ? rec_p0p2_hold_count - lo : 0u;
+        progress = hold_progress_of(count, kStageAnnounceBlocks, kStageBlocks);
         return;
     }
+
+    // 2) Recording entry (hold a drum pad kRecEntryHoldBlocks = 2s). Its
+    // confirm comes from the latch above — entry_hold_count resets to 0 in
+    // the same ISR call that fires entry, so there's nothing to read here.
     if (rec_mode == RecMode::IDLE && entry_hold_count >= kRecEntryAnimStart) {
         kind     = 2;
-        progress = static_cast<uint8_t>(
-            std::min<uint32_t>(127, entry_hold_count * 127u / kRecEntryHoldBlocks));
+        progress = hold_progress_of(entry_hold_count, kRecEntryAnnounceBlocks,
+                                    kRecEntryHoldBlocks);
         return;
     }
 
@@ -1693,17 +2022,31 @@ static void compute_hold_telemetry(uint8_t& kind, uint8_t& progress, uint8_t& st
 
     // 4) Layer-copy confirm hold (kLongHoldBlocks = 1.2s), only while a
     // recording is actually in progress — matches the LED loop's own guard.
-    // copy_hold_anim resets to 0 in the same block that fires the copy, same
-    // reason kind 2 needs a flag instead of reading the counter directly.
-    if (rec_mode == RecMode::RECORDING && copy_just_confirmed) {
-        copy_just_confirmed = false;
-        kind = 4; stage = 1; progress = 127;
-        return;
-    }
+    // copy_hold_anim resets to 0 in the same block that fires the copy, so
+    // the completion itself arrives via the latch above, same as kind 2.
     if (rec_mode == RecMode::RECORDING && copy_hold_anim > 0) {
         kind     = 4;
-        progress = static_cast<uint8_t>(
-            std::min<uint32_t>(127, copy_hold_anim * 127u / kLongHoldBlocks));
+        progress = hold_progress_of(copy_hold_anim, kShortAnnounceBlocks, kLongHoldBlocks);
+        return;
+    }
+
+    // 4b) P0+P1 sound-edit hold. Sits above the Rec holds because its combo
+    // is Arp/Mel-only and can't overlap them (it requires rec_mode IDLE),
+    // and below P0+P2 so the mutate combo still wins if P2 joins mid-hold.
+    if (se_hold_count > 0 && !se_fired) {
+        kind     = 7;
+        progress = hold_progress_of(se_hold_count, kShortAnnounceBlocks, kSndEditHoldBlocks);
+        return;
+    }
+
+    // 5) Rec save-confirm hold (kLongHoldBlocks, the rec pad alone). The one
+    // hold in the set that had no bar and no flash at all — you held a pad
+    // and recording simply ended, with nothing saying it had saved rather
+    // than cancelled. Last in the chain so a copy (both pads down, counted
+    // separately) still wins, matching the LED.
+    if (rec_mode == RecMode::RECORDING && rec_hold_count >= kRecEntryAnimStart) {
+        kind     = 5;
+        progress = hold_progress_of(rec_hold_count, kShortAnnounceBlocks, kLongHoldBlocks);
     }
 }
 
@@ -1817,7 +2160,10 @@ void AudioCallback(AudioHandle::InputBuffer in, AudioHandle::OutputBuffer out, s
     int sw1 = touch.switches().B();
     if (sw1 != last_sw1) {
         if (last_sw1 >= 0) {
-            if (seq_mode_on)                              seq_genre_lk = sw1;
+            // Genre is panel-ordered (see sw1_panel_pos): left=IDM,
+            // center=Techno, right=Electro, matching kSw1Seq and the
+            // pattern registry. Scale/Arp below stay on the raw value.
+            if (seq_mode_on)                              seq_genre_lk = sw1_panel_pos(sw1);
             else if (current_mode == PlayMode::ARP_MEL)   apply_arp_sw1(sw1);
             else                                          scale_lk     = sw1;
             led_event      = LedEvent::NUMBERED;
@@ -1867,7 +2213,7 @@ void AudioCallback(AudioHandle::InputBuffer in, AudioHandle::OutputBuffer out, s
                     seq_tempo_lk = k.s31().Value();  seq_pu31.force_catch(seq_tempo_lk);
                     seq_shuf_lk  = k.s32().Value();  seq_pu32.force_catch(seq_shuf_lk);
                     seq_dens_lk  = k.s33().Value();  seq_pu33.force_catch(seq_dens_lk);
-                    seq_punch_lk = k.s34().Value();  seq_pu34.force_catch(seq_punch_lk);
+                    seq_chance_lk = k.s34().Value(); seq_pu34.force_catch(seq_chance_lk);
                     seq_pu35.arm_to(seq_var_lk, k.s35().Value());  // variant stays 0 until S35 crosses it
                     seq_vol_lk   = k.s36().Value();  seq_pu36.force_catch(seq_vol_lk);
                     seq_tight_lk = k.s37().Value();  seq_pu37.force_catch(seq_tight_lk);
@@ -2003,14 +2349,15 @@ void AudioCallback(AudioHandle::InputBuffer in, AudioHandle::OutputBuffer out, s
     // (rec mode borrows S30/S32/S33/S34/S37 for slot editing). Every pot goes
     // through pickup, so a pot used by another mode doesn't jump the setting
     // until it crosses the stored value.
-    // Seq layout: S30=drive, S31=tempo, S32=shuffle, S33=density, S34=punch,
+    // Seq layout: S30=drive (also rides the kick's punch — drum_params()),
+    // S31=tempo, S32=shuffle, S33=density, S34=chance,
     // S35=pattern variant (within the SW1 genre), S37=tightness.
     if (seq_mode_on && rec_mode == RecMode::IDLE) {
         if (!p1_fx && seq_pu30.update(drive))            seq_drive_lk = drive;
         if (seq_pu31.update(k.s31().Value()))  seq_tempo_lk = k.s31().Value();
         if (seq_pu32.update(k.s32().Value()))  seq_shuf_lk  = k.s32().Value();
         if (seq_pu33.update(k.s33().Value()))  seq_dens_lk  = k.s33().Value();
-        if (seq_pu34.update(k.s34().Value()))  seq_punch_lk = k.s34().Value();
+        if (seq_pu34.update(k.s34().Value()))  seq_chance_lk = k.s34().Value();
         if (!p1_fx && seq_pu35.update(k.s35().Value()))  seq_var_lk   = k.s35().Value();
         if (seq_pu36.update(k.s36().Value()))  seq_vol_lk   = k.s36().Value();
         if (touch.pads().IsTouched(0)) {
@@ -2024,6 +2371,7 @@ void AudioCallback(AudioHandle::InputBuffer in, AudioHandle::OutputBuffer out, s
         seq.SetTempo(seq_tempo_lk);
         seq.SetShuffle(seq_shuf_lk);
         seq.SetDensity(seq_dens_lk);
+        seq.SetChance(seq_chance_lk);
         seq.SetVariant(seq_var_lk);
     }
     // Arp/Mel knob layer — S30 drive, S31 decay, S32 division, S33 swing,
@@ -2141,16 +2489,24 @@ void AudioCallback(AudioHandle::InputBuffer in, AudioHandle::OutputBuffer out, s
         fx_drum.SetDelayCharacter(side, w, synced);
     }
 
-    // P0+P2 hold counter — active in every playmode:
-    //   Basic Pitch: 1s soft tight (±0.25) → 2s soft wide (±0.45), same engine
-    //                → 3s restore clean live-knob sound (drops the snapshots)
-    //   Arp/Mel:     1s tight variance (±0.10) on the latched sound → 2s wide (±0.25)
-    //   Seq:         1s soft param variance on current kit → 2s full new kit
+    // P0+P2 hold counter — active in every playmode, one stage per
+    // kStageBlocks (2 s; see the hold-pacing block above):
+    //   Basic Pitch: soft tight (±0.25) → soft wide (±0.45), same engine
+    //                → restore clean live-knob sound (drops the snapshots)
+    //   Arp/Mel:     tight variance (±0.10) on the latched sound → wide (±0.25)
+    //   Seq:         soft param variance on current kit → full new kit
     {
         bool p0 = touch.pads().IsTouched(0);
         bool p2 = touch.pads().IsTouched(2);
         bool both = p0 && p2 && rec_mode == RecMode::IDLE;
         bool in_bp = !seq_mode_on && current_mode == PlayMode::BASIC_PITCH;
+        // In Rec the combo is live too, scoped to the edited slot (below).
+        // Neither of P0/P2's own Rec roles conflicts: both sit behind a
+        // catch (S37 width on P0 is a MoveCatch, S35 model select needs a
+        // dead-zone-sized turn), so holding the pair without touching a
+        // fader changes nothing else.
+        bool rec_both = p0 && p2 && rec_mode == RecMode::RECORDING
+                        && rec_slot >= 0 && is_drum_mode;
         if (!both) {
             p0p2_hold_count  = 0;
             p0p2_fired1 = p0p2_fired2 = p0p2_fired3 = false;
@@ -2158,7 +2514,7 @@ void AudioCallback(AudioHandle::InputBuffer in, AudioHandle::OutputBuffer out, s
             p0p2_stage_fired = 0;
         } else if (!p0p2_all_done) {
             p0p2_hold_count++;
-            if (!p0p2_fired1 && p0p2_hold_count >= 250) {
+            if (!p0p2_fired1 && p0p2_hold_count >= kStageBlocks) {
                 p0p2_fired1 = true;
                 if (seq_mode_on) {
                     mutate_drum_soft();
@@ -2172,15 +2528,24 @@ void AudioCallback(AudioHandle::InputBuffer in, AudioHandle::OutputBuffer out, s
                 }
                 fire_hold_stage(1);
             }
-            if (!p0p2_fired2 && p0p2_hold_count >= 500) {
+            if (!p0p2_fired2 && p0p2_hold_count >= 2u * kStageBlocks) {
                 p0p2_fired2   = true;
                 p0p2_all_done = !in_bp;   // Basic Pitch has a 3rd stage
                 if (seq_mode_on) {
                     generate_drum_random();
                     pool.AllNotesOff();
-                    seq.Start();
-                    if (!midi_clock_master()) midi.SendStart();
-                    clkout_resync = true;
+                    // Transport is not part of the kit. This used to call
+                    // Start() unconditionally, so a new kit force-started the
+                    // sequencer — you could not audition a fresh kit pad by
+                    // pad against a stopped seq, the randomize itself began
+                    // playing. A *running* seq still restarts from bar 0 so
+                    // the new kit lands on a downbeat, which is what the
+                    // original behaviour was actually for.
+                    if (seq.IsActive()) {
+                        seq.Start();
+                        if (!midi_clock_master()) midi.SendStart();
+                        clkout_resync = true;
+                    }
                 } else if (current_mode == PlayMode::ARP_MEL) {
                     mutate_snd(arp_state == ArpState::REC ? rec_snd : arp_snd, 0.25f);
                 } else {
@@ -2191,7 +2556,7 @@ void AudioCallback(AudioHandle::InputBuffer in, AudioHandle::OutputBuffer out, s
                 }
                 fire_hold_stage(2);
             }
-            if (!p0p2_fired3 && p0p2_hold_count >= 750 && in_bp) {
+            if (!p0p2_fired3 && p0p2_hold_count >= 3u * kStageBlocks && in_bp) {
                 p0p2_fired3   = true;
                 p0p2_all_done = true;
                 // Stage 3: back to the clean live sound.
@@ -2206,6 +2571,34 @@ void AudioCallback(AudioHandle::InputBuffer in, AudioHandle::OutputBuffer out, s
                 vp.blend     = pitched_blend_lk;
                 pool.AuditionWithParams(root_note_f(), vp);
                 p0p2_stage_fired = 3;
+                fire_confirm(1, 3);   // stage 3 doesn't go through fire_hold_stage()
+            }
+        }
+
+        // Rec's per-pad version. Same pacing, two stages:
+        //   1 — vary the sound this pad already has (engine + note kept)
+        //   2 — new sound for this pad from its own curated pool
+        // After either, the whole rec knob layer is re-armed: the pots were
+        // armed to the values the slot had at entry, and those values have
+        // just been replaced underneath them.
+        if (!rec_both) {
+            rec_p0p2_hold_count  = 0;
+            rec_p0p2_fired1 = rec_p0p2_fired2 = false;
+            rec_p0p2_all_done    = false;
+            rec_p0p2_stage_fired = 0;
+        } else if (!rec_p0p2_all_done) {
+            rec_p0p2_hold_count++;
+            const int slot = rec_slot;
+            if (!rec_p0p2_fired1 && rec_p0p2_hold_count >= kStageBlocks) {
+                rec_p0p2_fired1 = true;
+                mutate_drum_slot_soft(slot);
+                fire_rec_slot_stage(1);
+            }
+            if (!rec_p0p2_fired2 && rec_p0p2_hold_count >= 2u * kStageBlocks) {
+                rec_p0p2_fired2   = true;
+                rec_p0p2_all_done = true;
+                fill_drum_slot_from_pool(slot);
+                fire_rec_slot_stage(2);
             }
         }
     }
@@ -2216,8 +2609,6 @@ void AudioCallback(AudioHandle::InputBuffer in, AudioHandle::OutputBuffer out, s
     // auditions the current sound; with the arp/loop running, every trigger
     // is live feedback.
     {
-        static uint32_t se_hold_count = 0;
-        static bool     se_fired      = false;
         bool combo = !seq_mode_on && current_mode == PlayMode::ARP_MEL
                      && rec_mode == RecMode::IDLE
                      && touch.pads().IsTouched(0) && touch.pads().IsTouched(1)
@@ -2225,8 +2616,12 @@ void AudioCallback(AudioHandle::InputBuffer in, AudioHandle::OutputBuffer out, s
         if (!combo) {
             se_hold_count = 0;
             se_fired      = false;
-        } else if (!se_fired && ++se_hold_count >= 250) {   // 1s of blocks
+        } else if (!se_fired && ++se_hold_count >= kSndEditHoldBlocks) {
             se_fired = true;
+            // outcome tells the screen which way it went — the two are
+            // opposite gestures on the same combo (1 entered, 2 left).
+            const bool leaving = (arp_state == ArpState::REC) ? rec_snd_edit : arp_snd_edit;
+            fire_confirm(7, 1, leaving ? 2 : 1);
             if (arp_state == ArpState::REC) {
                 if (!rec_snd_edit) {
                     rec_snd_edit = true;
@@ -2282,6 +2677,7 @@ void AudioCallback(AudioHandle::InputBuffer in, AudioHandle::OutputBuffer out, s
                         p2layer_outcome[j] = 1;
                     }
                 led_event = LedEvent::CONFIRM;
+                fire_confirm(3, 1, 1);
             } else {
                 p2layer_fired[i] = true;
                 if (note_rec.ClearLayer(i)) {
@@ -2292,6 +2688,7 @@ void AudioCallback(AudioHandle::InputBuffer in, AudioHandle::OutputBuffer out, s
                     p2layer_outcome[i] = 2;
                     led_event = LedEvent::LIMIT;
                 }
+                fire_confirm(3, 1, p2layer_outcome[i]);
             }
         }
     }
@@ -2384,7 +2781,7 @@ void AudioCallback(AudioHandle::InputBuffer in, AudioHandle::OutputBuffer out, s
                     pool.AuditionWithParams(root_note_f(), slot_params(cs));
                 }
                 led_event      = LedEvent::CONFIRM;
-                copy_just_confirmed = true; // service_telemetry: OLED/visualizer confirm flash
+                fire_confirm(4, 1);   // service_telemetry: OLED/visualizer confirm flash
                 cancel_pad     = -1;  // reset so next secondary starts fresh
                 cancel_count   = 0;
                 copy_hold_anim = 0;
@@ -2450,15 +2847,15 @@ void AudioCallback(AudioHandle::InputBuffer in, AudioHandle::OutputBuffer out, s
         if (rec_k34.update(v34)) { slot.morph     = v34; changed = true; }
         if (changed) {
             // Drum audition updates carry the same shaping as drum_params
-            // (tightness on the tail, punch on the kick) — otherwise the
-            // sound jumps on the next retrigger.
+            // (tightness on the tail, punch on the kick riding drive) —
+            // otherwise the sound jumps on the next retrigger.
             float upd_morph = slot.morph;
             if (decay_via_morph(slot.engine))
                 upd_morph = is_drum_mode ? slot.decay * (0.2f + seq_tight_lk * 0.8f)
                                          : slot.decay;
             float upd_timbre = slot.timbre;
             if (is_drum_mode && rec_slot == 0)
-                upd_timbre = slot.timbre + seq_punch_lk * (1.0f - slot.timbre);
+                upd_timbre = slot.timbre + seq_drive_lk * (1.0f - slot.timbre);
             pool.UpdateAuditionParams(slot.harmonics, upd_timbre, upd_morph, slot.decay);
         }
         // Fixed-rate pulse — NOT keyed on `changed`: that flag is level (pickup
@@ -2627,8 +3024,12 @@ void AudioCallback(AudioHandle::InputBuffer in, AudioHandle::OutputBuffer out, s
                 if (seq_mode_on && rec_mode == RecMode::RECORDING && i == rec_slot)
                     rec_hit_flash = true;
                 // Mirror to MIDI out as one-shot GM hits (queued; the main
-                // loop drains — never TX from this ISR).
-                midi.SendNoteOn(kMidiDrumCh, kDrumSlotGm[i], 100);
+                // loop drains — never TX from this ISR), carrying the step's
+                // authored accent as velocity. The forced rec-slot trigger
+                // has no step behind it, so StepWeight() reads 0 there and
+                // drum_velocity() falls back to a plain 100.
+                midi.SendNoteOn(kMidiDrumCh, kDrumSlotGm[i],
+                                drum_velocity(seq.StepWeight(i)));
                 midi.SendNoteOff(kMidiDrumCh, kDrumSlotGm[i]);
             }
         }
@@ -2815,7 +3216,7 @@ struct __attribute__((packed)) SlotPersist {
 };
 
 struct __attribute__((packed)) PersistState {
-    uint8_t seq_tempo, seq_shuf, seq_dens, seq_punch, seq_tight, seq_drive,
+    uint8_t seq_tempo, seq_shuf, seq_dens, seq_chance, seq_tight, seq_drive,
             seq_var, seq_vol, seq_width, seq_genre;
     uint8_t pitched_vol, pitched_blend, pitched_width;
     uint8_t fx_rev_seq, fx_rev_pitched, fx_rev_arp, fx_rev_rec;
@@ -2865,7 +3266,7 @@ static void restore_slot(PadSlot& d, const SlotPersist& s) {
 
 static void capture_state(PersistState& st) {
     st.seq_tempo = q8(seq_tempo_lk); st.seq_shuf  = q8(seq_shuf_lk);
-    st.seq_dens  = q8(seq_dens_lk);  st.seq_punch = q8(seq_punch_lk);
+    st.seq_dens  = q8(seq_dens_lk);  st.seq_chance = q8(seq_chance_lk);
     st.seq_tight = q8(seq_tight_lk); st.seq_drive = q8(seq_drive_lk);
     st.seq_var   = q8(seq_var_lk);   st.seq_vol   = q8(seq_vol_lk);
     st.seq_width = q8(seq_width_lk);
@@ -2908,11 +3309,11 @@ static void capture_state(PersistState& st) {
 
 static void apply_state(const PersistState& st) {
     seq_tempo_lk = dq8(st.seq_tempo); seq_shuf_lk  = dq8(st.seq_shuf);
-    seq_dens_lk  = dq8(st.seq_dens);  seq_punch_lk = dq8(st.seq_punch);
+    seq_dens_lk  = dq8(st.seq_dens);  seq_chance_lk = dq8(st.seq_chance);
     seq_tight_lk = dq8(st.seq_tight); seq_drive_lk = dq8(st.seq_drive);
     seq_var_lk   = dq8(st.seq_var);   seq_vol_lk   = dq8(st.seq_vol);
     seq_width_lk = dq8(st.seq_width);
-    seq_genre_lk = (st.seq_genre <= 2) ? st.seq_genre : 0;
+    seq_genre_lk = (st.seq_genre <= 2) ? st.seq_genre : 1;  // fallback: Techno
     pitched_vol_lk   = dq8(st.pitched_vol);
     pitched_blend_lk = dq8(st.pitched_blend);
     pitched_width_lk = dq8(st.pitched_width);
@@ -3117,22 +3518,33 @@ int main() {
             } else if (rec_mode == RecMode::IDLE && touch.pads().IsTouched(2)
                        && !seq_mode_on && current_mode == PlayMode::ARP_MEL
                        && arp_state == ArpState::REC) {
-                // P2+P10 while SW1=Rec: arm/disarm capture instead of the
-                // usual transport toggle (2026-07-21 follow-up — auto-start
-                // on Rec entry made auditioning Rec's own sound impossible
-                // without also recording a note). Arming makes sure the
-                // clock is actually running; disarming does NOT stop
-                // playback — committed layers keep looping while punched
-                // out, only new capture stops (and the open take commits).
-                rec_armed = !rec_armed;
-                if (rec_armed) {
+                // P2+P10 while SW1=Rec cycles the three states this mode
+                // actually has, rather than toggling arm alone (2026-08-05).
+                // Arm-only left the transport unreachable from Rec: stopping
+                // playback meant flicking SW1 out, pressing P2+P10 there and
+                // flicking back, because arming force-starts the clock and
+                // disarming deliberately does NOT stop it (2026-07-21 —
+                // auto-start on entry made auditioning Rec's own sound
+                // impossible without also recording a note).
+                //   stopped -> capture live -> looping, punched out -> stopped
+                // The open take commits on the punch-out step, so the stop
+                // step can never lose one. LED counts down with the state:
+                // 3 blinks capturing, 2 looping, 1 stopped.
+                if (!arp_run_on) {
                     arp_run_on = true;
+                    rec_armed  = true;
                     note_rec.SetRecording(true);
-                    led_event = LedEvent::CONFIRM;   // 3 blinks: armed
-                } else {
+                    led_event = LedEvent::CONFIRM;   // 3 blinks: capturing
+                } else if (rec_armed) {
+                    rec_armed = false;
                     note_rec.SetRecording(false);
                     led_event      = LedEvent::NUMBERED;
-                    led_event_data = 2;              // 2 blinks: disarmed
+                    led_event_data = 2;              // 2 blinks: looping only
+                } else {
+                    arp_run_on = false;
+                    arp_gates_off();
+                    led_event      = LedEvent::NUMBERED;
+                    led_event_data = 1;              // 1 blink: stopped
                 }
             } else if (rec_mode == RecMode::IDLE && touch.pads().IsTouched(2)) {
                 // P2 (held first) + P10 → melodic transport (arp + Rec loop),
@@ -3306,25 +3718,100 @@ int main() {
             } else if (done) {
                 delay_serviced(10);
             } else {
-                uint32_t t        = (hold < 500) ? hold : 500;
-                uint32_t interval = 150u - t * 110u / 500u;
-                set_led(true);
-                delay_serviced(interval);
-                set_led(false);
-                delay_serviced(interval);
+                // Same two-phase shape the screen draws (see the hold-pacing
+                // block): slow pulses through the announce window — three of
+                // them, the "a stage is coming" cue a unit with no screen
+                // otherwise has no way to give — then the familiar
+                // accelerating blink as the bar fills.
+                const uint32_t off = hold % kStageBlocks;
+                if (off < kStageAnnounceBlocks) {
+                    set_led(true);  delay_serviced(130);
+                    set_led(false); delay_serviced(70);
+                } else {
+                    const uint32_t t        = off - kStageAnnounceBlocks;
+                    const uint32_t interval = 150u - t * 110u / kStageFillBlocks;
+                    set_led(true);  delay_serviced(interval);
+                    set_led(false); delay_serviced(interval);
+                }
             }
             continue;
         }
 
-        // Recording-entry countdown: from ~0.2 s into the pad hold the LED
-        // blinks with gradually shrinking intervals (~140 ms down to 30 ms at
-        // the 2 s threshold) — release any time to abort.
+        // The same countdown for Rec's per-pad randomize (P0+P2 while
+        // editing a slot) — identical two-phase shape, since to the hand it
+        // is the same gesture; only its scope differs.
+        {
+            uint32_t rhold  = rec_p0p2_hold_count;
+            bool     rdone  = rec_p0p2_all_done;
+            uint32_t rstage = rec_p0p2_stage_fired;
+            if ((rhold > 0 || rdone) && rec_mode == RecMode::RECORDING) {
+                if (rstage > 0) {
+                    set_led(true);
+                    uint32_t t0 = System::GetNow();
+                    while (System::GetNow() - t0 < 500) {
+                        delay_serviced(5);
+                        if (rec_p0p2_hold_count == 0 && !rec_p0p2_all_done) break;
+                    }
+                    set_led(false);
+                    rec_p0p2_stage_fired = 0;
+                } else if (rdone) {
+                    delay_serviced(10);
+                } else {
+                    const uint32_t off = rhold % kStageBlocks;
+                    if (off < kStageAnnounceBlocks) {
+                        set_led(true);  delay_serviced(130);
+                        set_led(false); delay_serviced(70);
+                    } else {
+                        const uint32_t t        = off - kStageAnnounceBlocks;
+                        const uint32_t interval = 150u - t * 110u / kStageFillBlocks;
+                        set_led(true);  delay_serviced(interval);
+                        set_led(false); delay_serviced(interval);
+                    }
+                }
+                continue;
+            }
+        }
+
+        // P0+P1 sound-edit countdown. Until now this 1 s hold gave nothing
+        // at all until it fired — no build-up on the LED, none on the
+        // screen — even though it silently reassigns every knob in the mode.
+        // Short enough that the announce window gets a single slow pulse
+        // rather than three (see kShortAnnounceBlocks).
+        {
+            uint32_t shold = se_hold_count;
+            if (shold > 0 && !se_fired) {
+                if (shold < kShortAnnounceBlocks) {
+                    set_led(true);  delay_serviced(130);
+                    set_led(false); delay_serviced(70);
+                } else {
+                    const uint32_t span = kSndEditHoldBlocks - kShortAnnounceBlocks;
+                    const uint32_t t    = (shold < kSndEditHoldBlocks)
+                                        ? shold - kShortAnnounceBlocks : span;
+                    const uint32_t interval = 150u - t * 120u / span;
+                    set_led(true);  delay_serviced(interval);
+                    set_led(false); delay_serviced(interval);
+                }
+                continue;
+            }
+        }
+
+        // Recording-entry countdown: from ~0.2 s into the pad hold, slow
+        // pulses while the screen names what the hold does, then gradually
+        // shrinking intervals (~150 ms down to 30 ms at the 2 s threshold) —
+        // release any time to abort. Same two-phase shape as P0+P2 above.
         uint32_t ehold = entry_hold_count;
         if (rec_mode == RecMode::IDLE && ehold >= kRecEntryAnimStart) {
-            uint32_t t        = (ehold < kRecEntryHoldBlocks) ? ehold : kRecEntryHoldBlocks;
-            uint32_t interval = 150u - t * 120u / kRecEntryHoldBlocks;
-            set_led(true);  delay_serviced(interval);
-            set_led(false); delay_serviced(interval);
+            if (ehold < kRecEntryAnnounceBlocks) {
+                set_led(true);  delay_serviced(130);
+                set_led(false); delay_serviced(70);
+            } else {
+                const uint32_t span = kRecEntryHoldBlocks - kRecEntryAnnounceBlocks;
+                const uint32_t t    = (ehold < kRecEntryHoldBlocks)
+                                    ? ehold - kRecEntryAnnounceBlocks : span;
+                const uint32_t interval = 150u - t * 120u / span;
+                set_led(true);  delay_serviced(interval);
+                set_led(false); delay_serviced(interval);
+            }
             continue;
         }
 

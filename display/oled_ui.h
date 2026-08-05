@@ -24,13 +24,15 @@ namespace synthux {
 // for the 128x32 screen's char budget, not because the underlying logic
 // differs.
 //
-// Deliberately no idle/status fallback: it used to fall back to a
-// model+mode+seq-step row whenever nothing had just changed, but a running
-// sequencer changes step every block, far faster than the screen can
-// redraw (each Update() is an I2C transfer) — so it never caught most step
-// values and just looked broken. The screen now simply holds the last
-// touched control indefinitely; there is nothing to show until something
-// is actually touched.
+// The idle/status fallback is back (2026-08-04), built to avoid what killed
+// the first attempt: that one included seq_step, which changes every block —
+// far faster than the screen can redraw, since each Update() is an I2C
+// transfer — so it never caught most values and just looked broken.
+// status_row() in oled_ui.cpp is built only from slow-moving fields
+// (mode/genre/transport/model/edited slot), so a redraw is always still
+// true by the time it lands. It takes over kIdleMs after the last callout,
+// and immediately when a hold ends, so a finished progress bar can't sit
+// frozen on the screen.
 class OledUi {
 public:
     OledUi() {}
@@ -47,6 +49,21 @@ private:
     TelemetryState last_{};
     bool     has_last_     = false;
     uint32_t next_draw_ms_ = 0;
+    uint32_t idle_at_ms_   = 0;      // when the last callout was drawn
+    bool     showing_status_ = false; // status row currently owns the screen
+    daisy::FixedCapStr<24> status_label_{};  // as last drawn, to skip redraws
+    daisy::FixedCapStr<24> status_value_{};
+    daisy::FixedCapStr<24> last_label_{};    // last callout, for blink repaints
+    daisy::FixedCapStr<24> last_value_{};
+    bool     blink_phase_  = false;  // phase the indicator block last drew at
+    int      list_mod_     = -1;     // modifier whose combo list owns the screen
+    int      list_offset_  = 0;      // first row shown, for lists over 4 rows
+    uint32_t list_at_ms_   = 0;      // when the current window went up
+    // Knob currently drawn as a pickup (ShowPickup) rather than a plain value
+    // row, -1 = none. Held across calls only so the frame where the pot
+    // *catches* can be recognised and the track taken away again — see the
+    // arm-cleared branch in Service().
+    int      pickup_knob_  = -1;
 };
 
 } // namespace synthux
