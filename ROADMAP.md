@@ -33,18 +33,55 @@ Agreed 2026-08-05. Nothing here is blocked; the ordering is deliberate,
 because each step narrows what the next one has to read. (Step 1 of the
 original list — this archive sweep — is done; that's why the file is short.)
 
-- [ ] **1 — Read MANUAL and README end-to-end.** Both have been updated
-      per-change and neither has been read whole since the OLED work started.
-      The screen has since grown a status row, a pickup display, combo lists,
-      capture indicators, the `*` marker and the octave/root readouts, and
-      README still describes the project from before most of that. Check
-      against **shipped behaviour**, not against these notes — the notes are
-      what would repeat an error rather than catch it. Expect findings to
-      split into doc bugs and real bugs; file the second kind here.
+- [x] **1 — Read MANUAL and README end-to-end.** *Done 2026-08-06*, checked
+      against the source rather than against these notes. Seven doc bugs
+      fixed in place; the two findings that are about **behaviour** rather
+      than wording are filed below as F1/F2.
+      What was wrong, for the record: MIDI out still claimed *every* outgoing
+      note leaves at velocity 100, which the ch10 accent work had made false
+      in the same document; README called the synth 7-voice (`kVoices` is 6 —
+      7 is the parking-lot item, not the shipped build) and said all 24
+      engines are selectable without mentioning that Chiptune is skipped; the
+      LED table credited a limit blink to the base octave, which clamps
+      silently, and listed only two of the six accelerating build-ups; the
+      open-hat pool was described as two engines when it has one; one section
+      cross-reference pointed at a heading that does not exist; and value-row
+      screen strings were quoted in capitals throughout (only the label and
+      note rows are drawn uppercase — the manual now says so once and quotes
+      the rest as drawn). README also gained the OLED in its feature list,
+      which it had never mentioned outside the source-tree table.
+      One stale code comment fixed while here: `arp_oct_range` still cited
+      `P1+P10/P11` after the 2026-08-05 swap.
 - [ ] **2 — A round of visualizer tweaks.** The app has been kept in
       lockstep field-by-field through six protocol additions without anyone
       standing back from it. Worth a pass in its own right now that the
       firmware side has settled.
+
+## F. From the 2026-08-06 doc read
+
+Two places where the docs described something better than the firmware does
+it. Both are small, both are taste calls, and the manual now documents the
+shipped behaviour either way — so neither is blocking.
+
+- [ ] **F1 — the base octave hits its rail silently.** Plain P10/P11 clamp at
+      ±3 with a bare `std::max`/`std::min` (`TouchPlaited.cpp`, the pad-down
+      handler) and no `LedEvent::LIMIT`, while root, arp octave range, the
+      layer stack and undo all blink at their limits. The manual claimed the
+      blink for it too, and now carries the exception instead. Two defensible
+      answers: give it the LIMIT blink for consistency, or leave it — the
+      octave readout (`+3 D#5`) already shows where you are, which is more
+      than root had before it got named. Deciding needs the device in hand.
+- [ ] **F2 — Seq Recording swallows both transport combos.** While editing a
+      drum slot, P10/P11 stay on drum pitch regardless of P2, so the P2+P11
+      branch (drum play/pause) and the P2+P10 branch (melodic transport) are
+      both unreachable — you have to save or cancel out of the slot first.
+      This is the same class of fault C12 fixed for Arp/Mel Rec, and it was
+      found the same way: writing down what the combo does in every mode and
+      noticing one mode has no answer. Whether it matters is a real question
+      though — in Rec the missing state was *stopping what you were making*,
+      whereas here it is pausing the drums while tweaking one of them, which
+      the audition pulse arguably covers. If it should work, the fix is the
+      same shape as C12's: test P2 before the drum-pitch branch.
 
 ## E. Arp/Mel screen round (filed 2026-08-05, from the second walk)
 

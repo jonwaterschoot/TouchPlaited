@@ -514,7 +514,7 @@ static bool rec_snd_edit = false;
 // Defaults: division center (1/16), steady full density, order random.
 static float arp_drive_lk = 0.0f, arp_div_lk  = 0.5f, arp_swing_lk = 0.0f,
              arp_dens_lk  = 1.0f, arp_decay_lk = 0.5f, arp_order_lk = 1.0f;
-static int   arp_oct_range = 0;   // P1+P10/P11, 0–3 extra octaves
+static int   arp_oct_range = 0;   // P0+P10/P11, 0–3 extra octaves
 
 // Rec-only knob layer (S32-S35 while SW1=Rec — 20/07/26 notes,
 // notesarchive/arp-mel-plan-archive.md §7/C10). S31 decay stays the shared
