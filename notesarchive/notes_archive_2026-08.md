@@ -677,6 +677,260 @@ base `+1` with range 2 climbs to `+3`.
 
 ---
 
+## notes.md sweep (2026-08-06) — the v1-era reference tables
+
+`notes.md` still carried its original control reference, which described a
+device that no longer exists: SW2 center as **Random mode**, S34 as Kick
+punch, S35 disabled in Seq, rec entry at 1200 ms, P0+P2 stages at 1/2/3 s,
+Decay on S37, P1 unused. Its header claimed those sections "reflect current
+code". `MANUAL.md` has been the real control reference for a long time, and
+the drum-pool tables below have been superseded by `kDrumPools` in
+`TouchPlaited.cpp` — the single source of truth since the 2026-08-05 kick
+curation. Moved here verbatim rather than deleted, because the *shape* of the
+old mode layout explains a lot of the naming still in the code.
+
+What stayed in `notes.md`: the hardware/pin reference, the deliberate-decision
+rationale, the per-engine knob table, the drum-engine parameter notes (they
+feed the open `kDrumKick` question), and the pattern-system format.
+
+### Control reference — as of the Random-mode era
+
+#### Normal modes (SW2: down=Basic Pitch / center=Random / up=Seq)
+
+| Control | Function | In Seq mode |
+|---------|----------|-------------|
+| **S30** | Drive (soft-clip distortion 0..1) | Drive (overall; per-slot in rec mode) |
+| **S31** | Decay, unified — LPG env + model decay (morph) for engines 19–23. LPG colour retired (fixed 0.5) | Tempo (60–180 BPM) |
+| **S32** | Harmonics — live in Basic Pitch, per-slot in Random | Shuffle (0–50% swing) |
+| **S33** | Timbre — live in Basic Pitch, per-slot in Random | Density (0–4 weight threshold) |
+| **S34** | Morph — live in Basic Pitch, per-slot in Random | Kick punch (timbre boost) |
+| **S35** | Model select (P0=bank 0–11 / P2=bank 12–23, pickup) | — disabled |
+| **S36** | Pitched volume (pickup). Per-slot volume in recording mode | Seq/drum volume (pickup) |
+| **S37** | Blend: OUT↔AUX mono mix (0=OUT, 1=AUX). Per-slot blend in recording. **P0 held → stereo width** (0 = mono; group × per-slot multiply, MoveCatch) | Tightness (morph-decay scale, engines 19–23). **P0 held → drum-group stereo width** |
+| **SW1** | Scale: Center=Chromatic / Left=Major / Right=Minor | Genre: Center=Techno / Left=Electro / Right=Ambient |
+| **SW2** | Playmode: Down=Basic Pitch / Center=Random / Up=Seq | — |
+| **P0** | Modifier A — hold + S35 → model 0–11; hold + P10/P11 → root note; hold + S37 → stereo width | hold + S37 → drum-group stereo width |
+| **P2** | Modifier B — hold + S35 → model 12–23 | — |
+| **P0 + P2** | Re-randomize — hold stages 1s/2s (Basic Pitch: soft tight/wide same engine; Random: full random) | Re-randomize drum sounds — stages 1s/2s (soft variance / full new models) |
+| **P3–P9** | Note pads / drum triggers | Drum pads (play kit; manual triggers on top of running seq) |
+| **P10** | Octave down (cycles −1, range −3 to +3). P0 held → root note −1 | — |
+| **P11** | Octave up (cycles +1). P0 held → root note +1. Disabled while P2 held | — |
+| **P2 + P11** | Drum seq play/pause (P2 first, then P11) — works in all 3 playmodes | Same |
+| **P1** | Unused. Future: trigger seq patterns against current mode (melodic seq) | Unused |
+| **LED** | Blink feedback: SW1/SW2 blinks; root limit; rec confirm; beat pulse | Beat pulse suppressed in recording mode |
+
+**Note:** S30 was previously FM amount (`frequency_modulation_amount`). Without a CV input, `modulations.frequency` is always 0, so FM amount has no effect on any engine. Repurposed as drive.
+
+#### Basic Pitch mode — P0+P2 hold stages
+
+SW2 down = Basic Pitch. P0+P2 hold stages apply here (moved from old Random mode stages 1 & 2).
+
+| Hold duration | Stage | What happens |
+|--------------|-------|-------------|
+| 1s | 1 — Soft tight | Same engine as current selection. Each pad gets random params within ±0.25 spread. All pads play scale pitches. |
+| 2s | 2 — Soft wide | Same engine, larger variance ±0.45. Still scale pitches. |
+| 3s | 3 — Clean | Drops the snapshots and restores the clean live-knob sound (audition confirms). |
+
+Stages are cumulative: 3s passes through 1 and 2 first. (Doubled to 2/4/6 s by
+the A5 hold-pacing work, 2026-08-04.)
+
+After stage 1 or 2 fires, pads play the randomized snapshots (`bp_slots`) instead of the live knobs. **Escape back to live mode:** hold to stage 3, move any timbral knob (S32/S33/S34/S37) more than 5%, or pick a model with P0/P2+S35.
+
+#### Random mode — P0+P2 hold stages
+
+SW2 center = Random mode. Random is now the true full-random selector — no soft/same-engine stages here.
+Drum mode is **not accessible from Random** — it lives in Seq only (SW2 up).
+
+| Hold duration | Stage | What happens |
+|--------------|-------|-------------|
+| 1s | 1 — Full random | Each slot gets a random engine + params from the full pool (all engines except Chiptune; drum engines 21–23 included, played at scale pitches). Decay locked to current S37 value. |
+| 2s | 2 — Full random spread | Each slot gets a random engine + params. Decay spread ±0.25 around current S37 value. |
+
+Stages are cumulative: 2s passes through 1s first.
+P0+P2 in Seq mode: staged drum randomize — see Seq mode section below.
+
+#### Recording mode — the unified-entry era
+
+**Unified flow** — same gesture and thresholds in Seq and Random: hold a pad P3–P9 for **1200ms** to enter. The long threshold exists so holding a sustained note in Random doesn't trip recording by accident. (The old P0+pad entry in Random is removed; P0+pad now just plays the note.)
+
+All rec knobs use **true pickup**: each pot takes effect only when it reaches the slot value it edits — no jump, works from either direction (including targets at 0.0/1.0).
+
+| Action | Effect |
+|--------|--------|
+| Hold pad 1200ms (Seq or Random) | Enter recording; AllNotesOff; audition voice starts (skipped when seq is running — it fires the slot) |
+| S32–S34, S37 in rec mode | Edit harmonics / timbre / morph / decay; pot picks up at the slot's value; audition updates live |
+| S30 in rec mode | Per-slot drive (Seq: ratio of overall drive, which stays frozen during rec) |
+| S36 in rec mode | Per-slot volume |
+| P0/P2 + S35 in rec mode | Change that slot's engine only (separate pickup) |
+| Release source pad | Fine — recording stays active, hands free to edit knobs |
+| Re-hold source pad ≥ 1200ms | Confirm / store; 3 rapid blinks; exit recording mode |
+| Different pad touched < 50ms | Ignored (ghost touch / accidental) |
+| Different pad held 50ms–1199ms, no source held | Cancel: restore backup, exit recording |
+| Source pad held + different pad held ≥ 1200ms | Copy: source params → target slot; **audible confirmation** (the copied sound fires on the target) + 3 blinks; keep holding source to copy to more pads |
+| SW2 flip | Cancel recording; restore backup |
+| Seq running + in rec mode | Rec slot is force-triggered every *other* step (8th notes — 16ths were overwhelming). BPM beat blink suppressed. To solo the sound: pause the seq (P2+P11) *before* entering recording — the combo is unavailable while recording (P11 = drum pitch there). |
+
+*(That last row is the behaviour filed as ROADMAP **F2** on 2026-08-06 — it
+was a known consequence here, and never revisited after C12 fixed the same
+class of problem in Arp/Mel Rec.)*
+
+#### Seq mode (SW2 up) — the pre-Arp/Mel description
+
+**Drum editing/controls are exclusively here**, but the sequencer itself runs independently of SW2:
+
+- First SW2-Up entry (or boot with SW2 Up): kit generated + seq auto-starts, knobs live immediately. Later entries keep the last play/pause state.
+- Flipping SW2 away from Up does **not** stop the seq — drums keep playing behind Basic Pitch / Random with all seq settings (tempo, shuffle, density, punch, tightness, drive, genre, pattern) locked at their last SW2-Up values.
+- **Pickup on re-entry:** every seq pot (S30–S34, S36, S37) must reach its stored value before it takes effect again — using a pot in another mode (or during recording, which borrows most of them) never jumps a seq setting. Pickups re-arm on Seq entry and on recording exit. Values at the pot extremes (0.0/1.0) are reachable — inclusive comparison + near-window.
+- **P2+P11** (P2 first) toggles play/pause from any playmode. While P2 is held, P11's octave function is disabled.
+- Seq-triggered voices are param-locked in the voice pool (slot ids 16+i), so pitched-mode global knobs (live Basic Pitch params, drive, LPG) can't stomp drum sounds mid-decay.
+- Pads P3–P9 in Seq mode play the drum kit directly (also while paused).
+
+| Control | Sequencer function |
+|---------|-------------------|
+| **P2 + P11** | Play/pause (2 blinks = paused, 3 = playing) |
+| **SW1** | Genre: Center=Techno / Left=Electro / Right=Ambient |
+| **S30** | Drive (overall; per-slot drive settable in rec mode as percentage of overall) |
+| **S31** | Tempo (60–180 BPM) |
+| **S32** | Shuffle (0–50% swing) |
+| **S33** | Density (0–4) |
+| **S34** | Kick punch (timbre boost for kick slot) |
+| **S35** | Pattern select within the SW1 genre (pickup; range splits across the genre's pattern count) |
+| **S36** | Seq volume — drum group only; pitched-mode volume untouched |
+| **S37** | Tightness (scales morph of drum engine slots 21–23 globally; lower = shorter tail) |
+| **P3–P9** | Manual trigger on top of running seq |
+| **P0 + P2** | Re-randomize drum sounds — staged (see below) |
+| **LED** | Beat pulse on step 0 (suppressed when in recording mode) |
+
+Sequencer weight logic: step fires when `weight + density ≥ 5`.
+
+**Mode memory:** switching between playmodes restores the last state for that mode — no re-randomize on mode switch. Only P0+P2 forces a re-randomize. First entry into Seq (or after a full restart) always generates a fresh drum kit.
+
+### Current state by feature — the v1 build-out table
+
+Every row here is long since shipped and hardware-verified; the "needs
+hardware test" notes date from the steps that added them.
+
+| Feature | Status |
+|---|---|
+| Basic Pitch (SW2 down) | Working |
+| Basic Pitch P0+P2 randomize — stages 1s/2s (soft tight / soft wide, same engine) | Implemented — needs hardware test (knob-grab escape back to live mode) |
+| Random mode — 2 full-random stages (SW2 center) | Implemented — needs hardware test (stage 1 decay locked to S37, stage 2 spread) |
+| Drum mode (Seq-exclusive — SW2 up) | Working (SW2 Up only; not reachable from Random) |
+| Seq mode (SW2 up, starts immediately) | Working (SW2 Up enters; P1 = play/pause; SW2 flip exits) |
+| Voice pool (6 voices, internal SRAM, voice sleep, load-shed guard) | Working — hardware-confirmed, no audible crackling |
+| SW1/SW2 blinks on change | Working |
+| P0+P2 hold animation + audio preview | Working |
+| Model select (P0+S35, P2+S35) | Working |
+| Root note (P0+P10/P11) | Working |
+| Octave shift (P10/P11) | Working |
+| Recording mode — confirm (pad-alone 800ms) | Working |
+| Recording mode — entry (hold 800ms drum / P0+pad pitched) | Working |
+| Recording mode — cancel/copy (50ms/800ms gesture) | Working |
+| Per-slot volume (S36 in rec mode) | Struct field + drum defaults done; S36 pickup in rec mode = Step 5 |
+| Per-slot drive (S30 in rec mode) | Struct field done; S30 routing + rec mode pickup = Steps 3 + 5 |
+| S30 = drive globally (including Seq: overall × per-slot ratio) | Implemented — needs hardware test (Seq remapped: S31=Tempo S32=Shuffle S33=Density S34=Punch) |
+| Seq P0+P2 staged re-randomize (1s=soft variance / 2s=full new kit) | Implemented — needs hardware test |
+| Mode memory — per-mode slot arrays (`bp_slots`/`pad_slots`/`drum_slots`) | Implemented — needs hardware test |
+| Seq pads play drums (fixed: were playing Random-mode slots) | Implemented — needs hardware test |
+| Background drum seq in Basic Pitch / Random (settings locked) | Implemented — voice stealing much reduced at 6 voices + sleep |
+| P2+P11 seq play/pause combo (all modes; replaces P1 tap) | Implemented — needs hardware test |
+| Seq knob pickup on re-entry / after recording | Implemented — needs hardware test |
+| Basic Pitch stage 3 (3s) = restore clean live sound | Implemented — needs hardware test |
+| VoicePool global-param cache (NoteOn/Audition rehydrate reused voices) | Implemented — fixes stale drum engine on Basic Pitch pads |
+| CPU load meter (serial print every 2s) | Working — baseline measured: idle 44/49, playing up to 95–100 max |
+| Voice memory in internal SRAM (was SDRAM) | Working — measured: idle 44%→3% |
+| Voice sleep (silent voices skip render) | Working — hardware-confirmed |
+| -O3 build (project + Plaits sources) | Working |
+| Load-shed guard (escalating; `shed N` in serial line) | Working — hardware-confirmed, no crackling |
+| Unified rec entry — hold pad 1200ms in Seq *and* Random | Implemented — needs hardware test |
+| Rec knobs true pickup (arm to slot values; extremes reachable) | Implemented — fixes dead S30/S34 + one-directional rec knobs |
+| Copy gesture audible confirmation | Implemented — copied sound fires on target |
+| Rec force-fire halved to 8th notes | Implemented |
+| Seq volume separate from pitched volume (S36 per group, pickup) | Implemented — needs hardware test |
+| Drive loudness makeup (−6dB at full drive) | Implemented — tune slope by ear |
+| Six-Op random generation anchored to audible presets | Implemented |
+| Unified decay (S37→morph for engines 21–23) | Working (slot.decay→patch.morph at seq trigger; tightness on all engine 21–23 slots) |
+| Output soft-clip limiter | Working |
+| Seq: rec slot force-triggered per step regardless of density | Implemented — was firing every audio block (250×/s); now gated on `StepFired()` |
+
+### Full-Random stage columns
+
+The FR S1/S2/S3 columns of the models table described which engines each
+*Random mode* stage could draw — that mode is gone, and the drum pools are
+now `kDrumPools`. The engine list itself (with the knob meanings) stays in
+`notes.md`; only the FR columns are archived:
+
+FR = Full Random / Drum mode stages. Chiptune (7) excluded from all FR stages.
+grp0 = bank-0 engines (0–11), grp1 = bank-1 (12–23); S3 was drum-only
+(21–23).
+
+### Per-role drum pools — superseded by `kDrumPools`
+
+These tables were the source of truth until the 2026-08-05 kick curation made
+the code's `kDrumPools` table the single owner. Kept for the tuning history
+(the ranges themselves are unchanged, and the reasoning notes moved into code
+comments beside the table).
+
+**GM ref (as of this table):** 36=Kick · 38=Snare · 42=CHH · 46=OHH · 39=Clap
+· 41=Low Tom. *(Perc's anchor became 43 on 2026-08-05.)*
+
+**P3 — Kick**
+
+| Engine | Morph→decay (slot.decay) | Timbre | Harmonics | Note |
+|--------|--------------------------|--------|-----------|------|
+| 21 BassDrum | 0.05–0.30 | 0.20–0.65 | 0.20–0.55 | 36–48 |
+| 10 Two-Op FM | 0.10–0.30 | 0.00–0.30 | 0.10–0.40 | 36–48 |
+
+**P4 — Snare**
+
+| Engine | Morph→decay (slot.decay) | Timbre | Harmonics | Note |
+|--------|--------------------------|--------|-----------|------|
+| 22 SnareDrum | 0.10–0.60 | 0.30–0.80 | 0.30–0.70 | 48–60 |
+| 17 Noise | 0.05–0.20 | 0.55–0.90 | 0.30–0.70 | 48–60 |
+
+**P5 — Closed Hi-Hat**
+
+| Engine | Morph→decay (slot.decay) | Timbre | Harmonics | Note |
+|--------|--------------------------|--------|-----------|------|
+| 23 HiHat | 0.02–0.12 | 0.50–0.90 | 0.40–0.80 | 84–100 |
+| 17 Noise | 0.02–0.10 | 0.65–0.95 | 0.45–0.75 | 84–100 |
+
+Hats moved out of the melodic register (was 60–84): note is the pitch center (23) / filter center (17), and low centers read as tonal noise instead of metal. Timbre floor raised — engine 23's timbre is the metallic ratio.
+
+**P6 — Open Hi-Hat**
+
+| Engine | Morph→decay (slot.decay) | Timbre | Harmonics | Note |
+|--------|--------------------------|--------|-----------|------|
+| 23 HiHat | 0.35–0.60 | 0.45–0.85 | 0.40–0.80 | 80–96 |
+
+**P7 — Clap**
+
+| Engine | Morph→decay (slot.decay) | Timbre | Harmonics | Note |
+|--------|--------------------------|--------|-----------|------|
+| 22 SnareDrum | 0.55–0.90 | 0.65–0.95 | 0.50–0.90 | 48–62 |
+| 17 Noise | 0.05–0.20 | 0.70–1.00 | 0.40–0.80 | 55–70 |
+
+**P8 — Tom**
+
+| Engine | Morph→decay (slot.decay) | Timbre | Harmonics | Note |
+|--------|--------------------------|--------|-----------|------|
+| 21 BassDrum | 0.30–0.65 | 0.10–0.40 | 0.30–0.60 | 48–72 |
+| 20 Modal | 0.30–0.70 | 0.20–0.60 | 0.10–0.50 | 48–72 |
+
+**P9 — Perc**
+
+| Engine | Morph→decay (slot.decay) | Timbre | Harmonics | Note |
+|--------|--------------------------|--------|-----------|------|
+| 20 Modal | 0.10–0.30 | 0.20–0.55 | 0.30–0.60 | 60–84 |
+| 23 HiHat | 0.10–0.30 | 0.50–0.90 | 0.50–1.00 | 76–96 |
+| 22 SnareDrum | 0.05–0.20 | 0.05–0.35 | 0.30–0.60 | 66–80 |
+
+String (19) removed from the Perc pool — Karplus-Strong reads as a loud melodic pluck, not percussion. Modal tail capped (was 0.40–0.90). Snare engine pitched high with body-heavy timbre = rim/wood tick. Particle (18) removed from Snare/Clap/Perc pools.
+
+Default per-slot volumes at randomize time (tuning targets): Kick 0.9, Snare 0.8, CHH 0.55, OHH 0.65, Clap 0.75, Tom 0.7, Perc 0.5 (was 0.6 — perc sat too far forward).
+
+---
+
 ## Deliberate differences from the visualizer — settled
 
 Confirmed as intended during the 2026-08-04/05 rounds; don't "fix" without

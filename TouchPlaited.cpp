@@ -912,7 +912,8 @@ static void exit_rec_snd_edit() {
 static VoiceParams arp_params(float decay);
 static VoiceParams rec_params(float decay);
 
-// ─── MIDI (mapping design in notes.md → "MIDI mapping sketch") ────────────────
+// ─── MIDI (mapping design: notesarchive/notes_archive_2026-07.md →
+//     "MIDI mapping sketch") ─────────────────────────────────────────────────
 // Channel split: ch1 = pitched — the note number IS the pitch, bypassing the
 // pad scale/root/octave logic — ch10 = drums via the GM map. CC20–31 and
 // 85–88 map to *functions*, not pots; a CC write re-arms that pot's pickup so

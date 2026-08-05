@@ -163,12 +163,17 @@ bolted onto the branch that raised them.
       Particle plausibly), so widening may be preset work rather than DSP
       work. (b) A purpose-written engine is a real addition to
       `thirdparty/plaits`, worth it only if (a) is exhausted. Audition (a)
-      before considering (b).
+      before considering (b). Analysis: `notes.md` → *Drum engine
+      parameters* (what each drum engine's knobs mean, which non-drum engines
+      hold up as percussion, and the tuning lessons that keep being
+      relearned).
 - [ ] **Weight → audio level.** MIDI out now carries the pattern's accents as
       velocity, but the *audio* still fires every step at full level — weight
       is only a density gate there. Making ghosts quieter internally is
       arguably the point of ghost notes, but it changes the shipped feel of
-      every pattern, so it's filed rather than done.
+      every pattern, so it's filed rather than done. Analysis: `notes.md` →
+      *Drum pattern system* (the `0xCW` step encoding and the
+      `weight + density >= 5` rule this would reinterpret).
 
 ## Hardware verification still owed
 
@@ -176,9 +181,10 @@ bolted onto the branch that raised them.
       pulse-to-MIDI-clock bridge on S43 (in) / S40 (out) is implemented and
       the wording on screen was checked in the 2026-08-04 cross-mode walk,
       but the **thresholds themselves** have never been verified against a
-      real CV source. `notes.md` → "Syncing → CV clock in/out" has been
-      claiming this is tracked here; it wasn't, so it is now. Behaviour:
-      `MANUAL.md` → "Clock sync — MIDI and CV".
+      real CV source. `notes.md` had been claiming this is tracked here; it
+      wasn't, so it is now. Behaviour: `MANUAL.md` → "Clock sync — MIDI and
+      CV"; the original sketch is in
+      `notesarchive/notes_archive_2026-07.md` → "Syncing".
 
 ## Parking lot — performance
 
