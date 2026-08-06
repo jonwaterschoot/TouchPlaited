@@ -76,6 +76,19 @@ public:
     void ShowPickup(const char* label, const char* value,
                     uint8_t pot, uint8_t target);
 
+    // Label row as ShowLine(), then the seven musical pads as two aligned
+    // rows: their note names in fixed 18 px columns, and under each a marker
+    // — filled if that pad is in the arp's pool, hollow if it isn't. `names`
+    // must hold 7 short strings (pitch classes, <= 3 chars); bit i of `pool`
+    // is pad P(3+i). Mirrors oled-mini.ts's showPool().
+    //
+    // The markers are drawn rather than written for a reason worth keeping:
+    // Font_6x8 only carries ASCII 32-126, and WriteString abandons the whole
+    // string at the first character outside that range — so a filled block
+    // can't be a glyph here, however convenient that would be.
+    static constexpr int kPoolCols = 7;
+    void ShowPool(const char* label, const char* const* names, uint8_t pool);
+
     void Clear();
 
     // Frame-level primitives for the one-shot boot animation

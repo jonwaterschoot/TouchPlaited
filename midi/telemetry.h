@@ -40,6 +40,12 @@ struct TelemetryState {
                            // bits4-5 arp octave range 0..3 (P0+P10/P11) —
                            // folded in here rather than given a field of its
                            // own, the value being exactly two bits wide.
+    uint8_t  arp_pool;     // bit i = pad P(3+i) is in the arp's note pool
+                           // (Arp::PoolMask). Published because in Hold the
+                           // pool is not the pads: notes latch, so `pads`
+                           // says nothing about what the arp is walking —
+                           // which is exactly the state where you have four
+                           // notes running and no fingers down.
     uint8_t  seq_pattern;  // slot within the current genre that's actually
                            // playing, 0-based (Sequencer::VariantSlot) — S35
                            // sits behind a pickup, so its pot position is not

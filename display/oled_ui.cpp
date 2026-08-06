@@ -346,6 +346,27 @@ void scale_notes(FixedCapStr<N>& out, int sw1, int root) {
     }
 }
 
+// The same seven pitch classes as scale_notes(), one per array slot instead
+// of one string, for OledScreen::ShowPool's column layout — the markers under
+// them have to line up per pad, which a single space-joined string can't do
+// (the names are one char wide or two).
+//
+// Pitch classes are the right unit here for a second reason on this screen:
+// the pool stores its notes octave-normalized (Arp::Touch, TouchPlaited.cpp)
+// and the octave is added at fire time, so the pool's identity genuinely is a
+// set of pitch classes — P10/P11 move the whole thing and this row stays true.
+// The one case it can lie: leaving Arp/Mel with Hold latched, changing the
+// root in Basic Pitch, and coming back. The latched notes keep the pitches
+// they were captured at while this row follows the new root. Root and scale
+// are Basic Pitch-only settings, so no shift reachable from inside Arp/Mel
+// can do it.
+void pool_names(const char* (&out)[7], int sw1, int root) {
+    if (sw1 < 0 || sw1 > 2) sw1 = 1;
+    if (root < 0 || root > 11) root = 0;
+    for (int d = 0; d < 7; d++)
+        out[d] = kNoteNames[(root + kUiScales[sw1][d]) % 12];
+}
+
 // Where an octave shift actually landed: the offset (−3..+3, the range
 // P10/P11 clamps to) and the note the pads' root now sounds at. The label row
 // only ever named the direction you pressed, so after a few taps — or after
@@ -1084,6 +1105,14 @@ StatusIcons icons_for(const TelemetryState& t, uint32_t now_ms) {
     if (ic.rec && ic.layers < 5) ic.open = ic.layers;
     return ic;
 }
+
+// Whether this screen should be drawing the arp's note pool (ShowPool) rather
+// than a plain value row. Arp and Hold only: Rec's pads play and record
+// instead of feeding the pool, so there the same row would mark seven notes
+// that have nothing to do with what you are hearing.
+bool pool_view(const TelemetryState& t) {
+    return t.mode == 1 && (t.arp_flags & 0x03) <= 1;
+}
 } // namespace
 
 void OledUi::Service(const TelemetryState& t, uint32_t now_ms, OledScreen& oled) {
@@ -1157,6 +1186,8 @@ void OledUi::Service(const TelemetryState& t, uint32_t now_ms, OledScreen& oled)
     // specific callout — a pad, a switch, a transport change — takes the
     // screen back to normal, same as it takes it back from anything else.
     int pickup_now = -1;
+    // Same idea for the pool row: only the musical-pad branch sets it.
+    bool pool_now = false;
 
     // Priority mirrors labels.ts: an explicit pad-down is the most specific
     // signal, then a switch flip, then a model change, then a knob move.
@@ -1209,6 +1240,11 @@ void OledUi::Service(const TelemetryState& t, uint32_t now_ms, OledScreen& oled)
             return;
         }
         describe_pad(i, t, label, value);
+        // A musical pad in Arp/Hold answers a bigger question than the note it
+        // just added: what the whole pool is now. The label row still names
+        // the pad, so nothing is lost by giving the value row to the seven
+        // markers instead of to this one note.
+        if (pool_view(t) && i >= 3 && i <= 9) pool_now = true;
         draw = true;
     } else if (t.sw1 != last_.sw1) {
         const char* const* table = (t.mode == 0) ? kSw1Seq : (t.mode == 1) ? kSw1Arp : kSw1Pitch;
@@ -1286,7 +1322,11 @@ void OledUi::Service(const TelemetryState& t, uint32_t now_ms, OledScreen& oled)
 
     if (draw) {
         pickup_knob_ = pickup_now;
-        if (pickup_knob_ >= 0)
+        if (pool_now) {
+            const char* names[7];
+            pool_names(names, latched_scale(t), t.root);
+            oled.ShowPool(label.Cstr(), names, t.arp_pool);
+        } else if (pickup_knob_ >= 0)
             oled.ShowPickup(label.Cstr(), value.Cstr(),
                             t.controls[pickup_knob_], t.pickup_target[pickup_knob_]);
         else
@@ -1307,22 +1347,51 @@ void OledUi::Service(const TelemetryState& t, uint32_t now_ms, OledScreen& oled)
     // control is being moved.
     FixedCapStr<24> sl, sv;
     status_row(t, now_ms, sl, sv);
+    // In Arp/Hold with anything in the pool, the home screen IS the pool. This
+    // is the whole point of the row rather than a nicety: in Hold you cannot
+    // inspect the pool by pressing a pad, because pressing a pad is what takes
+    // notes out of it — so a view that only appeared on a pad-down would be
+    // unreachable exactly where it matters. The label row still carries the
+    // sub-state; what it costs is the model name, which is back the moment the
+    // pool empties (and is a knob turn away regardless).
+    // Not while the melodic transport is stopped, though: status_row() gives
+    // the value row to "Arp stopped" there for a reason that outranks this one
+    // — a silent pool is the state where the mode looks broken rather than
+    // quiet, and seven markers would say what is loaded without saying that
+    // none of it is playing. The pad-down callout still shows the pool while
+    // stopped; it's only the home screen that yields.
+    // 0xFF is "not a pool screen", so one comparison covers both the mask
+    // changing and the screen changing kind.
+    const bool arp_running = (t.arp_flags & 0x08) != 0;
+    const uint8_t want_pool = (pool_view(t) && arp_running && (t.arp_pool & 0x7F) != 0)
+                                  ? static_cast<uint8_t>(t.arp_pool & 0x7F) : 0xFF;
     const bool idle_now = hold_ended || (now_ms - idle_at_ms_) >= kIdleMs;
     const bool changed  = std::strcmp(sl.Cstr(), status_label_.Cstr()) != 0
-                       || std::strcmp(sv.Cstr(), status_value_.Cstr()) != 0;
+                       || std::strcmp(sv.Cstr(), status_value_.Cstr()) != 0
+                       || want_pool != status_pool_;
     if (idle_now && (!showing_status_ || changed)) {
-        oled.ShowLine(sl.Cstr(), sv.Cstr(), icons);
+        if (want_pool != 0xFF) {
+            const char* names[7];
+            pool_names(names, latched_scale(t), t.root);
+            oled.ShowPool(sl.Cstr(), names, want_pool);
+        } else {
+            oled.ShowLine(sl.Cstr(), sv.Cstr(), icons);
+        }
         next_draw_ms_   = now_ms + kMinRedrawIntervalMs;
         showing_status_ = true;
         pickup_knob_    = -1;   // the track went with the callout
         status_label_   = sl;
         status_value_   = sv;
+        status_pool_    = want_pool;
         blink_phase_    = icons.blink;
     } else if (icons.animated() && icons.blink != blink_phase_) {
         // The one self-generated redraw on this screen: the capture
         // indicator has to pulse whether or not anything else moved. Redraw
         // whatever is already showing rather than reverting to the status
-        // row, so a blink can't steal a callout mid-read.
+        // row, so a blink can't steal a callout mid-read. It repaints as a
+        // plain label/value row, which would wipe a pool screen — it can
+        // never land on one: icons_for() only animates in Rec (or Seq slot
+        // editing), and pool_view() excludes both.
         if (showing_status_) oled.ShowLine(status_label_.Cstr(), status_value_.Cstr(), icons);
         else                 oled.ShowLine(last_label_.Cstr(), last_value_.Cstr(), icons);
         next_draw_ms_ = now_ms + kMinRedrawIntervalMs;

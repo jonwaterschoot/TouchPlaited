@@ -68,6 +68,13 @@ const BLINK_MS = 400;
 const LIST_ROWS = 4;
 // ShowPickup geometry: Font_7x10 value at y 12..21, track at y 24..31.
 const PICKUP_VALUE_Y = 12;
+// ShowPool geometry — seven fixed 18 px columns so the note row and the
+// marker row line up per pad; note row at y 12..19, markers at y 24..30.
+// Mirrors OledScreen::ShowPool (display/oled_screen.cpp).
+const POOL_COLS = 7;
+const POOL_X0 = 1, POOL_COL_W = 18;
+const POOL_NOTE_Y = 12;
+const POOL_MARK_Y0 = 24, POOL_MARK_Y1 = 30, POOL_MARK_W = 9;
 
 /** Same stepping as oled_screen.cpp:ShowLine() — largest font whose char
  * count fits, in char-count terms (not measured pixel width, matching the
@@ -101,6 +108,11 @@ export class OledMini {
   // Set only while the shown control is armed behind a pickup; both values
   // are 0..127, as the wire carries them.
   private pickup: { pot: number; target: number } | null = null;
+  // The arp pool row, when it owns the callout / the home screen. Two slots,
+  // like label/value: a pool callout expires on the idle timeout and falls
+  // back to the pool home screen underneath it (Arp/Hold with notes latched).
+  private pool: { names: string[]; mask: number } | null = null;
+  private idlePool: { names: string[]; mask: number } | null = null;
   private blinkPhase = false;
   private cell = 4; // device px per logical pixel — set for real by place()
 
@@ -164,6 +176,7 @@ export class OledMini {
     this.label = label;
     this.value = value;
     this.pickup = null;
+    this.pool = null;
     this.shownAt = performance.now();
     this.draw();
   }
@@ -180,7 +193,23 @@ export class OledMini {
     this.active = true;
     this.label = label;
     this.value = value;
+    this.pool = null;
     this.pickup = { pot, target };
+    this.shownAt = performance.now();
+    this.draw();
+  }
+
+  /** The arp's note pool: the seven musical pads as a note row with a marker
+   * under each, filled where that pad is in the pool. Mirrors
+   * OledScreen::ShowPool(). `pool` is the raw 7-bit mask, bit i = P(3+i). */
+  showPool(label: string, names: string[], pool: number) {
+    if (this.progressMode || this.flashTimer !== null) return;
+    this.listRows = null;
+    this.pickup = null;
+    this.active = true;
+    this.label = label;
+    this.value = '';
+    this.pool = { names, mask: pool };
     this.shownAt = performance.now();
     this.draw();
   }
@@ -201,6 +230,7 @@ export class OledMini {
     if (this.flashTimer !== null) return; // a confirm is still on screen
     this.listRows = null;
     this.pickup = null;
+    this.pool = null;
     this.active = true;
     this.progressMode = true;
     this.progressLabel = label;
@@ -217,6 +247,7 @@ export class OledMini {
   confirmFlash(label: string, text: string) {
     this.listRows = null;
     this.pickup = null;
+    this.pool = null;
     this.active = true;
     this.progressMode = false;
     this.shownAt = performance.now();
@@ -248,6 +279,7 @@ export class OledMini {
   showList(rows: string[]) {
     this.active = true;
     this.pickup = null;
+    this.pool = null;
     this.progressMode = false;
     this.listRows = rows;
     this.shownAt = performance.now();
@@ -274,12 +306,33 @@ export class OledMini {
   setStatus(label: string, value: string) {
     this.idleLabel = label;
     this.idleValue = value;
+    this.idlePool = null;
     if (!this.active) this.draw();
+  }
+
+  /** Home screen for Arp/Hold with notes in the pool: the pool row instead of
+   * a value row, matching OledUi::Service's idle branch. It has to be the
+   * home screen and not only a callout — in Hold you cannot look at the pool
+   * by pressing a pad, because pressing a pad is what takes notes out of it. */
+  setStatusPool(label: string, names: string[], pool: number) {
+    const same = this.idlePool !== null && this.idlePool.mask === pool
+              && this.idleLabel === label
+              && this.idlePool.names.every((n, i) => n === names[i]);
+    this.idleLabel = label;
+    this.idleValue = '';
+    this.idlePool = { names, mask: pool };
+    if (!this.active && !same) this.draw();
   }
 
   private draw() {
     if (this.active && this.listRows !== null) {
       this.layoutList(this.listRows);
+      this.rasterize();
+      return;
+    }
+    const pool = this.active ? this.pool : this.idlePool;
+    if (pool !== null && !this.progressMode) {
+      this.layoutPool(this.active ? this.label : this.idleLabel, pool.names, pool.mask);
       this.rasterize();
       return;
     }
@@ -321,6 +374,29 @@ export class OledMini {
     const px = at(pot);
     this.drawRectFilled(Math.max(X0, px - 2), 27,
                         Math.min(X1, px + 2), 29);    // where it is now
+  }
+
+  /** Label row as layoutText(), then the seven musical pads as two aligned
+   * rows: note names in fixed columns, and under each a marker — filled if
+   * that pad is in the arp's pool, hollow if it isn't. Identical geometry to
+   * the firmware's OledScreen::ShowPool(). The markers are drawn rather than
+   * written on the device because Font_6x8 has no glyph for a filled block
+   * (and WriteString drops the whole string on the first char outside ASCII
+   * 32-126) — they are drawn here for the same reason: this is a port of what
+   * the panel does, not a nicer version of it. */
+  private layoutPool(label: string, names: string[], pool: number) {
+    this.bits.fill(0);
+    this.blitText(FONT_6X8, truncate(label.toUpperCase(), LABEL_CHARS), 1, 0);
+    for (let i = 0; i < POOL_COLS; i++) {
+      const col = POOL_X0 + i * POOL_COL_W;
+      const nm = (names[i] ?? '').slice(0, 3);
+      const w = nm.length * FONT_6X8.width;
+      this.blitText(FONT_6X8, nm, col + Math.floor((POOL_COL_W - w) / 2), POOL_NOTE_Y);
+      const mx = col + Math.floor((POOL_COL_W - POOL_MARK_W) / 2);
+      const mx2 = mx + POOL_MARK_W - 1;
+      if ((pool >> i) & 1) this.drawRectFilled(mx, POOL_MARK_Y0, mx2, POOL_MARK_Y1);
+      else this.drawRectOutline(mx, POOL_MARK_Y0, mx2, POOL_MARK_Y1);
+    }
   }
 
   /** Blit `font`'s glyphs for `text` into the bit-grid starting at (x0, y0),

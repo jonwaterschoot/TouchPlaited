@@ -53,6 +53,10 @@ private:
     bool     showing_status_ = false; // status row currently owns the screen
     daisy::FixedCapStr<24> status_label_{};  // as last drawn, to skip redraws
     daisy::FixedCapStr<24> status_value_{};
+    // Pool mask the status screen last drew, 0xFF = it wasn't a pool screen.
+    // The label/value strings don't move when the pool changes (or when the
+    // pool row takes the screen over), so they can't carry this themselves.
+    uint8_t  status_pool_  = 0xFF;
     daisy::FixedCapStr<24> last_label_{};    // last callout, for blink repaints
     daisy::FixedCapStr<24> last_value_{};
     bool     blink_phase_  = false;  // phase the indicator block last drew at

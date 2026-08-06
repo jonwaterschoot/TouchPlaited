@@ -86,9 +86,9 @@ shipped behaviour either way — so neither is blocking.
 
 ## E. Arp/Mel screen round (filed 2026-08-05, from the second walk)
 
-Three findings on the same screen; **E1 shipped** (see the archive). The two
-left need new telemetry, which is why they were scoped here rather than
-bolted onto the branch that raised them.
+Three findings on the same screen; **E1 and E3 shipped** (E1's in the
+archive). Both needed new telemetry, which is why they were scoped here
+rather than bolted onto the branch that raised them. E2 is what's left.
 
 - [ ] **E2 — `P1+P10 UNDO LAYER` leaves the value row empty, and the layer
       display generally.** Two separable things, deliberately split:
@@ -102,23 +102,29 @@ bolted onto the branch that raised them.
         callout; drawing it large in the value row either duplicates it at two
         sizes or gives up that persistence. Agreed on the walk that **Rec's
         layer UX needs its own pass** — this belongs in that, not ahead of it.
-- [ ] **E3 — Arp/Hold: show the pool with the held notes marked.** The best of
-      the three: a note row in the style of the root-note readout, with a
-      marker row aligning a filled/hollow shape under each pad.
-      **The catch that decides the design: in Hold, the pool is not the pads.**
-      `Arp::notes_[]` latches — a note stays in the pool after you lift, and a
-      re-touch toggles it off — so building this from `t.pads` (which *is*
-      published) would look correct in Arp and be silently useless in Hold,
-      which is the exact state where the display earns its keep: fingers off,
-      four notes latched, nothing on the panel telling you which four. Needs
-      `Arp::PoolMask()` (7 bits, one accessor over `notes_[]`) and one
-      published byte.
-      Two implementation notes so they aren't rediscovered: the markers must
-      be **drawn, not written** — Font_6x8 accepts ASCII 32-126 only and
-      `WriteString` aborts the whole string on the first rejected char, so
-      filled shapes can't be glyphs (draw them like `StatusIcons` does). And
-      the layout fits: 32 px is four 8-px rows, this needs label + notes +
-      markers, leaving one spare.
+- [x] **E3 — Arp/Hold: show the pool with the held notes marked.**
+      *Done 2026-08-06.* `Arp::PoolMask()` (7 bits over `notes_[]`) goes out
+      as STATE payload byte 38 (fw v11); `OledScreen::ShowPool` draws the
+      label row, then seven 18-px columns carrying each pad's note name with a
+      filled (in pool) or hollow (not) marker under it. Both implementation
+      notes held up: the markers are drawn like `StatusIcons`, and label +
+      notes + markers fit the 32 px with the spare row spent as the gaps that
+      keep the two rows apart.
+      **One thing the filing didn't see, and it changed the design:** a
+      pad-down callout would have been *unreachable* in Hold, because pressing
+      a pad there is what takes a note out of the pool — you cannot look
+      without changing what you're looking at. So the pool is also the idle
+      home screen while it has notes in it (in place of the model name), which
+      is what actually answers "fingers off, four notes latched". It yields to
+      `Arp stopped`, which is the more urgent thing to say.
+      The row names pitch classes, which is what the pool stores — the octave
+      is applied at fire time, so P10/P11 move the whole thing and the row
+      stays true. The one way to make it lie is to leave Arp/Mel with Hold
+      latched, shift the root in Basic Pitch, and come back; root and scale
+      are Basic Pitch-only, so nothing reachable from inside the mode can.
+      The visualizer decodes the byte, mirrors both screens and logs pool
+      moves by name (`Arp pool +D#`) — in Hold that log line is the only
+      report of which way a press went.
 
 ## OLED — the two strands left from the 2026-08-04/05 round
 

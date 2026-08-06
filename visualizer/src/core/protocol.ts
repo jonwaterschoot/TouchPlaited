@@ -3,10 +3,11 @@
 //
 //   F0 7D 54 50 <ver> <type> <payload…> F7      "TP" = 0x54 0x50, mfr 0x7D
 //
-// STATE (0x01) payload, 37 bytes, all 7-bit (bytes 16-17 appended in fw v2,
+// STATE (0x01) payload, 39 bytes, all 7-bit (bytes 16-17 appended in fw v2,
 // byte 18 in fw v3, bytes 19-20 in fw v4, bytes 21-22 in fw v5, bytes 23-24
-// in fw v6, bytes 25-26 in fw v7, byte 27 in fw v8, bytes 28-36 in fw v9;
-// decode guards on length so older frames still parse):
+// in fw v6, bytes 25-26 in fw v7, byte 27 in fw v8, bytes 28-36 in fw v9,
+// byte 37 in fw v10, byte 38 in fw v11; decode guards on length so older
+// frames still parse):
 //   0    pads P0..P6 bitmask (bit0 = P0)
 //   1    pads P7..P11 bitmask (bit0 = P7)
 //   2-9  S30..S37, 0..127
@@ -49,6 +50,11 @@
 //        deliberate nudge, so there is no target to aim at
 //   29-36 pickup targets, 0..127, one per S30..S37; meaningless where the
 //        mask bit is 0
+//   37   SW1's latched roles, both in panel order: bits0-1 genre, bits2-3
+//        scale — what is LOADED, as opposed to where the lever sits
+//   38   arp note pool, bit i = pad P(3+i) is in it. Not derivable from the
+//        pad bitmask: in Hold the pool latches, so it holds notes with no
+//        finger on them (and a re-touch takes one out)
 //
 // FX (0x04) payload: drive, reverb, delay, nTrims, trims…   (all 0..127)
 // KIT (0x05) payload: nSlots, then per slot 6 bytes: engine, harmonics,
@@ -157,6 +163,10 @@ export function applySysex(data: Uint8Array, store: DeviceStore): boolean {
       // exactly as accurate (and as wrong) as it was before.
       if (p.length >= 38) store.setSw1Latch(p[37] & 0x03, (p[37] >> 2) & 0x03);
       else store.setSw1Latch(p[10], p[10]);
+      // Arp pool, added v11. Older firmware publishes nothing here and the
+      // pads are the only clue it ever gave — but they are the wrong answer
+      // in Hold, so leave it empty rather than guessing from them.
+      if (p.length >= 39) store.setArpPool(p[38] & 0x7f);
       return true;
     }
     case FrameType.EVENT: {

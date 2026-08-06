@@ -1371,6 +1371,11 @@ static void service_telemetry() {
         | (rec_armed ? 0x04 : 0x00)
         | (arp_run_on ? 0x08 : 0x00)
         | ((arp_oct_range & 0x03) << 4));
+    // The arp's note pool. Always published, not just in Arp/Mel: the pool
+    // survives leaving the mode (Hold keeps playing in the background), so a
+    // screen that only saw it while SW2 sat in the middle would go blank on
+    // exactly the state that outlives the visit.
+    t.arp_pool  = arp.PoolMask();
     t.seq_pattern = static_cast<uint8_t>(seq.VariantSlot());
     capture_pickups(t);
     const uint32_t now_ms = System::GetNow();

@@ -358,7 +358,14 @@ export const ROOT_NAMES = NOTE_NAMES;
  * makes it visible that shifting the root transposes the whole scale rather
  * than only retuning the first pad. */
 export function scaleNotes(swA: number, root: number): string {
+  return scaleNoteList(swA, root).join(' ');
+}
+
+/** The same seven pitch classes one per entry — what the OLED's pool row
+ * needs, since it lays each one out in its own fixed column with a marker
+ * underneath (oled-mini.ts's showPool, mirroring OledScreen::ShowPool). */
+export function scaleNoteList(swA: number, root: number): string[] {
   const scale = SCALES[swA] ?? SCALES[1];
   const r = ((root % 12) + 12) % 12;
-  return scale.map((d) => NOTE_NAMES[(r + d) % 12]).join(' ');
+  return scale.map((d) => NOTE_NAMES[(r + d) % 12]);
 }

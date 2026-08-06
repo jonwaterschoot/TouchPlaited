@@ -45,6 +45,11 @@ export interface DeviceState {
   arpRunning: boolean;    // melodic transport (P2+P10 outside Rec) — gates
                           // the arp and the Rec loop together; independent
                           // of recArmed, a punched-out Rec still loops
+  arpPool: number;        // bitmask, bit i = pad P(3+i) is in the arp's note
+                          // pool. NOT the same as pads[] in Hold, which is
+                          // the point of publishing it: notes latch there, so
+                          // the pool routinely holds notes nothing is
+                          // touching (and a re-touch removes one)
   arpRange: number;       // arp octave range 0..3 — extra octaves the arp
                           // climbs ABOVE its base octave, so the two compose:
                           // base +1 with range 2 spans +1..+3
@@ -93,6 +98,7 @@ export type StateEvent =
   | { kind: 'arpSub'; sub: number; armed: boolean; running: boolean;
       prevSub: number; prevArmed: boolean; prevRunning: boolean }
   | { kind: 'arpRange'; v: number }
+  | { kind: 'arpPool'; v: number; prev: number }
   | { kind: 'seqPattern'; v: number }
   | { kind: 'sw1Latch'; genre: number; scale: number }
   | { kind: 'hold'; holdKind: number; progress: number; stage: number; outcome: number }
@@ -125,6 +131,7 @@ function initialState(): DeviceState {
     recMute: 0,
     clockSrc: 0,
     arpSub: 0,
+    arpPool: 0,
     arpRange: 0,
     recArmed: false,
     arpRunning: true,   // device default: the plain arp sounds from boot
@@ -283,6 +290,16 @@ export class DeviceStore {
     if (this.state.arpRange === v) return;
     this.state.arpRange = v;
     this.emit({ kind: 'arpRange', v });
+  }
+
+  /** The arp's note pool. Carries the previous mask so a listener can name
+   * which pad went in or out — in Hold that is a toggle, and the pad event
+   * that caused it says nothing about which way it went. */
+  setArpPool(v: number) {
+    const prev = this.state.arpPool;
+    if (v === prev) return;
+    this.state.arpPool = v;
+    this.emit({ kind: 'arpPool', v, prev });
   }
 
   /** Which pattern slot the drum sequencer is actually playing. */

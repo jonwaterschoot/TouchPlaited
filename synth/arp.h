@@ -67,6 +67,18 @@ public:
     void Clear()       { count_ = 0; }
     bool Empty() const { return count_ == 0; }
 
+    // Which pad slots the pool currently holds — bit i = slot i (pad P3+i).
+    // In Hold the pool is NOT the pads: a note stays after you lift and a
+    // re-touch takes it out, so the touch state can't stand in for this. The
+    // screen draws it (display/oled_ui.cpp) and it goes out as telemetry.
+    uint8_t PoolMask() const {
+        uint8_t m = 0;
+        for (int i = 0; i < count_; i++)
+            if (notes_[i].pad >= 0 && notes_[i].pad < 7)
+                m |= static_cast<uint8_t>(1u << notes_[i].pad);
+        return m;
+    }
+
     // ── Controls (0..1 pot values) ───────────────────────────────────────
     // S31 division detents, slow → fast: 1/4, 1/8, 1/8T, 1/16, 1/16T, 1/32.
     // Center (0.5) lands on 1/16 — the neutral default.

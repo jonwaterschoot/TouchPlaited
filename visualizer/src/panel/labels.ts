@@ -17,7 +17,7 @@ import {
   CONTROLS, PADS, SW1_POSITIONS, SW2_POSITIONS, MODE_NAMES, modelName,
   DRUM_NOTES, noteName, fxValueLabel, engineKnobLabel, formatKnobValue,
   ENGINE_KNOBS, pitchedNote, arpOrderName, patternValue, patternSlotValue,
-  densityValue, chanceValue, ROOT_NAMES, scaleNotes, PITCH_BASE,
+  densityValue, chanceValue, ROOT_NAMES, scaleNotes, scaleNoteList, PITCH_BASE,
 } from '../core/controls-meta';
 import type { KnobParam } from '../core/controls-meta';
 
@@ -653,6 +653,12 @@ export class Labels {
           if (d) this.addLog(d.combo, html);
           // Pure modifier (P0/P1FX/P2): worth a screen line, not a log line.
           else this.screenPush(meta.name, html);
+          // A musical pad in Arp/Hold: the screen answers "what is the pool
+          // now", not "what note was that". s.arpPool is still the previous
+          // mask here (the decoder applies pads first), but the pool byte from
+          // the same frame lands a moment later and redraws with the right one
+          // — both inside one tick, so nothing is ever painted stale.
+          if (ev.i >= 3 && ev.i <= 9) this.poolCallout(s, s.arpPool);
           // A modifier going down lists what it unlocks here, and holds the
           // screen until it's released — same as OledUi::Service.
           if (ev.i <= 2) {
@@ -764,6 +770,28 @@ export class Labels {
         this.addLog('clock', name
           ? `<b>Clock</b> external <span>${name}</span> — tempo knob muted`
           : `<b>Clock</b> back to <span>internal</span> (knob tempo)`);
+        this.renderStatus(s);
+        break;
+      }
+      case 'arpPool': {
+        // In Hold this is the only report of what a pad press did: the pool
+        // latches, so a press adds OR removes and the pad event itself can't
+        // say which. Name the note that moved and what's left.
+        // Guarded on Arp/Hold: the pool also empties on the way OUT of the
+        // mode (leaving plain Arp drops it), and that is not a gesture worth
+        // taking the screen for in whatever mode you just arrived in.
+        if (s.mode === 1 && s.arpSub <= 1) {
+          const moved = (m: number) => scaleNoteList(s.scaleLatched, s.root)
+            .filter((_, i) => (m >> i) & 1).join(' ');
+          const added = moved(ev.v & ~ev.prev);
+          const gone = moved(ev.prev & ~ev.v);
+          const now = moved(ev.v);
+          if (added || gone) {
+            this.addLog('arp-pool',
+              `<b>Arp pool</b> ${added ? `+${added}` : `−${gone}`} <span>${now || 'empty'}</span>`);
+          }
+          this.poolCallout(s, ev.v);
+        }
         this.renderStatus(s);
         break;
       }
@@ -1143,7 +1171,17 @@ export class Labels {
       const value = s.arpSub === 2 || !s.arpRunning
         ? melodicState(s.mode, s.arpSub, s.arpRunning, s.recArmed)
         : modelName(s.model);
-      this.oledMini.setStatus(`Arp/Mel ${sub}${s.sndEdit ? ' edit' : ''}`, value);
+      const label = `Arp/Mel ${sub}${s.sndEdit ? ' edit' : ''}`;
+      // With notes in the pool, Arp/Hold's home screen IS the pool — the one
+      // thing the panel cannot otherwise tell you in Hold, where the notes go
+      // on sounding with nothing held. Costs the model name until the pool
+      // empties; mirrors OledUi::Service's idle branch, including its "not
+      // while stopped" rule (a silent pool needs to say it is silent first).
+      if (s.arpSub <= 1 && s.arpRunning && s.arpPool !== 0) {
+        this.oledMini.setStatusPool(label, scaleNoteList(s.scaleLatched, s.root), s.arpPool);
+      } else {
+        this.oledMini.setStatus(label, value);
+      }
     } else {
       // Scale and root belong together — they name the key the pads are in,
       // and "Minor" alone never said which minor.
@@ -1152,6 +1190,18 @@ export class Labels {
       this.oledMini.setStatus(
         `Pitch ${scale}${stale} ${ROOT_NAMES[s.root] ?? '?'}`, modelName(s.model));
     }
+  }
+
+  /** The pool row as a callout, under the musical pad being held. Only while
+   * one is down: with fingers off the pool is the HOME screen (renderStatus
+   * below), not a callout that expires — in Hold you cannot press a pad to
+   * look at the pool, because pressing a pad is what takes notes out of it. */
+  private poolCallout(s: DeviceState, mask: number) {
+    if (s.mode !== 1 || s.arpSub > 1) return;
+    const pad = [...this.heldPads].reverse().find((p) => p >= 3 && p <= 9);
+    if (pad === undefined) return;
+    this.oledMini.showPool(`P${pad} Play note`,
+                           scaleNoteList(s.scaleLatched, s.root), mask);
   }
 
   /** Light up a control on the drawing for a while (Infinity = held pad).

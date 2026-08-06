@@ -20,6 +20,30 @@ constexpr size_t  kLabelCharsWithRec   = 19;   // 114 px, clear of the circle
 
 // ShowPickup geometry: Font_7x10 value at y 12..21, pickup track at y 24..31.
 constexpr uint8_t kPickupValueY = 12;
+
+// ShowPool geometry. Seven fixed columns of 18 px (1..126) so the note row and
+// the marker row line up under each other and under the pads themselves — the
+// notes' own widths vary (one char or two), so laying them out by string
+// position would put the markers under nothing in particular. Note row at
+// y 12..19, markers at y 24..30; the row of blank pixels between each is what
+// keeps them reading as two rows rather than one block.
+constexpr uint8_t kPoolX0 = 1, kPoolColW = 18;
+constexpr uint8_t kPoolNoteY = 12;
+constexpr uint8_t kPoolMarkY0 = 24, kPoolMarkY1 = 30, kPoolMarkW = 9;
+
+// Label row, shared by every screen here: Font_6x8, uppercased, truncated to
+// `budget` chars (the 21-char Font_6x8 line, less anything drawn to its right).
+void draw_label(daisy::OledDisplay<daisy::SSD130xI2c128x32Driver>& d,
+                const char* label, size_t budget) {
+    char buf[kBufLen];
+    const size_t len = std::min({strlen(label), kBufLen - 1, budget});
+    std::memcpy(buf, label, len);
+    buf[len] = '\0';
+    for (char* p = buf; *p; ++p)
+        *p = static_cast<char>(std::toupper(static_cast<unsigned char>(*p)));
+    d.SetCursor(1, 0);
+    d.WriteString(buf, Font_6x8, true);
+}
 } // namespace
 
 void OledScreen::Init(daisy::DaisySeed& hw) {
@@ -52,15 +76,7 @@ void OledScreen::ShowProgress(const char* label, uint8_t progress, const char* n
     i2c1_bus_busy = true;
     _display.Fill(false);
 
-    // Label row: identical to ShowLine's.
-    char labelBuf[kBufLen];
-    size_t labelLen = std::min(strlen(label), kBufLen - 1);
-    std::memcpy(labelBuf, label, labelLen);
-    labelBuf[labelLen] = '\0';
-    for (char* p = labelBuf; *p; ++p)
-        *p = static_cast<char>(std::toupper(static_cast<unsigned char>(*p)));
-    _display.SetCursor(1, 0);
-    _display.WriteString(labelBuf, Font_6x8, true);
+    draw_label(_display, label, kBufLen - 1);
 
     // Middle row: an outlined bar, filled left-to-right by progress/127 —
     // same geometry oled-mini.ts's showProgress() draws. Slimmer (and higher
@@ -99,15 +115,7 @@ void OledScreen::ShowPickup(const char* label, const char* value,
     i2c1_bus_busy = true;
     _display.Fill(false);
 
-    // Label row: identical to ShowLine's.
-    char labelBuf[kBufLen];
-    size_t labelLen = std::min(strlen(label), kBufLen - 1);
-    std::memcpy(labelBuf, label, labelLen);
-    labelBuf[labelLen] = '\0';
-    for (char* p = labelBuf; *p; ++p)
-        *p = static_cast<char>(std::toupper(static_cast<unsigned char>(*p)));
-    _display.SetCursor(1, 0);
-    _display.WriteString(labelBuf, Font_6x8, true);
+    draw_label(_display, label, kBufLen - 1);
 
     // Value row: Font_7x10 at a fixed y, not ShowLine's shrink-to-fit stepping.
     // The value here is the stored one and doesn't change while you hunt for
@@ -139,6 +147,39 @@ void OledScreen::ShowPickup(const char* label, const char* value,
     const uint8_t pl = px >= kTrackX0 + 2 ? static_cast<uint8_t>(px - 2) : kTrackX0;
     const uint8_t pr = px <= kTrackX1 - 2 ? static_cast<uint8_t>(px + 2) : kTrackX1;
     _display.DrawRect(pl, 27, pr, 29, true, true);
+
+    _display.Update();
+    i2c1_bus_busy = false;
+}
+
+void OledScreen::ShowPool(const char* label, const char* const* names, uint8_t pool) {
+    i2c1_bus_busy = true;
+    _display.Fill(false);
+
+    draw_label(_display, label, kBufLen - 1);
+
+    for (int i = 0; i < kPoolCols; i++) {
+        const uint8_t col = static_cast<uint8_t>(kPoolX0 + i * kPoolColW);
+
+        // Note row: centered in the column, so a one-char name ("F") and a
+        // two-char one ("F#") both sit over their own marker.
+        const char* nm = (names != nullptr && names[i] != nullptr) ? names[i] : "";
+        char buf[4];
+        const size_t len = std::min(strlen(nm), sizeof(buf) - 1);
+        std::memcpy(buf, nm, len);
+        buf[len] = '\0';
+        const uint8_t w = static_cast<uint8_t>(len * Font_6x8.FontWidth);
+        _display.SetCursor(static_cast<uint8_t>(col + (kPoolColW - w) / 2), kPoolNoteY);
+        _display.WriteString(buf, Font_6x8, true);
+
+        // Marker row: filled = in the pool, hollow = not. Same grammar as the
+        // layer dots on the label row (ShowLine) — a filled shape is a thing
+        // that is there, an outline is the slot it would occupy.
+        const uint8_t mx = static_cast<uint8_t>(col + (kPoolColW - kPoolMarkW) / 2);
+        _display.DrawRect(mx, kPoolMarkY0,
+                          static_cast<uint8_t>(mx + kPoolMarkW - 1), kPoolMarkY1,
+                          true, ((pool >> i) & 1) != 0);
+    }
 
     _display.Update();
     i2c1_bus_busy = false;
@@ -213,14 +254,7 @@ void OledScreen::ShowLine(const char* label, const char* value,
 
     // Label row: Font_6x8, uppercased and truncated to the 21-char budget
     // (128px / 6px advance) — same rule as LABEL_CHARS in oled-mini.ts.
-    char labelBuf[kBufLen];
-    size_t labelLen = std::min({strlen(label), kBufLen - 1, labelBudget});
-    std::memcpy(labelBuf, label, labelLen);
-    labelBuf[labelLen] = '\0';
-    for (char* p = labelBuf; *p; ++p)
-        *p = static_cast<char>(std::toupper(static_cast<unsigned char>(*p)));
-    _display.SetCursor(1, 0);
-    _display.WriteString(labelBuf, Font_6x8, true);
+    draw_label(_display, label, labelBudget);
 
     if (value == nullptr || *value == '\0') {
         _display.Update();
