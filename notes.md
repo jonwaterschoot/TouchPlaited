@@ -44,45 +44,81 @@ out on D25 (S40). Both documented for users in `MANUAL.md` → *Hardware mods*.
 
 ---
 
-## OLED on a dedicated I2C4 bus — the `-DOLED_I2C4` A/B (branch `oled-i2c4-no-trs`)
+## OLED redraw cost — the I2C4 experiment and what it actually found (2026-08-06)
 
-Open question: is it worth giving the display its own bus, at the cost of TRS
-MIDI? This branch makes both arrangements buildable from one define so the
-answer can be a number instead of an impression.
+Question was whether the display deserves its own I2C bus, at the cost of TRS
+MIDI (USART1 wants D13/D14, so the two cannot coexist). Built it, rewired it,
+measured it: **no observable difference, reverted.** The interesting part is
+why, because it moves where the next effort should go.
 
-**What the define does.** `-DOLED_I2C4` moves the OLED to I2C4 on D13/D14
-(PB6/PB7, AF6) at 1MHz, compiles out the UART MIDI transport because USART1
-wants those exact two pins, and compiles out `i2c1_bus_busy` along with the
-touch-poll skip that reads it. Without the define everything is as shipped:
-one I2C1 bus at 400kHz, the interlock, TRS MIDI present.
+### What was measured
 
-**The wiring change.** SCL D11→D13, SDA D12→D14. Nothing else moves. Note
-that D13/D14 have no pull-ups on the Simple Touch board — the OLED module's
-own resistors become the only ones on the bus, which is the first thing to
-suspect if 1MHz comes out garbled (drop to 400kHz to confirm before blaming
-anything else).
+Branch `oled-i2c4-no-trs` (kept for the trail; the bus move is not merged).
+OLED on I2C4 / D13-D14 at 1MHz, interlock compiled out, TRS MIDI dropped.
+Boot animation, progress bars and general use looked **identical** — the one
+thing the change was meant to improve, progress-bar smoothness, did not move.
 
-**Reading the result.** Both builds print `oled N fr max Nus` on the existing
-2s CPU line — frames pushed in the window, and the worst single transfer.
-Comment `-DUSB_MIDI` out or the print is suppressed. The redraw throttle
-(`kMinRedrawIntervalMs`, `display/oled_ui.cpp`) is deliberately **left at 80ms
-in both arms** so the comparison isolates the bus; tune it afterwards, once
-the real per-frame cost is known, as a separate decision.
+Serial capture, idle → simple synth → 6-op FM poly → + seq + FX → idle:
 
-**What to expect, and what not to.** `max us` should drop by roughly the
-speed ratio (400kHz → ~886kHz actual). On the shared bus that same number is
-also exactly how long the pads went unpolled, so at 4ms/block it converts
-straight into blocks of touch latency — that is the defect being fixed here.
-What will *not* move is `CPU avg`/`max`: the transfer runs in the main loop
-and the audio ISR preempts it, so it was never inside the meter. A dedicated
-bus buys pad latency and redraw rate, not voice headroom.
+| CPU avg | `oled max` | main loop's share | implied bus time |
+|---|---|---|---|
+| 15% | 6268 µs | ~85% | ~5.3 ms |
+| 88% | 43920 µs | ~12% | ~5.3 ms |
 
-**Dead end worth recording:** DMA is not the follow-up to this. libDaisy
-returns `ERR` unconditionally from `TransmitDma` on I2C4 (it needs BDMA with
-buffers in SRAM4; `src/per/i2c.cpp` has the TODO), and `SSD130xI2CTransport`
-has no DMA path on any peripheral. Choosing I2C4 forecloses it. The cheap win
-that remains is dirty-page updates — `SSD130xDriver::Update()` always pushes
-all four pages, and a one-row marquee dirties one.
+Peak observed: `max 239570us` — a 239 ms frame.
+
+### The finding
+
+The bus change worked exactly as designed and was irrelevant. A four-page
+frame is ~5.3ms of bus time at ~886kHz (vs ~11.5ms at 400kHz), and that
+prediction matches the idle measurement to within a few percent, so I2C4 at
+1MHz was genuinely running. But **frame latency is dominated by audio-ISR
+preemption, not by the bus**: the transfer runs in the main loop, which at 88%
+audio load gets an eighth of the wall clock. Doubling bus speed sped up 5ms of
+a 125ms round trip. Invisible, exactly as it felt.
+
+Frame rate under load was ~16 frames per 2s ≈ 125 ms/frame ≈ 80 ms throttle +
+~45 ms stretched transfer. Neither term is bus speed.
+
+### What was done instead
+
+1. **`display/oled_dirty_driver.h`** — `SSD1306DirtyDriver` transmits only the
+   pages whose pixels changed, against a shadow of the last frame sent. A
+   progress bar animates two pages of four, the capture blink one, an
+   unchanged status row none. This cuts the *stretched* time by the same
+   factor as the bus time, which is why it beats the faster bus.
+2. **`kMinRedrawIntervalMs` 80 → 40ms.** The real constraint is not the bus
+   but the fraction of time the pads are blind behind `i2c1_bus_busy`. At 80ms
+   with full frames that was ~14%; halving the bytes and halving the interval
+   holds it at ~14% while doubling how often the screen may move.
+
+`oled N fr M pg max Nus` on the CPU print now carries pages as well as frames.
+Pages/frames near 2 means dirty-paging is working; 4.0 means it is not, and
+the 40ms interval is then buying blindness rather than smoothness.
+
+### Two things worth chasing, in order
+
+**Settings-journal saves stall the audio ISR.** In the capture, every `sv`
+increment lands on the worst rows — `sv 1→2` with `oled max 84081us`, `sv 2→3`
+with `max 239570us`, `CPU max 170%`, `shed 93`. `synth/settings_journal.cpp`'s
+`tp_qspi_ram_op` runs the QSPI write with **all interrupts masked** (`cpsid i`)
+and budgets a worst-case sector erase at 300 ms, during which the audio
+callback cannot run at all. Correlation across three saves plus a mechanism
+sitting in plain sight; wants confirming by logging erase-vs-program
+separately. This is a hard-dropout source independent of the display entirely.
+
+**The CPU baseline in the archive is stale.** That capture shows peaks of
+154%/170%/183% and `shed` up to 93, against the 111–115% worst case recorded
+2026-07-03. That predates the FX work's fixed +8–12% per block. Re-baseline
+before spending anything on ITCM or voice count.
+
+### Dead end worth recording
+
+DMA is not the follow-up. libDaisy returns `ERR` unconditionally from
+`TransmitDma` on I2C4 (needs BDMA with buffers in SRAM4; `src/per/i2c.cpp` has
+the TODO), and `SSD130xI2CTransport` has no DMA path on any peripheral — only
+the SPI transport does, and only `SSD1307Driver` wires it up. Real zero-CPU
+frames would mean converting the panel to 4-wire SPI.
 
 ---
 

@@ -2,22 +2,22 @@
 
 #include "daisy_seed.h"
 #include "dev/oled_ssd130x.h"
+#include "oled_dirty_driver.h"
 #include "../nocopy.h"
 
 #ifdef __cplusplus
 
 namespace synthux {
 
-// 128x32 SSD1306. Which bus depends on -DOLED_I2C4 (see the Makefile):
+// 128x32 SSD1306, I2C1 on D11 (SCL) / D12 (SDA) — the same physical bus the
+// MPR121 capacitive pads already use (touch/pads.h), just a different
+// device address (0x3C vs the pads' 0x5A), so no extra wiring beyond power
+// and the two data lines. See Init() for why the display's I2C speed is
+// pinned to match the pads' instead of using its own faster default.
 //
-//   default      I2C1 on D11 (SCL) / D12 (SDA) — the same physical bus the
-//                MPR121 capacitive pads already use (touch/pads.h), just a
-//                different device address (0x3C vs the pads' 0x5A), so no
-//                extra wiring beyond power and the two data lines. Speed is
-//                pinned to the pads' 400kHz rather than the driver's own
-//                faster default; see Init().
-//   -DOLED_I2C4  I2C4 on D13 (SCL) / D14 (SDA), 1MHz, nothing else on it.
-//                Costs TRS MIDI, which owns those pins. See Init().
+// Frames go out through SSD1306DirtyDriver (oled_dirty_driver.h), which
+// transmits only the pages whose pixels changed — see PushFrame() for what
+// that buys and why it beat giving the display a faster bus of its own.
 //
 // Two rows, mirroring visualizer/src/panel/oled-mini.ts: a small label
 // (Font_6x8, truncated to fit) and a value that never truncates — it steps
@@ -96,16 +96,17 @@ public:
 
     void Clear();
 
-    // Transfer-cost instrumentation, for the I2C1-vs-I2C4 A/B this branch
-    // exists to settle (see the Makefile's OLED_I2C4 block). Every frame that
-    // actually goes out on the wire is timed around Update() alone — the
-    // buffer fill before it is plain memory writes and would only blur the
-    // bus comparison. Stats are windowed: the CPU-load print in
+    // Transfer-cost instrumentation. Every frame is timed around Update()
+    // alone — the buffer fill before it is plain memory writes and would only
+    // blur the picture. Stats are windowed: the CPU-load print in
     // TouchPlaited.cpp reports and resets them every 2s, same as the meter.
+    // PageCount vs FrameCount is the dirty-page hit rate: 4 pages per frame
+    // means nothing is being skipped and the tracking is not paying off.
     // Main-loop only, like every other method here.
     static uint32_t LastFrameUs();
     static uint32_t MaxFrameUs();
     static uint32_t FrameCount();
+    static uint32_t PageCount();
     static void     ResetFrameStats();
 
     // Frame-level primitives for the one-shot boot animation
@@ -128,7 +129,7 @@ private:
     // a single definition of what a frame costs.
     void PushFrame();
 
-    daisy::OledDisplay<daisy::SSD130xI2c128x32Driver> _display;
+    daisy::OledDisplay<SSD1306DirtyDriver> _display;
 };
 
 } // namespace synthux

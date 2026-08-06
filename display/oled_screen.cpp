@@ -7,14 +7,6 @@
 using namespace synthux;
 using namespace daisy;
 
-#ifdef OLED_I2C4
-// Loud on purpose: this define is a *hardware* claim, and building it against
-// the unmoved wires produces a blank screen with no other symptom. It also
-// silently removes TRS MIDI, so together with -DUSB_MIDI the board has no
-// MIDI at all — which looks like a regression rather than a build choice.
-#warning "OLED_I2C4: display must be rewired to D13/D14 (SCL/SDA); TRS MIDI is disabled in this build"
-#endif
-
 namespace {
 constexpr size_t kBufLen = 22; // 21 chars (Font_6x8 budget, 128/6px) + NUL
 
@@ -41,7 +33,7 @@ constexpr uint8_t kPoolMarkY0 = 24, kPoolMarkY1 = 30, kPoolMarkW = 9;
 
 // Label row, shared by every screen here: Font_6x8, uppercased, truncated to
 // `budget` chars (the 21-char Font_6x8 line, less anything drawn to its right).
-void draw_label(daisy::OledDisplay<daisy::SSD130xI2c128x32Driver>& d,
+void draw_label(daisy::OledDisplay<SSD1306DirtyDriver>& d,
                 const char* label, size_t budget) {
     char buf[kBufLen];
     const size_t len = std::min({strlen(label), kBufLen - 1, budget});
@@ -60,74 +52,54 @@ namespace {
 uint32_t g_frame_us_last = 0;
 uint32_t g_frame_us_max  = 0;
 uint32_t g_frame_count   = 0;
+uint32_t g_page_count    = 0;
 } // namespace
 
 uint32_t OledScreen::LastFrameUs()  { return g_frame_us_last; }
 uint32_t OledScreen::MaxFrameUs()   { return g_frame_us_max; }
 uint32_t OledScreen::FrameCount()   { return g_frame_count; }
+uint32_t OledScreen::PageCount()    { return g_page_count; }
 void     OledScreen::ResetFrameStats() {
     g_frame_us_max = 0;
     g_frame_count  = 0;
+    g_page_count   = 0;
 }
 
 void OledScreen::PushFrame() {
-#ifndef OLED_I2C4
-    // Shared bus: held for the transfer only (see i2c1_lock.h) — Pads::Process()
-    // skips its I2C poll in AudioCallback while this is up, so the transfer
-    // can't get torn by the audio ISR landing mid-transaction. On I2C4 the
-    // display has the bus to itself and there is nothing to interlock with.
+    // Held for the transfer only (see i2c1_lock.h) — Pads::Process() skips its
+    // I2C poll in AudioCallback while this is up, so the transfer can't get
+    // torn by the audio ISR landing mid-transaction.
     i2c1_bus_busy = true;
-#endif
     const uint32_t t0 = System::GetUs();
     _display.Update();
     const uint32_t us = System::GetUs() - t0;
-#ifndef OLED_I2C4
     i2c1_bus_busy = false;
-#endif
 
+    // Wall clock, not bus time: the audio ISR preempts this transfer freely,
+    // so under load the figure is dominated by how little of the main loop is
+    // left rather than by the bus. That is the point — it is the latency a
+    // frame actually experiences, and the 2026-08-06 I2C4 measurements showed
+    // it running 7-40x the underlying transfer cost. See notes.md.
     g_frame_us_last = us;
     if (us > g_frame_us_max) g_frame_us_max = us;
     g_frame_count++;
+    g_page_count += SSD1306DirtyDriver::PagesPushed();
 }
 
 void OledScreen::Init(daisy::DaisySeed& hw) {
     (void)hw; // transport owns its own I2C init; kept for Pads::Init() symmetry
 
-    OledDisplay<SSD130xI2c128x32Driver>::Config cfg;
-    auto& i2c = cfg.driver_config.transport_config.i2c_config;
-#ifdef OLED_I2C4
-    // Dedicated bus: I2C4 on D13/D14 (PB6/PB7), which libDaisy drives at
-    // AF6 — the same two pins USART1 uses for TRS MIDI, which is why
-    // midi/midi_io.cpp drops the UART transport under this define. Nothing
-    // else is on this bus, so the pads' 400kHz ceiling doesn't apply and the
-    // driver's own 1MHz default (~886kHz in practice) stands.
-    //
-    // Two things this build depends on that the shared bus provided for free:
-    //   - Pull-ups. libDaisy leaves I2C pins open-drain with GPIO_NOPULL, and
-    //     unlike D11/D12 nothing on the Simple Touch board pulls D13/D14 up —
-    //     so the OLED module's own resistors are the only ones. If frames
-    //     come out garbled at 1MHz, that is the first thing to suspect; drop
-    //     to 400kHz to confirm before blaming anything else.
-    //   - Clock. libDaisy picks Init.Timing by assuming the peripheral runs
-    //     off PCLK1, but I2C4 sits in the D3 domain and runs off PCLK4. Those
-    //     happen to be equal here — sys/system.cpp derives both from HCLK
-    //     with the same DIV2 — so the timing table lands right by luck, not
-    //     design. Worth a scope on SCL once.
-    i2c.periph         = I2CHandle::Config::Peripheral::I2C_4;
-    i2c.pin_config.scl = seed::D13;
-    i2c.pin_config.sda = seed::D14;
-    i2c.speed          = I2CHandle::Config::Speed::I2C_1MHZ;
-#else
+    OledDisplay<SSD1306DirtyDriver>::Config cfg;
     // MPR121 (touch/pads.cpp) already brought this same I2C1 bus up at
     // 400kHz. Whichever Init() runs last reprograms the peripheral's actual
     // clock — the driver's own default is 1MHz, which the pads aren't
     // guaranteed to tolerate, so pin it to match rather than relying on
     // init order between the two devices.
-    i2c.speed = I2CHandle::Config::Speed::I2C_400KHZ;
+    cfg.driver_config.transport_config.i2c_config.speed
+        = I2CHandle::Config::Speed::I2C_400KHZ;
     // Address (0x3C), peripheral (I2C_1) and pins (SCL/SDA = D11/D12) are
     // already the driver's defaults — same bus the pads use, so no more to
     // set here.
-#endif
 
     _display.Init(cfg);
     Clear();

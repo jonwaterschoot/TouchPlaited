@@ -1048,15 +1048,23 @@ void confirm_text(FixedCapStr<N>& out, const TelemetryState& t) {
 namespace synthux {
 
 namespace {
-// Bus transfer cost bounds how often we can afford to redraw — a full
-// Update() is now ~16 I2C transactions (batched per page, see the SendData
-// fix in lib/libDaisy/src/dev/oled_ssd130x.h) instead of ~524, roughly
-// 30-40ms down to an estimated well under 15ms. 80ms leaves a healthy
-// margin over that (touch polling only pauses for the actual transfer —
-// see i2c1_lock.h — so the ratio here is how much of the time it's
-// paused) while still reading as prompt on a knob sweep. Tune down further
-// if it still feels laggy once measured on real hardware.
-constexpr uint32_t kMinRedrawIntervalMs = 80;
+// How often a redraw may be attempted. The binding constraint is not the bus
+// but the share of it that touch polling loses: i2c1_bus_busy is up for the
+// whole transfer, and the pads go unread for exactly that long, so what has
+// to stay bounded is transfer/interval — the duty cycle of a blind MPR121.
+//
+// Measured on hardware 2026-08-06 (notes.md): a full four-page frame costs
+// ~11.5ms of bus time at 400kHz, which at 80ms was a ~14% blind duty cycle.
+// SSD1306DirtyDriver then roughly halved the bytes on the paths that animate
+// (a progress bar redraws two pages of four, the capture blink one), so 40ms
+// holds that same ~14% while doubling how often the screen may move. That is
+// the trade being made here: frame rate bought with dirty pages, not by
+// making the pads blinder.
+//
+// If this is lowered further, watch `oled N fr M pg` on the CPU print — the
+// duty cycle only stays put while pages/frames stays near 2. A path that
+// redraws all four pages at 40ms is back to ~29% blind.
+constexpr uint32_t kMinRedrawIntervalMs = 40;
 // A hold's confirm text needs to actually read as a flash, not a blip — held
 // open well past the usual redraw throttle, in the same ballpark as the
 // LED's own confirm blinks (blink_confirm() etc., TouchPlaited.cpp: 3 blinks

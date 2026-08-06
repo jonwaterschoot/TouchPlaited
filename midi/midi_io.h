@@ -7,9 +7,8 @@ namespace synthux {
 
 // MIDI I/O over two transports:
 //   - TRS/DIN MIDI on USART1 (D13 TX / D14 RX, 31250 baud). Present only on
-//     hardware-modded Simple Touch boards, but otherwise always initialized —
-//     an idle UART costs nothing. Compiled out entirely by -DOLED_I2C4, which
-//     hands D13/D14 to the display's own I2C4 bus; the two cannot coexist.
+//     hardware-modded Simple Touch boards, but always initialized — an idle
+//     UART costs nothing.
 //   - USB device MIDI on the Seed's built-in port, only when built with
 //     -DUSB_MIDI (mutually exclusive with USB serial logging / CPU meter).
 //

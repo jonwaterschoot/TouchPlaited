@@ -3449,9 +3449,8 @@ int main() {
     fx_arp.Init(hw.AudioSampleRate());
     fx_rec.Init(hw.AudioSampleRate());
     fx_drum.Init(hw.AudioSampleRate());
-    // TRS MIDI unless -DOLED_I2C4 took its pins for the display (idle UART is
-    // otherwise free); USB MIDI only with -DUSB_MIDI, which is also what
-    // suppresses StartLog above — one USB port, one owner.
+    // TRS MIDI always (idle UART is free); USB MIDI only with -DUSB_MIDI,
+    // which is also what suppresses StartLog above — one USB port, one owner.
     midi.Init();
     cpu_meter.Init(hw.AudioSampleRate(), kBlockSize);
     blk_ticks_inv = 1.0f / (static_cast<float>(System::GetTickFreq())
@@ -3730,12 +3729,14 @@ int main() {
         if (now_ms - last_cpu_print >= 2000) {
             last_cpu_print = now_ms;
 #ifndef USB_MIDI
-            // oled: frames pushed in the window, and the worst single
-            // transfer in it. That max is the number the I2C1-vs-I2C4 A/B
-            // turns on — it is also, on the shared bus, exactly how long the
+            // oled: frames drawn in the window, pages actually transmitted
+            // across them, and the worst single transfer. Pages/frames is the
+            // dirty-page hit rate — 4.0 means nothing is being skipped. The
+            // max is wall clock, so under load it is mostly audio-ISR
+            // preemption rather than bus time; it is also exactly how long the
             // pads went unpolled (see i2c1_lock.h), so at 4ms/block it
             // converts straight to blocks of touch latency.
-            HW::hw().print("CPU avg %d%% max %d%% shed %d sv %d%s%s | oled %d fr max %dus",
+            HW::hw().print("CPU avg %d%% max %d%% shed %d sv %d%s%s | oled %d fr %d pg max %dus",
                            static_cast<int>(cpu_meter.GetAvgCpuLoad() * 100.f),
                            static_cast<int>(cpu_meter.GetMaxCpuLoad() * 100.f),
                            static_cast<int>(shed_count),
@@ -3743,6 +3744,7 @@ int main() {
                            settings_journal.saving_disabled() ? " FULL" : "",
                            settings_journal.write_error() ? " WERR" : "",
                            static_cast<int>(OledScreen::FrameCount()),
+                           static_cast<int>(OledScreen::PageCount()),
                            static_cast<int>(OledScreen::MaxFrameUs()));
 #endif
             cpu_meter.Reset();

@@ -7,20 +7,16 @@ namespace synthux {
 
 // File-scope transports: each MidiHandler carries a 256-event FIFO and there
 // is exactly one MidiIO in the app.
-#ifndef OLED_I2C4
 static MidiUartHandler uart_midi;
-#endif
 #ifdef USB_MIDI
 static MidiUsbHandler usb_midi;
 #endif
 
 void MidiIO::Init() {
-#ifndef OLED_I2C4
     // Defaults are exactly the TRS mod's wiring: USART1, D14 = RX, D13 = TX.
     MidiUartHandler::Config uart_cfg;
     uart_midi.Init(uart_cfg);
     uart_midi.StartReceive();
-#endif
 
 #ifdef USB_MIDI
     MidiUsbHandler::Config usb_cfg;
@@ -33,15 +29,6 @@ void MidiIO::Init() {
 #endif
 }
 
-// Is any input transport compiled in? The UART goes away with -DOLED_I2C4
-// (the display takes its pins), USB with the -DUSB_MIDI line commented out —
-// and a measurement build of this branch turns off both, which would leave
-// dispatch() defined but never called.
-#if !defined(OLED_I2C4) || defined(USB_MIDI)
-#define MIDI_HAS_INPUT 1
-#endif
-
-#ifdef MIDI_HAS_INPUT
 static void dispatch(MidiEvent ev, const MidiHandlers& h) {
     // Handlers touch pool/pickup state the audio ISR owns. Each event is a
     // few microseconds of plain stores — keep the ISR out for that long.
@@ -80,33 +67,22 @@ static void dispatch(MidiEvent ev, const MidiHandlers& h) {
     }
     __enable_irq();
 }
-#endif // MIDI_HAS_INPUT
 
 void MidiIO::Service(const MidiHandlers& handlers) {
-#ifndef OLED_I2C4
     uart_midi.Listen();   // restarts RX after a UART overrun error
     while (uart_midi.HasEvents()) dispatch(uart_midi.PopEvent(), handlers);
-#endif
 #ifdef USB_MIDI
     usb_midi.Listen();
     while (usb_midi.HasEvents()) dispatch(usb_midi.PopEvent(), handlers);
 #endif
-#ifndef MIDI_HAS_INPUT
-    (void)handlers;
-#endif
 
     // Bounded drain: UART TX is blocking (~1ms per 3-byte message at 31250
     // baud) and Service also runs inside LED delay loops — cap the stall,
-    // leave the rest for the next call. The queue is still drained (and
-    // discarded) when no transport is compiled in, so a build with neither
-    // behaves like one whose messages all went out.
+    // leave the rest for the next call.
     int budget = 4;
     while (q_tail_ != q_head_ && budget--) {
         OutMsg& m = queue_[q_tail_ & (kQueueSize - 1)];
-        (void)m;
-#ifndef OLED_I2C4
         uart_midi.SendMessage(m.b, m.len);
-#endif
 #ifdef USB_MIDI
         usb_midi.SendMessage(m.b, m.len);
 #endif
