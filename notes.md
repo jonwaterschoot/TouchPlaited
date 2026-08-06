@@ -130,6 +130,69 @@ rate topped out near 38 frames per 2s window at a 40ms interval, where 50 are
 possible. Lowering the interval further only queues more redraws behind the
 same starved main loop.
 
+---
+
+## "Distorts at polyphony 4" was gain staging, not CPU (2026-08-06)
+
+Diagnosed off one observation: **reverb hall distorts more than room, dotted
+delay in between.** `FxSection::SetReverbCharacter` (`synth/fx.cpp`) shows
+room and hall are the *same code path* — same buffers, same per-sample work —
+differing only in two scalars (decay 0.35-0.60 vs 0.75-0.95, damping 0.45 vs
+0.80). Identical CPU. So a character that distorts more at equal cost is
+distorting on **level**, not load. The ranking hall > dotted delay > room is
+exactly the accumulated-tail-energy ordering.
+
+Mechanism: `VoicePool::Render` sums voices unscaled (`out_left[s] += l * vol`,
+default vol 1.0), FX returns land on that sum *before* the output stage, and
+the output stage was `x/(1+|x|)` — a curve with **no linear region**, bending
+from zero. Four voices ≈ 4.0 plus a hall tail ≈ 5-6 came out at 0.83, ~15dB
+of saturation applied to the whole waveform. Happens identically at 0% CPU.
+
+Replaced with `soft_limit()` (TouchPlaited.cpp): linear below `kLimitKnee`,
+the same rational curve above it, rescaled so value and slope match at the
+crossing. Verified continuous (slope 1.0000/0.9999 either side) and
+asymptotic to exactly 1.0.
+
+**Known trade, left for ears to settle:** at knee 0.8 the instrument is ~5dB
+louder at one voice, and one-to-four voices spans +0.8dB where the old curve
+gave +4.1dB — cleaner chords that add less weight. A bounded output plus an
+unscaled voice sum must compress somewhere; lowering the knee trades back
+toward polyphonic range (0.5 → +1.9dB, 0.3 → +2.7dB) at the cost of shaping
+more of the signal. Having both means trimming voices so four land near 1.0
+rather than 4.0 — a loudness decision, not made here.
+
+### Separately: FX cost ~25%, not the budgeted 8-12%
+
+Measured 60% → 79-85% when FX come in. Cause is `synth/fx.cpp`'s four
+independent `FxSection`s — each group owns its own reverb *and* delay ("own
+buffers, own character, own sleep state"), so two active groups run two
+reverbs and two delays. The 2026-07-08 analysis recorded "one shared reverb
+with per-group send levels (cheap — chosen)"; the implementation went the
+other way because a shared instance cannot be room and hall at once
+(`synth/fx.h`).
+
+Deferred to its own round, deliberately. Two shapes discussed:
+- **Small:** share the instances, keep the per-group sends (sends are just
+  gain). Loses only *simultaneous different characters*; no UI change at all,
+  the mirror knob becomes global. Most of the CPU for little work.
+- **Large:** one reverb + one delay with per-group dry/wet, and an FX
+  parameter layer taking over the knobs while P1 is held. Coherent, and P1 is
+  already the sound-edit modifier — but it is a control-surface redesign
+  touching telemetry, OLED and settings persistence.
+
+Worth re-measuring after the limiter change before choosing: if four voices
+under hall no longer distort, the remaining complaint is crackle above 100%,
+which is a different problem with different levers.
+
+### Note on reading the CPU log
+
+Above ~100% the audio callback overruns its 4ms block and the main loop gets
+essentially nothing — serial prints, OLED and MIDI service all stall together.
+So **missing log lines during crackle are themselves data**, and the worst
+episodes are systematically underreported. `CPU avg` hides them (one window
+read `avg 78%` while containing a 507777us OLED frame, ~10x its neighbours at
+the same average); `max` and `shed` are the columns that carry signal.
+
 ### Dead end worth recording
 
 DMA is not the follow-up. libDaisy returns `ERR` unconditionally from
