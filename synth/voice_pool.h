@@ -46,18 +46,47 @@ public:
     // many *sounding* voices on expensive engines at once — watch the meter.
     static constexpr int kVoices = 6;
 
-    // Max simultaneously-held Basic Pitch notes. Gate-held voices are never
-    // touched by ShedVoice(), so an uncapped 5th held note on an expensive
-    // Plaits engine can push a block over the CPU budget with no way to
-    // recover — crackle for as long as the note stays down, not a clean
-    // steal. 4 is the confirmed-stable ceiling; see cap_bp_voices().
-    static constexpr int kBPMaxHeld = 4;
+    // Max simultaneously-held Basic Pitch notes, per engine. Gate-held voices
+    // are never touched by ShedVoice(), so once the held set alone exceeds the
+    // shed threshold the guard is disabled by construction — crackle for as
+    // long as the notes stay down, with nothing the pool can do about it.
+    //
+    // 4 was the confirmed-stable ceiling, but it was confirmed on cheap
+    // engines. Measured on hardware 2026-08-07 with Six-Op C (engine 4), one
+    // group, no FX: idle 16%, then 41 / 58 / 75 / 92% for one to four held
+    // voices — ~17% per voice, so four held sits at 92-95% against a 90%
+    // shed threshold that cannot fire. Worse, a fifth note makes it briefly
+    // five *awake* voices: cap_bp_voices() releases the oldest but its tail
+    // keeps rendering, so 92% + 17% ≈ 109%, against peaks of 101-121%
+    // measured. That transient is the crackle, and it is why the fault seems
+    // intermittent — it depends on whether a release tail is still sounding
+    // when the next note lands. See notes.md, "Six-Op crackle".
+    //
+    // Capping the expensive engines at 3 leaves ~15% of headroom, about what
+    // one overlapping release tail costs.
+    static constexpr int kBPMaxHeld      = 4;   // default
+    static constexpr int kBPMaxHeldHeavy = 3;   // expensive engines
+
+    // Which engines get the lower cap. Six-Op C (4) is the measured one; the
+    // rest are the engines the 2026-07-03 budget analysis flagged as
+    // expensive, applied by inference rather than measurement. If one of them
+    // turns out to be cheap it costs a fourth held note, not stability, so
+    // this errs deliberately toward the safe side. Engine numbers per the
+    // model table in notes.md.
+    static bool engine_is_heavy(int e) {
+        return e == 2 || e == 3 || e == 4   // Six-Op A / B / C
+            || e == 15                      // Speech
+            || e == 18                      // Particle
+            || e == 19                      // String
+            || e == 20;                     // Modal
+    }
 
     void Init() {
         for (int i = 0; i < kVoices; i++) {
             voices[i].Init();
-            pad_slot[i]    = -1;
-            timestamp[i]   = 0;
+            pad_slot[i]     = -1;
+            voice_engine[i] = 0;
+            timestamp[i]    = 0;
             voice_volume[i] = 1.0f;
             voice_blend[i]  = 0.5f;
             voice_width[i]  = 1.0f;
@@ -79,7 +108,10 @@ public:
     // only — a background arp must not morph under the Basic Pitch knobs.
     // Each value is cached so NoteOn can rehydrate a reused voice — a voice
     // that was skipped when a global setter ran still holds stale params.
-    void SetEngine(int e)      { g_engine = e; for (int i = 0; i < kVoices; i++) if (!skip(i)) voices[i].SetEngine(e); }
+    // voice_engine is kept in step here as well as at trigger time: a live BP
+    // voice really does change engine under this setter, and cap_bp_voices()
+    // reads it to decide the ceiling.
+    void SetEngine(int e)      { g_engine = e; for (int i = 0; i < kVoices; i++) if (!skip(i)) { voices[i].SetEngine(e); voice_engine[i] = static_cast<uint8_t>(e); } }
     void SetHarmonics(float v) { g_harm = v;   for (int i = 0; i < kVoices; i++) if (!skip(i)) voices[i].SetHarmonics(v); }
     void SetTimbre(float v)    { g_timbre = v; for (int i = 0; i < kVoices; i++) if (!skip(i)) voices[i].SetTimbre(v); }
     void SetMorph(float v)     { g_morph = v;  for (int i = 0; i < kVoices; i++) if (!skip(i)) voices[i].SetMorph(v); }
@@ -129,8 +161,9 @@ public:
     // Re-applies all cached globals first: the voice may have been a locked
     // drum-seq voice that missed every global setter since its trigger.
     void NoteOn(int slot, float note) {
-        cap_bp_voices();
+        cap_bp_voices(g_engine);
         int idx = find_free_or_steal();
+        voice_engine[idx] = static_cast<uint8_t>(g_engine);
         voices[idx].SetEngine(g_engine);
         voices[idx].SetHarmonics(g_harm);
         voices[idx].SetTimbre(g_timbre);
@@ -164,8 +197,9 @@ public:
     void NoteOnWithParams(int slot, float note, const VoiceParams& p,
                           VoiceGroup grp = VoiceGroup::kBP) {
         bool lock_params = grp == VoiceGroup::kDrum;
-        if (grp == VoiceGroup::kBP) cap_bp_voices();
+        if (grp == VoiceGroup::kBP) cap_bp_voices(p.engine);
         int idx = find_free_or_steal();
+        voice_engine[idx] = static_cast<uint8_t>(p.engine);
         voices[idx].SetEngine(p.engine);
         voices[idx].SetHarmonics(p.harmonics);
         voices[idx].SetTimbre(p.timbre);
@@ -412,6 +446,7 @@ private:
     static constexpr uint32_t kQuietChunks   = 64;
 
     int      pad_slot[kVoices];
+    uint8_t  voice_engine[kVoices];  // engine 0..23, for cap_bp_voices()
     uint32_t timestamp[kVoices];
     float    voice_volume[kVoices];
     float    voice_blend[kVoices];
@@ -459,21 +494,40 @@ private:
     float dly_send_seq = 0.0f, dly_send_pitched = 0.0f, dly_send_arp = 0.0f, dly_send_rec = 0.0f;
 
     // Releases the oldest held Basic Pitch voice when a new one would push
-    // the held count past kBPMaxHeld — same effect as that voice getting a
+    // the held count past the engine's ceiling — same effect as that voice getting a
     // NoteOff early. Called before find_free_or_steal() so the incoming note
     // never counts as the release candidate.
-    void cap_bp_voices() {
-        int oldest = -1;
-        int count  = 0;
+    // `incoming` is the engine of the note about to be triggered — the cap has
+    // to account for it, since it is the voice that pushes the block over.
+    // The held set is scanned for heavy engines too: with bp_slots_active each
+    // pad carries its own snapshot, so a chord can mix engines, and one heavy
+    // voice already sounding is enough to want the lower ceiling.
+    void cap_bp_voices(int incoming) {
+        bool heavy = engine_is_heavy(incoming);
+        int  count = 0;
         for (int i = 0; i < kVoices; i++) {
             if (gate_held[i] && voice_group[i] == VoiceGroup::kBP) {
                 count++;
-                if (oldest < 0 || timestamp[i] < timestamp[oldest]) oldest = i;
+                if (engine_is_heavy(voice_engine[i])) heavy = true;
             }
         }
-        if (count >= kBPMaxHeld && oldest >= 0) {
+        const int cap = heavy ? kBPMaxHeldHeavy : kBPMaxHeld;
+
+        // A loop, not a single release: the cap is no longer a constant, so
+        // switching from a cheap engine to a heavy one mid-chord can leave
+        // more voices held than the new ceiling allows, and releasing one
+        // would still leave it over.
+        while (count >= cap) {
+            int oldest = -1;
+            for (int i = 0; i < kVoices; i++) {
+                if (gate_held[i] && voice_group[i] == VoiceGroup::kBP
+                    && (oldest < 0 || timestamp[i] < timestamp[oldest]))
+                    oldest = i;
+            }
+            if (oldest < 0) break;
             voices[oldest].Trigger(false);
             gate_held[oldest] = false;
+            count--;
         }
     }
 

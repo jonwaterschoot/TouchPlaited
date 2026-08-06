@@ -184,6 +184,185 @@ Worth re-measuring after the limiter change before choosing: if four voices
 under hall no longer distort, the remaining complaint is crackle above 100%,
 which is a different problem with different levers.
 
+---
+
+## Six-Op crackle — held voices defeat the shed guard (2026-08-07)
+
+The crackle that survived the limiter fix. **Not drive, not the FX** — four
+held Six-Op voices sit above the shed threshold in a state where the guard
+cannot fire, and any fifth note briefly makes it five.
+
+### Cost per voice (Six-Op C, engine 4, one group, no FX)
+
+| voices | CPU avg | delta |
+|---|---|---|
+| idle | 16% | |
+| 1 | 41% | +25 |
+| 2 | 58% | +17 |
+| 3 | 75% | +17 |
+| 4 | **92-95%** | +17 |
+
+~17% per voice. Four held = 92-95% against `kShedThreshold` 0.90 — and
+`shed 0` throughout, because `VoicePool::ShedVoice()` only considers voices
+that are `awake && !gate_held`. Four held pads means four gate-held voices,
+so **no victim exists and the guard is disabled by construction.**
+
+### The transient
+
+Noticed by ear first ("a consecutive hit playing a new note on top causes a
+short burst at the start of the note"), then explained: `cap_bp_voices()`
+releases the oldest held voice, but that voice stays *awake* rendering its
+release tail. So momentarily 4 held + 1 releasing = five Six-Op voices,
+92% + 17% ≈ 109% — against measured peaks of 101 / 115 / 116 / 121%. The
+released voice is only then shed-eligible, so `shed` fires reactively, one
+block late; the first hot block always crackles.
+
+This is why the fault looks intermittent — "sometimes at 3 voices with drive,
+sometimes not even at 4" depends entirely on whether a release tail is still
+sounding when the next note lands.
+
+### Two corrections the same capture forced
+
+**Drive costs no CPU.** 1 voice 41% clean vs 40-41% at 100% drive; 3 voices
+75-78% vs 77-78%. Drive changes level into the output limiter, not load.
+
+**FX cost ~5% per active group, not the 25% claimed on 2026-08-06.** Measured
+here: 1 voice 41→45%, 2 voices 58→63%, 3 voices 75→80%, with hall + dotted
+delay on one group. The earlier 25% came from a session with drums *and*
+synth active — two groups plus more voices — and was misattributed. **This
+substantially weakens the case for the FX consolidation round**: sharing
+instances is worth perhaps 5-10%, not 25%.
+
+### Fix applied
+
+Per-engine held-voice ceiling in `VoicePool` — `kBPMaxHeldHeavy = 3` for the
+engines `engine_is_heavy()` lists, `kBPMaxHeld = 4` otherwise. Three held
+Six-Op voices is 75-78%, leaving ~15% of headroom, about what one overlapping
+release tail costs. Six-Op C is the measured case; Speech/Particle/String/
+Modal are inferred from the 2026-07-03 budget analysis and are cheap to
+correct if one of them turns out not to need it.
+
+`voice_engine[]` now tracks the engine per voice so a mixed-engine chord
+(possible with `bp_slots_active`, where each pad carries its own snapshot)
+caps on the heaviest engine present rather than only the incoming one.
+
+### Raw captures — 2026-08-07, verbatim
+
+Kept exactly as they came off COM11 so a future round has something to
+reference against rather than a paraphrase. Build: `-DUSB_MIDI` commented
+out, dirty-page OLED driver, per-page interlock, `soft_limit()` output stage,
+**before** the per-engine cap. Six-Op C patch, low master volume (S36).
+
+Note the `max -21445678us` readings: those are the `System::GetUs()` wrap
+bug (~21.5s rollover, fixed after this capture — see the commit "time frames
+in ticks"). Any negative `max` in these logs is an artefact, not a stall.
+Positive values are sound.
+
+Clean, no FX — 1 to 4 voices:
+
+```
+CPU avg 16% max 17% shed 0 sv 15 | oled 0 fr 0 pg max 0us (= idle)
+1 voice:
+CPU avg 41% max 42% shed 0 sv 9 | oled 0 fr 0 pg max 0us
+CPU avg 41% max 43% shed 0 sv 9 | oled 1 fr 4 pg max 19827us
+CPU avg 41% max 43% shed 0 sv 9 | oled 1 fr 4 pg max 19933us
+CPU avg 41% max 43% shed 0 sv 9 | oled 0 fr 0 pg max 0us
+
+2 voices: 
+CPU avg 58% max 60% shed 0 sv 13 | oled 1 fr 4 pg max 27799us
+CPU avg 58% max 60% shed 0 sv 13 | oled 0 fr 0 pg max 0us
+CPU avg 58% max 61% shed 0 sv 13 | oled 0 fr 0 pg max 0us
+CPU avg 58% max 60% shed 0 sv 14 | oled 0 fr 0 pg max 0us
+
+3 voices:
+CPU avg 75% max 78% shed 0 sv 18 | oled 3 fr 12 pg max 47275us
+CPU avg 75% max 78% shed 0 sv 18 | oled 1 fr 4 pg max 47244us
+CPU avg 75% max 79% shed 0 sv 18 | oled 0 fr 0 pg max 0us
+
+4 voices:
+CPU avg 16% max 17% shed 0 sv 18 | oled 0 fr 0 pg max 0us
+CPU avg 92% max 95% shed 0 sv 18 | oled 4 fr 16 pg max 127667us
+CPU avg 92% max 95% shed 0 sv 18 | oled 1 fr 4 pg max 123691us
+CPU avg 92% max 95% shed 0 sv 18 | oled 0 fr 0 pg max 0us
+```
+
+100% drive (S30) — same voice counts, showing drive is CPU-neutral:
+
+```
+1 voice with 100% drive S30:
+CPU avg 16% max 17% shed 0 sv 23 | oled 0 fr 0 pg max 0us
+CPU avg 40% max 43% shed 0 sv 23 | oled 1 fr 4 pg max 19962us
+CPU avg 41% max 43% shed 0 sv 23 | oled 1 fr 4 pg max 19907us
+CPU avg 41% max 43% shed 0 sv 23 | oled 0 fr 0 pg max 0us
+
+2 voices 100% drive S30:
+CPU avg 16% max 17% shed 0 sv 24 | oled 0 fr 0 pg max 0us
+CPU avg 39% max 44% shed 0 sv 24 | oled 12 fr 36 pg max 19992us
+CPU avg 59% max 61% shed 0 sv 24 | oled 1 fr 4 pg max 28014us
+CPU avg 59% max 61% shed 0 sv 25 | oled 1 fr 4 pg max 28034us
+CPU avg 59% max 62% shed 0 sv 25 | oled 0 fr 0 pg max 0us
+CPU avg 60% max 62% shed 0 sv 25 | oled 0 fr 0 pg max 0us
+
+3 voices 100% drive S30:
+CPU avg 77% max 81% shed 0 sv 25 | oled 2 fr 8 pg max 48228us
+CPU avg 77% max 80% shed 0 sv 25 | oled 1 fr 4 pg max 48196us
+CPU avg 77% max 81% shed 0 sv 25 | oled 2 fr 8 pg max 51222us
+CPU avg 78% max 80% shed 0 sv 25 | oled 1 fr 4 pg max 48301us
+
+4 voices 100% drive S30: (this is where reports start hanging, other sessions had revealed above 100%, sometimes it crackled even at drive 2% sometimes it didn't at 100%)
+CPU avg 95% max 99% shed 0 sv 28 | oled 1 fr 4 pg max 187917us
+CPU avg 79% max 98% shed 2 sv 28 | oled 4 fr 16 pg max 179787us
+CPU avg 95% max 97% shed 1 sv 28 | oled 5 fr 20 pg max 179919us
+```
+
+Lifting and landing notes, hall reverb + drive, max 4 at a time:
+
+```
+CPU avg 79% max 101% shed 1 sv 30 | oled 3 fr 12 pg max 127848us
+CPU avg 77% max 96% shed 1 sv 30 | oled 6 fr 21 pg max 123852us
+CPU avg 94% max 97% shed 2 sv 30 | oled 6 fr 24 pg max 183854us
+CPU avg 76% max 115% shed 9 sv 31 | oled 10 fr 36 pg max 195935us
+CPU avg 78% max 115% shed 3 sv 31 | oled 3 fr 12 pg max 191756us
+CPU avg 95% max 98% shed 3 sv 31 | oled 4 fr 16 pg max 183862us
+CPU avg 95% max 115% shed 1 sv 31 | oled 1 fr 4 pg max 191863us
+CPU avg 77% max 115% shed 12 sv 31 | oled 8 fr 32 pg max 207754us
+CPU avg 78% max 116% shed 4 sv 31 | oled 4 fr 16 pg max 203796us
+```
+
+Dotted delay added on top of hall + 100% drive — this is the +5% FX figure:
+
+```
+adding dotted delay on top of 1 voice 100% drive with hall reverb:
+CPU avg 45% max 47% shed 0 sv 32 | oled 1 fr 4 pg max 20818us
+CPU avg 45% max 47% shed 0 sv 32 | oled 0 fr 0 pg max 0us
+CPU avg 45% max 47% shed 0 sv 32 | oled 17 fr 52 pg max 22469us
+CPU avg 45% max 49% shed 0 sv 33 | oled 1 fr 0 pg max 32us
+
+2 voices:, playing chords and playing fast and long all stay in this range:
+CPU avg 63% max 66% shed 0 sv 34 | oled 9 fr 20 pg max 31802us
+CPU avg 63% max 66% shed 0 sv 35 | oled 1 fr 4 pg max 31799us
+CPU avg 63% max 66% shed 0 sv 35 | oled 7 fr 28 pg max -21445678us
+CPU avg 63% max 66% shed 0 sv 35 | oled 16 fr 64 pg max 31928us
+CPU avg 63% max 66% shed 0 sv 35 | oled 15 fr 40 pg max 31851us
+
+3 voices, same playing as before, togheter fast , on top always max 3 at a time, does begin the crackle
+CPU avg 80% max 101% shed 1 sv 35 | oled 12 fr 48 pg max 63306us
+CPU avg 82% max 85% shed 0 sv 35 | oled 8 fr 24 pg max 59842us
+CPU avg 80% max 86% shed 0 sv 35 | oled 26 fr 104 pg max 59972us
+CPU avg 79% max 102% shed 2 sv 35 | oled 13 fr 48 pg max 59984us
+CPU avg 86% max 99% shed 1 sv 35 | oled 28 fr 112 pg max 63262us
+
+with 4 voices same style of playing: immediatly in distorted crackled territory: messages not coming through only between releasing pads:
+CPU avg 16% max 17% shed 0 sv 35 | oled 0 fr 0 pg max 0us
+CPU avg 86% max 101% shed 7 sv 35 | oled 10 fr 31 pg max -21415301us
+CPU avg 83% max 121% shed 26 sv 35 | oled 22 fr 88 pg max 63228us
+CPU avg 83% max 121% shed 38 sv 36 | oled 24 fr 96 pg max 267865us
+```
+
+One line worth keeping in view: `oled 1 fr 0 pg max 32us` — a redraw that
+transmitted **zero** pages in 32µs. That is the dirty-page shadow doing
+exactly its job, and the cheapest possible confirmation that it works.
+
 ### Note on reading the CPU log
 
 Above ~100% the audio callback overruns its 4ms block and the main loop gets
