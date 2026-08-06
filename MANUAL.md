@@ -211,6 +211,8 @@ All knobs apply globally and in real time to every voice.
 
 **How many notes you can hold: four, or three on the expensive models** — Six-Op A/B/C (2–4), Speech (15), Particle (18), String (19) and Modal (20). Press past the limit and the oldest held note is released, exactly as if you had lifted that pad. The limit is lower on those models because they cost roughly twice as much to render: held notes are deliberately exempt from the automatic load-shedding that thins decaying tails, so a chord over budget would crackle for as long as you kept it down instead of thinning cleanly. Three held Six-Op voices leave enough headroom for the previous note's tail to ring out underneath. Applies to MIDI notes in this mode too.
 
+**You may still meet the edge of it.** These ceilings stop the worst case, they don't make every model comfortable at every density — a heavy model with a long decay, reverb and delay all running can still get close to the limit, and the drum sequencer playing underneath shares the same voices. Rather than clamp every model down to its most expensive case and make the light ones needlessly thin, the limits are set where the common cases play cleanly and the rest is left to your ear: if something sounds strained, play it thinner, shorten the decay, or reach for a lighter model. There is real headroom still unclaimed in the firmware, so this may well loosen in a future version.
+
 After a P0+P2 randomize (see *Re-randomize gestures*), each pad plays its own frozen snapshot instead. To return to live knob control: hold P0+P2 for 6 s (stage 3 — clean), move any timbral knob (S31/S32/S33/S34), or pick a model with P0/P2+S35.
 
 | Knob | Function | MIDI CC |
