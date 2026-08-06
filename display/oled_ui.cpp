@@ -1048,22 +1048,20 @@ void confirm_text(FixedCapStr<N>& out, const TelemetryState& t) {
 namespace synthux {
 
 namespace {
-// How often a redraw may be attempted. The binding constraint is not the bus
-// but the share of it that touch polling loses: i2c1_bus_busy is up for the
-// whole transfer, and the pads go unread for exactly that long, so what has
-// to stay bounded is transfer/interval — the duty cycle of a blind MPR121.
+// How often a redraw may be attempted. 80ms was chosen when a frame held the
+// bus interlock end to end, which made this interval the only thing bounding
+// how long the pads stayed blind. It no longer is: SSD1306DirtyDriver holds
+// i2c1_bus_busy per page and releases between them, so the touch poll gets a
+// window every page and the worst consecutive blindness is one page rather
+// than one frame. That decoupling is what pays for 40ms here.
 //
-// Measured on hardware 2026-08-06 (notes.md): a full four-page frame costs
-// ~11.5ms of bus time at 400kHz, which at 80ms was a ~14% blind duty cycle.
-// SSD1306DirtyDriver then roughly halved the bytes on the paths that animate
-// (a progress bar redraws two pages of four, the capture blink one), so 40ms
-// holds that same ~14% while doubling how often the screen may move. That is
-// the trade being made here: frame rate bought with dirty pages, not by
-// making the pads blinder.
-//
-// If this is lowered further, watch `oled N fr M pg` on the CPU print — the
-// duty cycle only stays put while pages/frames stays near 2. A path that
-// redraws all four pages at 40ms is back to ~29% blind.
+// Measured on hardware 2026-08-06 (notes.md), and worth keeping in view: a
+// frame is *wall clock*, not bus time — the audio ISR preempts it, so at 79%
+// CPU a frame ran ~52ms and in the worst window 244ms, against ~13ms of
+// actual bus traffic. Lowering this further does not make redraws faster, it
+// only lets more of them queue behind the same starved main loop; observed
+// rate topped out near 38 frames per 2s window even at 40ms (50 possible).
+// The remaining ceiling is audio load, not the display.
 constexpr uint32_t kMinRedrawIntervalMs = 40;
 // A hold's confirm text needs to actually read as a flash, not a blip — held
 // open well past the usual redraw throttle, in the same ballpark as the

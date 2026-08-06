@@ -96,21 +96,39 @@ Frame rate under load was ~16 frames per 2s ≈ 125 ms/frame ≈ 80 ms throttle 
 Pages/frames near 2 means dirty-paging is working; 4.0 means it is not, and
 the 40ms interval is then buying blindness rather than smoothness.
 
-### Two things worth chasing, in order
+### Second capture (129 windows, dirty pages + 40ms) — two corrections
 
-**Settings-journal saves stall the audio ISR.** In the capture, every `sv`
-increment lands on the worst rows — `sv 1→2` with `oled max 84081us`, `sv 2→3`
-with `max 239570us`, `CPU max 170%`, `shed 93`. `synth/settings_journal.cpp`'s
-`tp_qspi_ram_op` runs the QSPI write with **all interrupts masked** (`cpsid i`)
-and budgets a worst-case sector erase at 300 ms, during which the audio
-callback cannot run at all. Correlation across three saves plus a mechanism
-sitting in plain sight; wants confirming by logging erase-vs-program
-separately. This is a hard-dropout source independent of the display entirely.
+**Dirty-paging fires less than the layout suggests: 3.08 pages/frame, not 2.**
+61 of 129 windows sat at 3.5–4.0. Cause is `ShowLine`'s value row: Font_11x18
+at y14..31 spans pages 1–3, so any callout changing both label and value
+dirties all four. The byte saving is real but ~23%, not 50%. Only the
+blink-only and no-change redraws reach 0–1 pages.
 
-**The CPU baseline in the archive is stale.** That capture shows peaks of
-154%/170%/183% and `shed` up to 93, against the 111–115% worst case recorded
-2026-07-03. That predates the FX work's fixed +8–12% per block. Re-baseline
+That invalidated the basis for 40ms, which had been sized assuming the byte
+count halved. The fix was not the interval but **where the interlock is
+held**: `i2c1_bus_busy` across a whole frame blinds the pads for the frame's
+wall-clock duration (~52ms at 79% CPU, 244ms worst observed). It is now held
+per page inside `SSD1306DirtyDriver::Update()` and released between them, so
+worst consecutive blindness is one page and the poll gets a window every
+page. That decoupling is what 40ms rests on now.
+
+**Retracted: the settings-journal stall.** The first capture showed all three
+`sv` increments landing on the worst rows, and `tp_qspi_ram_op` does mask all
+interrupts for a write. But across 129 windows only **1 of 8** `sv` increments
+coincides with an outlier. The extreme frames track CPU instead: at `avg 95%`
+the main loop gets ~5% of wall clock, so ~12.7ms of bus becomes ~254ms —
+against 239937us measured. Preemption explains them without the QSPI story.
+Small-sample coincidence; not worth a branch.
+
+**Still open: the CPU baseline in the archive is stale.** Peaks of 137–150%
+with `shed` up to 38 sustained, against the 111–115% worst case recorded
+2026-07-03, which predates the FX work's fixed +8–12% per block. Re-baseline
 before spending anything on ITCM or voice count.
+
+**Also open: redraw rate is capped by audio load, not the display.** Observed
+rate topped out near 38 frames per 2s window at a 40ms interval, where 50 are
+possible. Lowering the interval further only queues more redraws behind the
+same starved main loop.
 
 ### Dead end worth recording
 

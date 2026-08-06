@@ -1,6 +1,7 @@
 #pragma once
 
 #include "dev/oled_ssd130x.h"
+#include "../i2c1_lock.h"
 #include <cstring>
 
 #ifdef __cplusplus
@@ -19,11 +20,19 @@ namespace synthux {
 // the transfer runs in the main loop and the audio ISR preempts it freely, so
 // the wall-clock cost of a frame is roughly (bus time / the main loop's share
 // of the CPU). At 88% audio load that multiplier measured ~8x on hardware
-// (2026-08-06, notes.md). Halving the bytes therefore halves a ~44ms stall,
-// not a ~5ms one — and it shortens the i2c1_bus_busy window by the same
-// factor, so the pads go unpolled for proportionally less time too. Both
-// effects are why this beats moving the display to a faster dedicated bus,
-// which was measured and produced no observable change.
+// (2026-08-06, notes.md), which is why this beats moving the display to a
+// faster dedicated bus — that was built, rewired, measured, and changed
+// nothing observable.
+//
+// Measured hit rate is 3.08 pages per frame, not the 2.0 the layout suggests:
+// ShowLine's value row is Font_11x18 at y14..31, spanning pages 1-3, so any
+// callout that changes both label and value dirties all four. The saving is
+// real but modest (~23% of bytes). What made the difference to touch latency
+// was not the byte count but *where the interlock is held* — see Update().
+// Holding i2c1_bus_busy for a whole frame blinds the pads for the frame's
+// wall-clock duration, which at 79% CPU measured ~52ms and in the worst
+// window 244ms. Per page it is bounded by one page instead, and the poll
+// gets a window between every one.
 //
 // Implementation is a shadow copy of the last frame actually transmitted,
 // compared per page. The comparison is 512 bytes of memcmp against SRAM —
@@ -57,12 +66,17 @@ public:
             if (shadow_valid_ && std::memcmp(src, dst, kWidth) == 0)
                 continue;
 
+            // The bus interlock is per page, not per frame — see the note on
+            // consecutive blindness above. Released between pages, so the
+            // touch poll gets a window every page rather than one at the end.
+            i2c1_bus_busy = true;
             // Each page carries its own address commands, so skipping one
             // never leaves the controller pointing somewhere unexpected.
             transport_.SendCommand(static_cast<uint8_t>(0xB0 + page));
             transport_.SendCommand(0x00);
             transport_.SendCommand(0x10);
             transport_.SendData(src, kWidth);
+            i2c1_bus_busy = false;
 
             std::memcpy(dst, src, kWidth);
             pushed++;

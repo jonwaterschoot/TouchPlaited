@@ -66,14 +66,13 @@ void     OledScreen::ResetFrameStats() {
 }
 
 void OledScreen::PushFrame() {
-    // Held for the transfer only (see i2c1_lock.h) — Pads::Process() skips its
-    // I2C poll in AudioCallback while this is up, so the transfer can't get
-    // torn by the audio ISR landing mid-transaction.
-    i2c1_bus_busy = true;
+    // The i2c1_bus_busy interlock lives inside the driver's Update(), held per
+    // page rather than across the whole frame — a frame's wall-clock duration
+    // measured up to 244ms under load, and blinding the pads for that long is
+    // what the per-page release fixes. See display/oled_dirty_driver.h.
     const uint32_t t0 = System::GetUs();
     _display.Update();
     const uint32_t us = System::GetUs() - t0;
-    i2c1_bus_busy = false;
 
     // Wall clock, not bus time: the audio ISR preempts this transfer freely,
     // so under load the figure is dominated by how little of the main loop is
