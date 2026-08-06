@@ -711,7 +711,7 @@ static volatile uint32_t copy_hold_anim = 0;
 // A threshold firing is a one-shot. The counters behind it reset in the same
 // ISR block, so "it just fired" used to live for exactly one main-loop pass —
 // and both consumers sample slower than that: OledUi::Service sits behind an
-// 80 ms redraw throttle and Telemetry::SendState behind a 33 ms rate limit,
+// 40 ms redraw throttle and Telemetry::SendState behind a 33 ms rate limit,
 // so a confirm landing inside either window was lost outright. That's why
 // "RECORDING" only appeared sometimes and the entry bar looked stuck at ~98%.
 // The ISR now posts the confirm here; the main loop turns it into a latch

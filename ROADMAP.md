@@ -147,11 +147,18 @@ rather than bolted onto the branch that raised them. E2 is what's left.
       into: (i) a marquee needs *continuous* redraws, so give it a stop
       condition (scroll once or twice, then park at the end, or park
       truncated); (ii) every redraw is an I2C transfer on the bus shared with
-      the MPR121 touch controller (`i2c1_lock.h`), which is why the throttle
-      is 80 ms — a marquee stepping at that rate is ~12 fps, fine, but don't
-      let it run when nothing is being scrolled. Emulator parity: `fitFont()`
-      in `oled-mini.ts` implements the same shrinking rule and has to change
-      with it.
+      the MPR121 touch controller (`i2c1_lock.h`), which is what the throttle
+      bounds — **40 ms since 2026-08-07**, and only safe at that because the
+      interlock is now held per *page* rather than per frame. Don't let a
+      marquee run when nothing is being scrolled. Emulator parity:
+      `fitFont()` in `oled-mini.ts` implements the same shrinking rule and
+      has to change with it.
+      One measured caveat for whoever builds this: redraw rate is bounded by
+      **audio load, not the bus**. A frame is wall clock, and the audio ISR
+      preempts it — at 79% CPU a frame took ~52 ms against ~13 ms of actual
+      I2C traffic, and observed rate topped out near 19 fps where the 40 ms
+      interval allows 25. Moving the display to its own faster bus was built,
+      rewired and measured, and changed nothing observable (`notes.md`).
 - [ ] **A2 leftover — the bar sits full while P0+P2 stays held.** In Basic
       Pitch `p0p2_all_done` pins `progress = 127` while the pads stay held
       (`TouchPlaited.cpp`), so after the 3 s stage the full bar sits there
@@ -198,11 +205,39 @@ rather than bolted onto the branch that raised them. E2 is what's left.
 
 ## Parking lot — performance
 
+Re-measured 2026-08-07 on hardware (Six-Op C, one group). Raw captures and
+the analysis are in `notes.md` → "Six-Op crackle". The numbers changed what
+is worth doing here, so read them before picking anything up.
+
 - **ITCM placement** — move the hottest Plaits render paths into ITCMRAM
-  (64 KB, 0% used); code currently executes from QSPI. Enabler for both the
-  FX send and a 7th voice.
-- **Expand voice pool to 7** — after ITCM placement confirms the headroom on
-  in-use engines.
+  (64 KB, 0% used); code currently executes from QSPI. Still the only lever
+  that changes the arithmetic rather than working around it, and now the
+  clear first choice: Six-Op costs **~17% of a block per voice** (idle 16%,
+  then 41 / 58 / 75 / 92% for one to four held), so everything else is
+  rationing.
+- **Expand voice pool to 7** — *reframed.* The pool size was never the
+  binding constraint; concurrent **expensive** voices are. Four held Six-Op
+  voices already sit at 92-95% against a 90% shed threshold, and the shed
+  guard cannot fire on held voices at all, which is what the per-engine cap
+  now handles. A 7th voice buys nothing on these engines until ITCM (or a
+  cheaper engine mix) moves the per-voice cost. Still fine for cheap engines,
+  where the pool does run out first.
+- **Weighted polyphony — partly done.** The simple form shipped
+  2026-08-07: `VoicePool::engine_is_heavy()` caps held Basic Pitch notes at 3
+  on Six-Op A/B/C, Speech, Particle, String and Modal, 4 elsewhere. Six-Op is
+  measured; the other four are inferred from the 2026-07-03 budget analysis
+  and want confirming per engine. A full per-engine *cost table* (rather than
+  a two-bucket cap) remains the richer version if it is ever needed.
+- **FX consolidation — deprioritised, previously over-valued.** Sharing the
+  four `FxSection` instances was briefly filed as a ~25% saving; re-measured
+  it is **~5% per active group** (1 voice 41→45%, 2 voices 58→63%, 3 voices
+  75→80% with hall + dotted delay). The earlier figure came from a session
+  with drums *and* synth active and was misattributed. Worth 5-10% total, so
+  the large version — one reverb + one delay with per-group dry/wet and an FX
+  knob layer under P1 — is not worth its control-surface cost yet. The small
+  version (share instances, keep per-group sends, mirror knob becomes global)
+  stays available if the CPU is ever needed; it costs only the ability to run
+  two reverb *characters* at once.
 - **Phase 8F retry** — controls out of ISR; needs `__disable_irq()` /
   `__enable_irq()` wrapping all `generate_*()` calls. Only if crackle returns
   at kBlockSize=192.
