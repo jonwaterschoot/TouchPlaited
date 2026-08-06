@@ -103,7 +103,9 @@ rather than bolted onto the branch that raised them. E2 is what's left.
         sizes or gives up that persistence. Agreed on the walk that **Rec's
         layer UX needs its own pass** — this belongs in that, not ahead of it.
 - [x] **E3 — Arp/Hold: show the pool with the held notes marked.**
-      *Done 2026-08-06.* `Arp::PoolMask()` (7 bits over `notes_[]`) goes out
+      *Done 2026-08-06, confirmed on hardware the same day* — the 9 px marker
+      and the 18 px columns read fine on the real panel, so the geometry
+      stands as shipped. `Arp::PoolMask()` (7 bits over `notes_[]`) goes out
       as STATE payload byte 38 (fw v11); `OledScreen::ShowPool` draws the
       label row, then seven 18-px columns carrying each pad's note name with a
       filled (in pool) or hollow (not) marker under it. Both implementation
