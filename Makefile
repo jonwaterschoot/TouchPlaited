@@ -8,11 +8,16 @@ APP_TYPE = BOOT_QSPI
 # prebuilt and unaffected). Flash is abundant (QSPI 7.9 MB); CPU is not.
 OPT = -O3
 
+# ─── Build configuration ──────────────────────────────────────────────────────
+# Default below is the normal playable build. To run the OLED bus A/B this
+# branch exists for, flip BOTH lines (comment USB_MIDI, uncomment OLED_I2C4)
+# and rewire the display first — see notes.md, "OLED on a dedicated I2C4 bus".
+
 # USB port owner: defined = USB device MIDI; commented out = measurement
 # build (USB serial logging + CPU meter prints return, USB MIDI disabled).
-# Left commented on this branch: the whole point here is reading the numbers
-# off the serial print, which -DUSB_MIDI suppresses.
-#C_DEFS += -DUSB_MIDI
+# The two cannot coexist — one USB port, one owner — so a build that prints
+# the OLED numbers is a build with no USB MIDI.
+C_DEFS += -DUSB_MIDI
 
 # OLED bus. Defined = the display moves to its own I2C4 bus on D13/D14 at
 # 1MHz and TRS MIDI is dropped, because USART1's TX/RX are those same two
@@ -20,10 +25,10 @@ OPT = -O3
 # arrangement: OLED shares I2C1/D11/D12 with the MPR121 at 400kHz behind
 # i2c1_lock.h, TRS MIDI present.
 #
-# This is the A/B under test on this branch. Both builds print the measured
-# per-frame transfer cost every 2s (needs the USB_MIDI line above commented
-# out to see it) — see notes.md, "OLED on a dedicated I2C4 bus".
-C_DEFS += -DOLED_I2C4
+# REQUIRES THE REWIRE: SCL D11→D13, SDA D12→D14. Turning this on without
+# moving the wires leaves the display talking to an empty bus — blank screen,
+# and with -DUSB_MIDI also set there is then no MIDI of any kind.
+#C_DEFS += -DOLED_I2C4
 
 # Sources: main entry + touch hardware layer + display + MIDI I/O + Plaits voice wrapper
 CPP_SOURCES = TouchPlaited.cpp \

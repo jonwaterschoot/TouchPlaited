@@ -7,6 +7,14 @@
 using namespace synthux;
 using namespace daisy;
 
+#ifdef OLED_I2C4
+// Loud on purpose: this define is a *hardware* claim, and building it against
+// the unmoved wires produces a blank screen with no other symptom. It also
+// silently removes TRS MIDI, so together with -DUSB_MIDI the board has no
+// MIDI at all — which looks like a regression rather than a build choice.
+#warning "OLED_I2C4: display must be rewired to D13/D14 (SCL/SDA); TRS MIDI is disabled in this build"
+#endif
+
 namespace {
 constexpr size_t kBufLen = 22; // 21 chars (Font_6x8 budget, 128/6px) + NUL
 
