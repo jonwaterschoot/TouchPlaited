@@ -64,7 +64,8 @@ Two places where the docs described something better than the firmware does
 it. Both are small, both are taste calls, and the manual now documents the
 shipped behaviour either way — so neither is blocking.
 
-- [x] **F1 — the base octave hits its rail silently.** *Fixed 2026-08-06.*
+- [x] **F1 — the base octave hits its rail silently.** *Fixed 2026-08-06,
+      confirmed on hardware the same day.*
       Plain P10/P11 clamped at ±3 with a bare `std::max`/`std::min`
       (`TouchPlaited.cpp`, the pad-down handler) and no `LedEvent::LIMIT`,
       while root, arp octave range, the layer stack and undo all blink at
