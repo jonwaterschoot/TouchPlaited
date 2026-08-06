@@ -70,9 +70,17 @@ void OledScreen::PushFrame() {
     // page rather than across the whole frame — a frame's wall-clock duration
     // measured up to 244ms under load, and blinding the pads for that long is
     // what the per-page release fixes. See display/oled_dirty_driver.h.
-    const uint32_t t0 = System::GetUs();
+    // Timed in ticks, not System::GetUs(). GetUs() is GetTick()/(freq/1e6)
+    // (lib/libDaisy/src/per/tim.cpp), so the divide happens after the 32-bit
+    // tick wrap and the microsecond value rolls over every ~21.5s — a frame
+    // straddling that produced a ~4.27e9 reading, which is where the negative
+    // maxima in the 2026-08-06 captures came from. Tick subtraction wraps
+    // correctly; convert afterwards.
+    const uint32_t t0    = System::GetTick();
     _display.Update();
-    const uint32_t us = System::GetUs() - t0;
+    const uint32_t ticks = System::GetTick() - t0;
+    const uint32_t per_us = System::GetTickFreq() / 1000000u;
+    const uint32_t us     = per_us ? ticks / per_us : 0u;
 
     // Wall clock, not bus time: the audio ISR preempts this transfer freely,
     // so under load the figure is dominated by how little of the main loop is
