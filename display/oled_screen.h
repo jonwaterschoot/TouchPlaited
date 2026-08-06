@@ -8,11 +8,16 @@
 
 namespace synthux {
 
-// 128x32 SSD1306, I2C1 on D11 (SCL) / D12 (SDA) — the same physical bus the
-// MPR121 capacitive pads already use (touch/pads.h), just a different
-// device address (0x3C vs the pads' 0x5A), so no extra wiring beyond power
-// and the two data lines. See Init() for why the display's I2C speed is
-// pinned to match the pads' instead of using its own faster default.
+// 128x32 SSD1306. Which bus depends on -DOLED_I2C4 (see the Makefile):
+//
+//   default      I2C1 on D11 (SCL) / D12 (SDA) — the same physical bus the
+//                MPR121 capacitive pads already use (touch/pads.h), just a
+//                different device address (0x3C vs the pads' 0x5A), so no
+//                extra wiring beyond power and the two data lines. Speed is
+//                pinned to the pads' 400kHz rather than the driver's own
+//                faster default; see Init().
+//   -DOLED_I2C4  I2C4 on D13 (SCL) / D14 (SDA), 1MHz, nothing else on it.
+//                Costs TRS MIDI, which owns those pins. See Init().
 //
 // Two rows, mirroring visualizer/src/panel/oled-mini.ts: a small label
 // (Font_6x8, truncated to fit) and a value that never truncates — it steps
@@ -91,19 +96,37 @@ public:
 
     void Clear();
 
+    // Transfer-cost instrumentation, for the I2C1-vs-I2C4 A/B this branch
+    // exists to settle (see the Makefile's OLED_I2C4 block). Every frame that
+    // actually goes out on the wire is timed around Update() alone — the
+    // buffer fill before it is plain memory writes and would only blur the
+    // bus comparison. Stats are windowed: the CPU-load print in
+    // TouchPlaited.cpp reports and resets them every 2s, same as the meter.
+    // Main-loop only, like every other method here.
+    static uint32_t LastFrameUs();
+    static uint32_t MaxFrameUs();
+    static uint32_t FrameCount();
+    static void     ResetFrameStats();
+
     // Frame-level primitives for the one-shot boot animation
     // (display/oled_boot.cpp) — the only other caller; everything above
     // this replaces the whole screen in a single call, so these are the
     // only way anything outside this file gets pixel-level control.
     // BeginFrame/SetPixel only touch the local buffer (no I2C traffic);
     // EndFrame is the one that actually transfers it, so it's the only one
-    // that needs the i2c1_bus_busy bracket the other Show*() methods use.
+    // that goes through PushFrame() like the Show*() methods do.
     void BeginFrame();
     void SetPixel(uint8_t x, uint8_t y, bool on);
     void EndFrame();
 
 private:
     NOCOPY(OledScreen)
+
+    // The one place a frame reaches the bus: holds the i2c1_bus_busy bracket
+    // (shared-bus builds only) and the transfer timing around Update(). Every
+    // Show*() ends in this rather than calling Update() directly, so there is
+    // a single definition of what a frame costs.
+    void PushFrame();
 
     daisy::OledDisplay<daisy::SSD130xI2c128x32Driver> _display;
 };

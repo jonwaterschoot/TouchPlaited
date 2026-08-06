@@ -10,10 +10,13 @@ void Pads::Init(DaisySeed& hw) {
 }
 
 void Pads::Process() {
+#ifndef OLED_I2C4
     // OLED mid-transfer on the shared I2C1 bus (see i2c1_lock.h) — skip this
     // poll rather than risk a torn read; _state just holds last block's
-    // value until the bus frees up, a block or two later.
+    // value until the bus frees up, a block or two later. With the display on
+    // its own I2C4 bus there is no contention and the poll never skips.
     if (i2c1_bus_busy) return;
+#endif
 
     uint16_t pad;
     bool is_touched;

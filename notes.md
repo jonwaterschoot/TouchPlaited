@@ -44,6 +44,48 @@ out on D25 (S40). Both documented for users in `MANUAL.md` → *Hardware mods*.
 
 ---
 
+## OLED on a dedicated I2C4 bus — the `-DOLED_I2C4` A/B (branch `oled-i2c4-no-trs`)
+
+Open question: is it worth giving the display its own bus, at the cost of TRS
+MIDI? This branch makes both arrangements buildable from one define so the
+answer can be a number instead of an impression.
+
+**What the define does.** `-DOLED_I2C4` moves the OLED to I2C4 on D13/D14
+(PB6/PB7, AF6) at 1MHz, compiles out the UART MIDI transport because USART1
+wants those exact two pins, and compiles out `i2c1_bus_busy` along with the
+touch-poll skip that reads it. Without the define everything is as shipped:
+one I2C1 bus at 400kHz, the interlock, TRS MIDI present.
+
+**The wiring change.** SCL D11→D13, SDA D12→D14. Nothing else moves. Note
+that D13/D14 have no pull-ups on the Simple Touch board — the OLED module's
+own resistors become the only ones on the bus, which is the first thing to
+suspect if 1MHz comes out garbled (drop to 400kHz to confirm before blaming
+anything else).
+
+**Reading the result.** Both builds print `oled N fr max Nus` on the existing
+2s CPU line — frames pushed in the window, and the worst single transfer.
+Comment `-DUSB_MIDI` out or the print is suppressed. The redraw throttle
+(`kMinRedrawIntervalMs`, `display/oled_ui.cpp`) is deliberately **left at 80ms
+in both arms** so the comparison isolates the bus; tune it afterwards, once
+the real per-frame cost is known, as a separate decision.
+
+**What to expect, and what not to.** `max us` should drop by roughly the
+speed ratio (400kHz → ~886kHz actual). On the shared bus that same number is
+also exactly how long the pads went unpolled, so at 4ms/block it converts
+straight into blocks of touch latency — that is the defect being fixed here.
+What will *not* move is `CPU avg`/`max`: the transfer runs in the main loop
+and the audio ISR preempts it, so it was never inside the meter. A dedicated
+bus buys pad latency and redraw rate, not voice headroom.
+
+**Dead end worth recording:** DMA is not the follow-up to this. libDaisy
+returns `ERR` unconditionally from `TransmitDma` on I2C4 (it needs BDMA with
+buffers in SRAM4; `src/per/i2c.cpp` has the TODO), and `SSD130xI2CTransport`
+has no DMA path on any peripheral. Choosing I2C4 forecloses it. The cheap win
+that remains is dirty-page updates — `SSD130xDriver::Update()` always pushes
+all four pages, and a one-row marquee dirties one.
+
+---
+
 ## Deliberate decisions
 
 **Block size: 192, rendered as 8 × 24-sample chunks**
