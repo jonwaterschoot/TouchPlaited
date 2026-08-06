@@ -670,7 +670,7 @@ TouchPlaited always puts a clock on its outputs, and follows one when you give i
 | 3 blinks | Mode / scale / arp-state position 3 (SW2 Up or SW1 left flick); also: Seq resumed |
 | N blinks | Numbered feedback — arp octave range (1–4 = range 0–3), Rec layer cleared (its number) |
 | 3 rapid blinks | Confirm — recording saved, copy completed, Seq entered/re-randomized, transport started, sound edit entered, Rec cleared |
-| 3 fast triple | At a limit — root, arp octave range, Rec layers/notes full, nothing to undo/clear. The **base** octave (plain P10/P11) is the exception: it clamps silently at ±3, and the screen's `+3 D#5` readout is what tells you |
+| 3 fast triple | At a limit — root, base octave (±3), arp octave range, Rec layers/notes full, nothing to undo/clear |
 | Accelerating blink | Hold in progress — any of them: the P0+P2 stages, recording entry (2 s), copy / layer clear / save (1.2 s), sound edit (1 s); speeds up as the threshold nears. The long build-ups (P0+P2, recording entry) open with three slow pulses first — see *Re-randomize gestures* |
 | Short rapid burst | Recording entered (the 2 s hold landed) |
 | Fast double blink | Recording mode active — one double blink per audible hit of the slot being edited, in sync with the audio (unlike the single beat flash) |

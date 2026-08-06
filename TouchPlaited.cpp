@@ -3618,8 +3618,13 @@ int main() {
                 if (root_semitone > 0) { root_semitone--; pool.Audition(root_note_f()); }
                 else                   { led_event = LedEvent::LIMIT; }
             } else if (!touch.pads().IsTouched(0)) {
+                // Base octave, −3 rail. Blinks like every other limit on the
+                // panel (root, arp octave range, layers, undo) — the `+3 D#5`
+                // readout says where you are, the blink says you asked for
+                // more and got nothing.
                 int& oct = active_octave();
-                oct = std::max(-3, oct - 1);
+                if (oct > -3) { oct--; }
+                else          { led_event = LedEvent::LIMIT; }
             }
 
         } else if (pad == 11) {
@@ -3662,8 +3667,10 @@ int main() {
                 if (root_semitone < 11) { root_semitone++; pool.Audition(root_note_f()); }
                 else                    { led_event = LedEvent::LIMIT; }
             } else if (!touch.pads().IsTouched(0) && !touch.pads().IsTouched(2)) {
+                // Base octave, +3 rail — see the P10 branch.
                 int& oct = active_octave();
-                oct = std::min(3, oct + 1);
+                if (oct < 3) { oct++; }
+                else         { led_event = LedEvent::LIMIT; }
             }
         }
     });

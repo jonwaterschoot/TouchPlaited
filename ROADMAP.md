@@ -42,8 +42,9 @@ original list — this archive sweep — is done; that's why the file is short.)
       in the same document; README called the synth 7-voice (`kVoices` is 6 —
       7 is the parking-lot item, not the shipped build) and said all 24
       engines are selectable without mentioning that Chiptune is skipped; the
-      LED table credited a limit blink to the base octave, which clamps
-      silently, and listed only two of the six accelerating build-ups; the
+      LED table credited a limit blink to the base octave, which clamped
+      silently (F1 below has since given it the blink for real), and listed
+      only two of the six accelerating build-ups; the
       open-hat pool was described as two engines when it has one; one section
       cross-reference pointed at a heading that does not exist; and value-row
       screen strings were quoted in capitals throughout (only the label and
@@ -63,14 +64,14 @@ Two places where the docs described something better than the firmware does
 it. Both are small, both are taste calls, and the manual now documents the
 shipped behaviour either way — so neither is blocking.
 
-- [ ] **F1 — the base octave hits its rail silently.** Plain P10/P11 clamp at
-      ±3 with a bare `std::max`/`std::min` (`TouchPlaited.cpp`, the pad-down
-      handler) and no `LedEvent::LIMIT`, while root, arp octave range, the
-      layer stack and undo all blink at their limits. The manual claimed the
-      blink for it too, and now carries the exception instead. Two defensible
-      answers: give it the LIMIT blink for consistency, or leave it — the
-      octave readout (`+3 D#5`) already shows where you are, which is more
-      than root had before it got named. Deciding needs the device in hand.
+- [x] **F1 — the base octave hits its rail silently.** *Fixed 2026-08-06.*
+      Plain P10/P11 clamped at ±3 with a bare `std::max`/`std::min`
+      (`TouchPlaited.cpp`, the pad-down handler) and no `LedEvent::LIMIT`,
+      while root, arp octave range, the layer stack and undo all blink at
+      their limits. Consistency won: both branches now step only when there
+      is room and blink LIMIT when there isn't, so every rail on the panel
+      answers the same way. The manual's LED table drops the exception it had
+      just gained and lists the base octave with the other limits.
 - [ ] **F2 — Seq Recording swallows both transport combos.** While editing a
       drum slot, P10/P11 stay on drum pitch regardless of P2, so the P2+P11
       branch (drum play/pause) and the P2+P10 branch (melodic transport) are
