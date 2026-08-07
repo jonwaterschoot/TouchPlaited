@@ -65,6 +65,48 @@ static float last_block_load = 0.f;
 static volatile uint32_t shed_count = 0;   // diagnostics, printed with CPU load
 static constexpr float kShedThreshold = 0.90f;
 
+// ─── Output limiter ───────────────────────────────────────────────────────────
+// This used to be x/(1+|x|), which has no linear region at all: it bends from
+// zero, so a single quiet voice was already ~3.5dB down and shaped before
+// anything came near the ceiling. Voices sum unscaled (VoicePool::Render) and
+// the FX returns land on top of that sum, so four voices under a hall tail put
+// 5-6 into the curve and came out at ~0.83 — around 15dB of saturation applied
+// to the whole waveform. That is what "distorts at polyphony 4" was; it is
+// gain staging, not CPU, which the hall-vs-room test settled (2026-08-06,
+// notes.md: identical code path, different tail energy, different distortion).
+//
+// Below the knee the signal passes untouched; above it the same rational curve
+// takes over, rescaled so value and slope match at the crossing — no corner to
+// hear. It does not manufacture headroom: four voices still have to fit in
+// ±1.0. What changes is that the reduction now happens at the peaks instead of
+// colouring everything underneath them.
+//
+// Measured (x = summed input, y = output):
+//
+//        x    old     new     what it is
+//     0.50  0.333   0.500     one quiet voice — was shaped, now untouched
+//     1.00  0.500   0.900     one loud voice
+//     4.00  0.800   0.988     four voices
+//     6.00  0.857   0.993     four voices under a hall tail
+//
+// Two consequences to know before turning kLimitKnee. The instrument is
+// ~5dB LOUDER at one voice than it was. And one-to-four-voices now spans
+// +0.8dB where the old curve gave +4.1dB — chords sound cleaner but add less
+// weight, because a bounded output plus an unscaled voice sum has to
+// compress somewhere. Lowering the knee trades the other way (0.5 gives
+// +1.9dB of polyphonic range, 0.3 gives +2.7dB, at the cost of shaping more
+// of the signal). The way to have both is a per-voice or master trim so four
+// voices land near 1.0 instead of 4.0, which buys real dynamics back at the
+// price of absolute level — not done here, it is a loudness decision.
+static constexpr float kLimitKnee = 0.8f;
+static inline float soft_limit(float x) {
+    const float a = fabsf(x);
+    if (a <= kLimitKnee) return x;
+    const float u = (a - kLimitKnee) / (1.0f - kLimitKnee);
+    const float y = kLimitKnee + (1.0f - kLimitKnee) * (u / (1.0f + u));
+    return x < 0.f ? -y : y;
+}
+
 // seq_mode_on = SW2 Up: pads are drums, seq knobs live, drum recording available.
 // The sequencer itself (seq.IsActive()) is independent — it can keep playing in
 // the background while SW2 sits on Basic Pitch or Arp/Mel. P2+P11 toggles it.
@@ -669,7 +711,7 @@ static volatile uint32_t copy_hold_anim = 0;
 // A threshold firing is a one-shot. The counters behind it reset in the same
 // ISR block, so "it just fired" used to live for exactly one main-loop pass —
 // and both consumers sample slower than that: OledUi::Service sits behind an
-// 80 ms redraw throttle and Telemetry::SendState behind a 33 ms rate limit,
+// 40 ms redraw throttle and Telemetry::SendState behind a 33 ms rate limit,
 // so a confirm landing inside either window was lost outright. That's why
 // "RECORDING" only appeared sometimes and the entry bar looked stuck at ~98%.
 // The ISR now posts the confirm here; the main loop turns it into a latch
@@ -3202,11 +3244,11 @@ void AudioCallback(AudioHandle::InputBuffer in, AudioHandle::OutputBuffer out, s
     fx_drum.ProcessDelay(dly_l[3], dly_r[3], left, right, size);
     fx_drum.ProcessReverb(rev_l[3], rev_r[3], left, right, size);
 
-    // Output: soft-clip via x/(1+|x|), then the boot fade-in gain declared
-    // above — 0 for the first block, linearly up to 1 over kBootFadeMs, a
-    // no-op multiply for the rest of the unit's life after that. Levels are
-    // otherwise per-group in VoicePool (SetSeqVolume / SetPitchedVolume) —
-    // no other master scale here.
+    // Output: soft_limit() (declared above — linear below kLimitKnee, curved
+    // above), then the boot fade-in gain — 0 for the first block, linearly up
+    // to 1 over kBootFadeMs, a no-op multiply for the rest of the unit's life
+    // after that. Levels are otherwise per-group in VoicePool (SetSeqVolume /
+    // SetPitchedVolume) — no other master scale here.
     for (size_t i = 0; i < size; i++) {
         float L = left[i];
         float R = right[i];
@@ -3214,8 +3256,8 @@ void AudioCallback(AudioHandle::InputBuffer in, AudioHandle::OutputBuffer out, s
             boot_fade_gain += kBootFadeIncPerSample;
             if (boot_fade_gain > 1.f) boot_fade_gain = 1.f;
         }
-        out[0][i] = (L / (1.0f + fabsf(L))) * boot_fade_gain;
-        out[1][i] = (R / (1.0f + fabsf(R))) * boot_fade_gain;
+        out[0][i] = soft_limit(L) * boot_fade_gain;
+        out[1][i] = soft_limit(R) * boot_fade_gain;
     }
     last_block_load = static_cast<float>(System::GetTick() - blk_start) * blk_ticks_inv;
     cpu_meter.OnBlockEnd();
@@ -3729,15 +3771,26 @@ int main() {
         if (now_ms - last_cpu_print >= 2000) {
             last_cpu_print = now_ms;
 #ifndef USB_MIDI
-            HW::hw().print("CPU avg %d%% max %d%% shed %d sv %d%s%s",
+            // oled: frames drawn in the window, pages actually transmitted
+            // across them, and the worst single transfer. Pages/frames is the
+            // dirty-page hit rate — 4.0 means nothing is being skipped. The
+            // max is wall clock, so under load it is mostly audio-ISR
+            // preemption rather than bus time; it is also exactly how long the
+            // pads went unpolled (see i2c1_lock.h), so at 4ms/block it
+            // converts straight to blocks of touch latency.
+            HW::hw().print("CPU avg %d%% max %d%% shed %d sv %d%s%s | oled %d fr %d pg max %dus",
                            static_cast<int>(cpu_meter.GetAvgCpuLoad() * 100.f),
                            static_cast<int>(cpu_meter.GetMaxCpuLoad() * 100.f),
                            static_cast<int>(shed_count),
                            static_cast<int>(settings_journal.save_count()),
                            settings_journal.saving_disabled() ? " FULL" : "",
-                           settings_journal.write_error() ? " WERR" : "");
+                           settings_journal.write_error() ? " WERR" : "",
+                           static_cast<int>(OledScreen::FrameCount()),
+                           static_cast<int>(OledScreen::PageCount()),
+                           static_cast<int>(OledScreen::MaxFrameUs()));
 #endif
             cpu_meter.Reset();
+            OledScreen::ResetFrameStats();
             shed_count = 0;
         }
 

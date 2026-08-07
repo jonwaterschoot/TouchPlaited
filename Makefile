@@ -10,7 +10,8 @@ OPT = -O3
 
 # USB port owner: defined = USB device MIDI; commented out = measurement
 # build (USB serial logging + CPU meter prints return, USB MIDI disabled).
-# TRS MIDI (USART1, D13/D14) is always built either way.
+# TRS MIDI (USART1, D13/D14) is always built either way. Comment this out to
+# read the CPU / OLED frame numbers over serial.
 C_DEFS += -DUSB_MIDI
 
 # Sources: main entry + touch hardware layer + display + MIDI I/O + Plaits voice wrapper

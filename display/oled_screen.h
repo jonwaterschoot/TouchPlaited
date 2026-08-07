@@ -2,6 +2,7 @@
 
 #include "daisy_seed.h"
 #include "dev/oled_ssd130x.h"
+#include "oled_dirty_driver.h"
 #include "../nocopy.h"
 
 #ifdef __cplusplus
@@ -13,6 +14,10 @@ namespace synthux {
 // device address (0x3C vs the pads' 0x5A), so no extra wiring beyond power
 // and the two data lines. See Init() for why the display's I2C speed is
 // pinned to match the pads' instead of using its own faster default.
+//
+// Frames go out through SSD1306DirtyDriver (oled_dirty_driver.h), which
+// transmits only the pages whose pixels changed — see PushFrame() for what
+// that buys and why it beat giving the display a faster bus of its own.
 //
 // Two rows, mirroring visualizer/src/panel/oled-mini.ts: a small label
 // (Font_6x8, truncated to fit) and a value that never truncates — it steps
@@ -91,13 +96,26 @@ public:
 
     void Clear();
 
+    // Transfer-cost instrumentation. Every frame is timed around Update()
+    // alone — the buffer fill before it is plain memory writes and would only
+    // blur the picture. Stats are windowed: the CPU-load print in
+    // TouchPlaited.cpp reports and resets them every 2s, same as the meter.
+    // PageCount vs FrameCount is the dirty-page hit rate: 4 pages per frame
+    // means nothing is being skipped and the tracking is not paying off.
+    // Main-loop only, like every other method here.
+    static uint32_t LastFrameUs();
+    static uint32_t MaxFrameUs();
+    static uint32_t FrameCount();
+    static uint32_t PageCount();
+    static void     ResetFrameStats();
+
     // Frame-level primitives for the one-shot boot animation
     // (display/oled_boot.cpp) — the only other caller; everything above
     // this replaces the whole screen in a single call, so these are the
     // only way anything outside this file gets pixel-level control.
     // BeginFrame/SetPixel only touch the local buffer (no I2C traffic);
     // EndFrame is the one that actually transfers it, so it's the only one
-    // that needs the i2c1_bus_busy bracket the other Show*() methods use.
+    // that goes through PushFrame() like the Show*() methods do.
     void BeginFrame();
     void SetPixel(uint8_t x, uint8_t y, bool on);
     void EndFrame();
@@ -105,7 +123,13 @@ public:
 private:
     NOCOPY(OledScreen)
 
-    daisy::OledDisplay<daisy::SSD130xI2c128x32Driver> _display;
+    // The one place a frame reaches the bus: holds the i2c1_bus_busy bracket
+    // (shared-bus builds only) and the transfer timing around Update(). Every
+    // Show*() ends in this rather than calling Update() directly, so there is
+    // a single definition of what a frame costs.
+    void PushFrame();
+
+    daisy::OledDisplay<SSD1306DirtyDriver> _display;
 };
 
 } // namespace synthux

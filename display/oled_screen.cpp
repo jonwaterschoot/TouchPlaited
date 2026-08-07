@@ -33,7 +33,7 @@ constexpr uint8_t kPoolMarkY0 = 24, kPoolMarkY1 = 30, kPoolMarkW = 9;
 
 // Label row, shared by every screen here: Font_6x8, uppercased, truncated to
 // `budget` chars (the 21-char Font_6x8 line, less anything drawn to its right).
-void draw_label(daisy::OledDisplay<daisy::SSD130xI2c128x32Driver>& d,
+void draw_label(daisy::OledDisplay<SSD1306DirtyDriver>& d,
                 const char* label, size_t budget) {
     char buf[kBufLen];
     const size_t len = std::min({strlen(label), kBufLen - 1, budget});
@@ -46,10 +46,57 @@ void draw_label(daisy::OledDisplay<daisy::SSD130xI2c128x32Driver>& d,
 }
 } // namespace
 
+namespace {
+// Windowed transfer stats — see OledScreen::LastFrameUs() and friends. Plain
+// statics: every writer and reader is the main loop.
+uint32_t g_frame_us_last = 0;
+uint32_t g_frame_us_max  = 0;
+uint32_t g_frame_count   = 0;
+uint32_t g_page_count    = 0;
+} // namespace
+
+uint32_t OledScreen::LastFrameUs()  { return g_frame_us_last; }
+uint32_t OledScreen::MaxFrameUs()   { return g_frame_us_max; }
+uint32_t OledScreen::FrameCount()   { return g_frame_count; }
+uint32_t OledScreen::PageCount()    { return g_page_count; }
+void     OledScreen::ResetFrameStats() {
+    g_frame_us_max = 0;
+    g_frame_count  = 0;
+    g_page_count   = 0;
+}
+
+void OledScreen::PushFrame() {
+    // The i2c1_bus_busy interlock lives inside the driver's Update(), held per
+    // page rather than across the whole frame — a frame's wall-clock duration
+    // measured up to 244ms under load, and blinding the pads for that long is
+    // what the per-page release fixes. See display/oled_dirty_driver.h.
+    // Timed in ticks, not System::GetUs(). GetUs() is GetTick()/(freq/1e6)
+    // (lib/libDaisy/src/per/tim.cpp), so the divide happens after the 32-bit
+    // tick wrap and the microsecond value rolls over every ~21.5s — a frame
+    // straddling that produced a ~4.27e9 reading, which is where the negative
+    // maxima in the 2026-08-06 captures came from. Tick subtraction wraps
+    // correctly; convert afterwards.
+    const uint32_t t0    = System::GetTick();
+    _display.Update();
+    const uint32_t ticks = System::GetTick() - t0;
+    const uint32_t per_us = System::GetTickFreq() / 1000000u;
+    const uint32_t us     = per_us ? ticks / per_us : 0u;
+
+    // Wall clock, not bus time: the audio ISR preempts this transfer freely,
+    // so under load the figure is dominated by how little of the main loop is
+    // left rather than by the bus. That is the point — it is the latency a
+    // frame actually experiences, and the 2026-08-06 I2C4 measurements showed
+    // it running 7-40x the underlying transfer cost. See notes.md.
+    g_frame_us_last = us;
+    if (us > g_frame_us_max) g_frame_us_max = us;
+    g_frame_count++;
+    g_page_count += SSD1306DirtyDriver::PagesPushed();
+}
+
 void OledScreen::Init(daisy::DaisySeed& hw) {
     (void)hw; // transport owns its own I2C init; kept for Pads::Init() symmetry
 
-    OledDisplay<SSD130xI2c128x32Driver>::Config cfg;
+    OledDisplay<SSD1306DirtyDriver>::Config cfg;
     // MPR121 (touch/pads.cpp) already brought this same I2C1 bus up at
     // 400kHz. Whichever Init() runs last reprograms the peripheral's actual
     // clock — the driver's own default is 1MHz, which the pads aren't
@@ -66,14 +113,11 @@ void OledScreen::Init(daisy::DaisySeed& hw) {
 }
 
 void OledScreen::Clear() {
-    i2c1_bus_busy = true;
     _display.Fill(false);
-    _display.Update();
-    i2c1_bus_busy = false;
+    PushFrame();
 }
 
 void OledScreen::ShowProgress(const char* label, uint8_t progress, const char* note) {
-    i2c1_bus_busy = true;
     _display.Fill(false);
 
     draw_label(_display, label, kBufLen - 1);
@@ -106,13 +150,11 @@ void OledScreen::ShowProgress(const char* label, uint8_t progress, const char* n
         _display.WriteString(noteBuf, Font_6x8, true);
     }
 
-    _display.Update();
-    i2c1_bus_busy = false;
+    PushFrame();
 }
 
 void OledScreen::ShowPickup(const char* label, const char* value,
                             uint8_t pot, uint8_t target) {
-    i2c1_bus_busy = true;
     _display.Fill(false);
 
     draw_label(_display, label, kBufLen - 1);
@@ -148,12 +190,10 @@ void OledScreen::ShowPickup(const char* label, const char* value,
     const uint8_t pr = px <= kTrackX1 - 2 ? static_cast<uint8_t>(px + 2) : kTrackX1;
     _display.DrawRect(pl, 27, pr, 29, true, true);
 
-    _display.Update();
-    i2c1_bus_busy = false;
+    PushFrame();
 }
 
 void OledScreen::ShowPool(const char* label, const char* const* names, uint8_t pool) {
-    i2c1_bus_busy = true;
     _display.Fill(false);
 
     draw_label(_display, label, kBufLen - 1);
@@ -181,12 +221,10 @@ void OledScreen::ShowPool(const char* label, const char* const* names, uint8_t p
                           true, ((pool >> i) & 1) != 0);
     }
 
-    _display.Update();
-    i2c1_bus_busy = false;
+    PushFrame();
 }
 
 void OledScreen::ShowList(const char* const* rows, int n) {
-    i2c1_bus_busy = true;
     _display.Fill(false);
     const int shown = std::min(n, kListRows);
     for (int i = 0; i < shown; i++) {
@@ -199,8 +237,7 @@ void OledScreen::ShowList(const char* const* rows, int n) {
         _display.SetCursor(1, static_cast<uint8_t>(i * Font_6x8.FontHeight));
         _display.WriteString(buf, Font_6x8, true);
     }
-    _display.Update();
-    i2c1_bus_busy = false;
+    PushFrame();
 }
 
 void OledScreen::BeginFrame() {
@@ -212,17 +249,11 @@ void OledScreen::SetPixel(uint8_t x, uint8_t y, bool on) {
 }
 
 void OledScreen::EndFrame() {
-    i2c1_bus_busy = true;
-    _display.Update();
-    i2c1_bus_busy = false;
+    PushFrame();
 }
 
 void OledScreen::ShowLine(const char* label, const char* value,
                           const StatusIcons& icons) {
-    // Held for the whole draw+transfer (see i2c1_lock.h) — Pads::Process()
-    // skips its I2C poll in AudioCallback while this is up, so the ~20ms
-    // Update() below can't get torn by the audio ISR landing mid-transfer.
-    i2c1_bus_busy = true;
     _display.Fill(false);
 
     // Indicator block first — it owns the right end of the label row, so the
@@ -257,8 +288,7 @@ void OledScreen::ShowLine(const char* label, const char* value,
     draw_label(_display, label, labelBudget);
 
     if (value == nullptr || *value == '\0') {
-        _display.Update();
-        i2c1_bus_busy = false;
+        PushFrame();
         return;
     }
 
@@ -286,6 +316,5 @@ void OledScreen::ShowLine(const char* label, const char* value,
     _display.SetCursor(1, 32 - font->FontHeight);
     _display.WriteString(valueBuf, *font, true);
 
-    _display.Update();
-    i2c1_bus_busy = false;
+    PushFrame();
 }

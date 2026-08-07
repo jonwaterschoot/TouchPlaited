@@ -209,6 +209,10 @@ P3–P9 map to slots 0–6. In Seq mode these are fixed drum roles:
 
 All knobs apply globally and in real time to every voice.
 
+**How many notes you can hold: four, or three on the expensive models** — Six-Op A/B/C (2–4), Speech (15), Particle (18), String (19) and Modal (20). Press past the limit and the oldest held note is released, exactly as if you had lifted that pad. The limit is lower on those models because they cost roughly twice as much to render: held notes are deliberately exempt from the automatic load-shedding that thins decaying tails, so a chord over budget would crackle for as long as you kept it down instead of thinning cleanly. Three held Six-Op voices leave enough headroom for the previous note's tail to ring out underneath. Applies to MIDI notes in this mode too.
+
+**You may still meet the edge of it.** These ceilings stop the worst case, they don't make every model comfortable at every density — a heavy model with a long decay, reverb and delay all running can still get close to the limit, and the drum sequencer playing underneath shares the same voices. Rather than clamp every model down to its most expensive case and make the light ones needlessly thin, the limits are set where the common cases play cleanly and the rest is left to your ear: if something sounds strained, play it thinner, shorten the decay, or reach for a lighter model. There is real headroom still unclaimed in the firmware, so this may well loosen in a future version.
+
 After a P0+P2 randomize (see *Re-randomize gestures*), each pad plays its own frozen snapshot instead. To return to live knob control: hold P0+P2 for 6 s (stage 3 — clean), move any timbral knob (S31/S32/S33/S34), or pick a model with P0/P2+S35.
 
 | Knob | Function | MIDI CC |
@@ -570,7 +574,7 @@ Both ports behave identically, in and out.
 - *Arp/Mel:* the arp's own sound — external notes play alongside the arp (they don't join the pool yet).
 - *While in Seq mode:* the last pitched mode's sound — play synth lines over the drum machine.
 
-Held notes are released by NoteOff, by CC 120/123 (All Sound Off / All Notes Off — what a DAW sends when you press stop), and MIDI-held voices participate in normal voice stealing (6 voices).
+Held notes are released by NoteOff, by CC 120/123 (All Sound Off / All Notes Off — what a DAW sends when you press stop), and MIDI-held voices participate in normal voice stealing (6 voices). In Basic Pitch they also share the held-note ceiling described under *Knob functions by mode → Basic Pitch* — four at once, three on the expensive models — so a DAW sending a four-note chord on Six-Op will sound three of them.
 
 **Channel 10 — drums**, General MIDI mapping to the 7 kit slots (velocity scales the hit):
 

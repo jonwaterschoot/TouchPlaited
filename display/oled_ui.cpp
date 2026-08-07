@@ -1048,15 +1048,21 @@ void confirm_text(FixedCapStr<N>& out, const TelemetryState& t) {
 namespace synthux {
 
 namespace {
-// Bus transfer cost bounds how often we can afford to redraw — a full
-// Update() is now ~16 I2C transactions (batched per page, see the SendData
-// fix in lib/libDaisy/src/dev/oled_ssd130x.h) instead of ~524, roughly
-// 30-40ms down to an estimated well under 15ms. 80ms leaves a healthy
-// margin over that (touch polling only pauses for the actual transfer —
-// see i2c1_lock.h — so the ratio here is how much of the time it's
-// paused) while still reading as prompt on a knob sweep. Tune down further
-// if it still feels laggy once measured on real hardware.
-constexpr uint32_t kMinRedrawIntervalMs = 80;
+// How often a redraw may be attempted. 80ms was chosen when a frame held the
+// bus interlock end to end, which made this interval the only thing bounding
+// how long the pads stayed blind. It no longer is: SSD1306DirtyDriver holds
+// i2c1_bus_busy per page and releases between them, so the touch poll gets a
+// window every page and the worst consecutive blindness is one page rather
+// than one frame. That decoupling is what pays for 40ms here.
+//
+// Measured on hardware 2026-08-06 (notes.md), and worth keeping in view: a
+// frame is *wall clock*, not bus time — the audio ISR preempts it, so at 79%
+// CPU a frame ran ~52ms and in the worst window 244ms, against ~13ms of
+// actual bus traffic. Lowering this further does not make redraws faster, it
+// only lets more of them queue behind the same starved main loop; observed
+// rate topped out near 38 frames per 2s window even at 40ms (50 possible).
+// The remaining ceiling is audio load, not the display.
+constexpr uint32_t kMinRedrawIntervalMs = 40;
 // A hold's confirm text needs to actually read as a flash, not a blip — held
 // open well past the usual redraw throttle, in the same ballpark as the
 // LED's own confirm blinks (blink_confirm() etc., TouchPlaited.cpp: 3 blinks

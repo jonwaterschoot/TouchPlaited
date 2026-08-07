@@ -44,6 +44,344 @@ out on D25 (S40). Both documented for users in `MANUAL.md` → *Hardware mods*.
 
 ---
 
+## OLED redraw cost — the I2C4 experiment and what it actually found (2026-08-06)
+
+Question was whether the display deserves its own I2C bus, at the cost of TRS
+MIDI (USART1 wants D13/D14, so the two cannot coexist). Built it, rewired it,
+measured it: **no observable difference, reverted.** The interesting part is
+why, because it moves where the next effort should go.
+
+### What was measured
+
+Branch `oled-i2c4-no-trs` (kept for the trail; the bus move is not merged).
+OLED on I2C4 / D13-D14 at 1MHz, interlock compiled out, TRS MIDI dropped.
+Boot animation, progress bars and general use looked **identical** — the one
+thing the change was meant to improve, progress-bar smoothness, did not move.
+
+Serial capture, idle → simple synth → 6-op FM poly → + seq + FX → idle:
+
+| CPU avg | `oled max` | main loop's share | implied bus time |
+|---|---|---|---|
+| 15% | 6268 µs | ~85% | ~5.3 ms |
+| 88% | 43920 µs | ~12% | ~5.3 ms |
+
+Peak observed: `max 239570us` — a 239 ms frame.
+
+### The finding
+
+The bus change worked exactly as designed and was irrelevant. A four-page
+frame is ~5.3ms of bus time at ~886kHz (vs ~11.5ms at 400kHz), and that
+prediction matches the idle measurement to within a few percent, so I2C4 at
+1MHz was genuinely running. But **frame latency is dominated by audio-ISR
+preemption, not by the bus**: the transfer runs in the main loop, which at 88%
+audio load gets an eighth of the wall clock. Doubling bus speed sped up 5ms of
+a 125ms round trip. Invisible, exactly as it felt.
+
+Frame rate under load was ~16 frames per 2s ≈ 125 ms/frame ≈ 80 ms throttle +
+~45 ms stretched transfer. Neither term is bus speed.
+
+### What was done instead
+
+1. **`display/oled_dirty_driver.h`** — `SSD1306DirtyDriver` transmits only the
+   pages whose pixels changed, against a shadow of the last frame sent. A
+   progress bar animates two pages of four, the capture blink one, an
+   unchanged status row none. This cuts the *stretched* time by the same
+   factor as the bus time, which is why it beats the faster bus.
+2. **`kMinRedrawIntervalMs` 80 → 40ms.** The real constraint is not the bus
+   but the fraction of time the pads are blind behind `i2c1_bus_busy`. At 80ms
+   with full frames that was ~14%; halving the bytes and halving the interval
+   holds it at ~14% while doubling how often the screen may move.
+
+`oled N fr M pg max Nus` on the CPU print now carries pages as well as frames.
+Pages/frames near 2 means dirty-paging is working; 4.0 means it is not, and
+the 40ms interval is then buying blindness rather than smoothness.
+
+### Second capture (129 windows, dirty pages + 40ms) — two corrections
+
+**Dirty-paging fires less than the layout suggests: 3.08 pages/frame, not 2.**
+61 of 129 windows sat at 3.5–4.0. Cause is `ShowLine`'s value row: Font_11x18
+at y14..31 spans pages 1–3, so any callout changing both label and value
+dirties all four. The byte saving is real but ~23%, not 50%. Only the
+blink-only and no-change redraws reach 0–1 pages.
+
+That invalidated the basis for 40ms, which had been sized assuming the byte
+count halved. The fix was not the interval but **where the interlock is
+held**: `i2c1_bus_busy` across a whole frame blinds the pads for the frame's
+wall-clock duration (~52ms at 79% CPU, 244ms worst observed). It is now held
+per page inside `SSD1306DirtyDriver::Update()` and released between them, so
+worst consecutive blindness is one page and the poll gets a window every
+page. That decoupling is what 40ms rests on now.
+
+**Retracted: the settings-journal stall.** The first capture showed all three
+`sv` increments landing on the worst rows, and `tp_qspi_ram_op` does mask all
+interrupts for a write. But across 129 windows only **1 of 8** `sv` increments
+coincides with an outlier. The extreme frames track CPU instead: at `avg 95%`
+the main loop gets ~5% of wall clock, so ~12.7ms of bus becomes ~254ms —
+against 239937us measured. Preemption explains them without the QSPI story.
+Small-sample coincidence; not worth a branch.
+
+**Still open: the CPU baseline in the archive is stale.** Peaks of 137–150%
+with `shed` up to 38 sustained, against the 111–115% worst case recorded
+2026-07-03, which predates the FX work's fixed +8–12% per block. Re-baseline
+before spending anything on ITCM or voice count.
+
+**Also open: redraw rate is capped by audio load, not the display.** Observed
+rate topped out near 38 frames per 2s window at a 40ms interval, where 50 are
+possible. Lowering the interval further only queues more redraws behind the
+same starved main loop.
+
+---
+
+## "Distorts at polyphony 4" was gain staging, not CPU (2026-08-06)
+
+Diagnosed off one observation: **reverb hall distorts more than room, dotted
+delay in between.** `FxSection::SetReverbCharacter` (`synth/fx.cpp`) shows
+room and hall are the *same code path* — same buffers, same per-sample work —
+differing only in two scalars (decay 0.35-0.60 vs 0.75-0.95, damping 0.45 vs
+0.80). Identical CPU. So a character that distorts more at equal cost is
+distorting on **level**, not load. The ranking hall > dotted delay > room is
+exactly the accumulated-tail-energy ordering.
+
+Mechanism: `VoicePool::Render` sums voices unscaled (`out_left[s] += l * vol`,
+default vol 1.0), FX returns land on that sum *before* the output stage, and
+the output stage was `x/(1+|x|)` — a curve with **no linear region**, bending
+from zero. Four voices ≈ 4.0 plus a hall tail ≈ 5-6 came out at 0.83, ~15dB
+of saturation applied to the whole waveform. Happens identically at 0% CPU.
+
+Replaced with `soft_limit()` (TouchPlaited.cpp): linear below `kLimitKnee`,
+the same rational curve above it, rescaled so value and slope match at the
+crossing. Verified continuous (slope 1.0000/0.9999 either side) and
+asymptotic to exactly 1.0.
+
+**Known trade, left for ears to settle:** at knee 0.8 the instrument is ~5dB
+louder at one voice, and one-to-four voices spans +0.8dB where the old curve
+gave +4.1dB — cleaner chords that add less weight. A bounded output plus an
+unscaled voice sum must compress somewhere; lowering the knee trades back
+toward polyphonic range (0.5 → +1.9dB, 0.3 → +2.7dB) at the cost of shaping
+more of the signal. Having both means trimming voices so four land near 1.0
+rather than 4.0 — a loudness decision, not made here.
+
+### Separately: FX cost ~25%, not the budgeted 8-12%
+
+Measured 60% → 79-85% when FX come in. Cause is `synth/fx.cpp`'s four
+independent `FxSection`s — each group owns its own reverb *and* delay ("own
+buffers, own character, own sleep state"), so two active groups run two
+reverbs and two delays. The 2026-07-08 analysis recorded "one shared reverb
+with per-group send levels (cheap — chosen)"; the implementation went the
+other way because a shared instance cannot be room and hall at once
+(`synth/fx.h`).
+
+Deferred to its own round, deliberately. Two shapes discussed:
+- **Small:** share the instances, keep the per-group sends (sends are just
+  gain). Loses only *simultaneous different characters*; no UI change at all,
+  the mirror knob becomes global. Most of the CPU for little work.
+- **Large:** one reverb + one delay with per-group dry/wet, and an FX
+  parameter layer taking over the knobs while P1 is held. Coherent, and P1 is
+  already the sound-edit modifier — but it is a control-surface redesign
+  touching telemetry, OLED and settings persistence.
+
+Worth re-measuring after the limiter change before choosing: if four voices
+under hall no longer distort, the remaining complaint is crackle above 100%,
+which is a different problem with different levers.
+
+---
+
+## Six-Op crackle — held voices defeat the shed guard (2026-08-07)
+
+The crackle that survived the limiter fix. **Not drive, not the FX** — four
+held Six-Op voices sit above the shed threshold in a state where the guard
+cannot fire, and any fifth note briefly makes it five.
+
+### Cost per voice (Six-Op C, engine 4, one group, no FX)
+
+| voices | CPU avg | delta |
+|---|---|---|
+| idle | 16% | |
+| 1 | 41% | +25 |
+| 2 | 58% | +17 |
+| 3 | 75% | +17 |
+| 4 | **92-95%** | +17 |
+
+~17% per voice. Four held = 92-95% against `kShedThreshold` 0.90 — and
+`shed 0` throughout, because `VoicePool::ShedVoice()` only considers voices
+that are `awake && !gate_held`. Four held pads means four gate-held voices,
+so **no victim exists and the guard is disabled by construction.**
+
+### The transient
+
+Noticed by ear first ("a consecutive hit playing a new note on top causes a
+short burst at the start of the note"), then explained: `cap_bp_voices()`
+releases the oldest held voice, but that voice stays *awake* rendering its
+release tail. So momentarily 4 held + 1 releasing = five Six-Op voices,
+92% + 17% ≈ 109% — against measured peaks of 101 / 115 / 116 / 121%. The
+released voice is only then shed-eligible, so `shed` fires reactively, one
+block late; the first hot block always crackles.
+
+This is why the fault looks intermittent — "sometimes at 3 voices with drive,
+sometimes not even at 4" depends entirely on whether a release tail is still
+sounding when the next note lands.
+
+### Two corrections the same capture forced
+
+**Drive costs no CPU.** 1 voice 41% clean vs 40-41% at 100% drive; 3 voices
+75-78% vs 77-78%. Drive changes level into the output limiter, not load.
+
+**FX cost ~5% per active group, not the 25% claimed on 2026-08-06.** Measured
+here: 1 voice 41→45%, 2 voices 58→63%, 3 voices 75→80%, with hall + dotted
+delay on one group. The earlier 25% came from a session with drums *and*
+synth active — two groups plus more voices — and was misattributed. **This
+substantially weakens the case for the FX consolidation round**: sharing
+instances is worth perhaps 5-10%, not 25%.
+
+### Fix applied
+
+Per-engine held-voice ceiling in `VoicePool` — `kBPMaxHeldHeavy = 3` for the
+engines `engine_is_heavy()` lists, `kBPMaxHeld = 4` otherwise. Three held
+Six-Op voices is 75-78%, leaving ~15% of headroom, about what one overlapping
+release tail costs. Six-Op C is the measured case; Speech/Particle/String/
+Modal are inferred from the 2026-07-03 budget analysis and are cheap to
+correct if one of them turns out not to need it.
+
+`voice_engine[]` now tracks the engine per voice so a mixed-engine chord
+(possible with `bp_slots_active`, where each pad carries its own snapshot)
+caps on the heaviest engine present rather than only the incoming one.
+
+### Raw captures — 2026-08-07, verbatim
+
+Kept exactly as they came off COM11 so a future round has something to
+reference against rather than a paraphrase. Build: `-DUSB_MIDI` commented
+out, dirty-page OLED driver, per-page interlock, `soft_limit()` output stage,
+**before** the per-engine cap. Six-Op C patch, low master volume (S36).
+
+Note the `max -21445678us` readings: those are the `System::GetUs()` wrap
+bug (~21.5s rollover, fixed after this capture — see the commit "time frames
+in ticks"). Any negative `max` in these logs is an artefact, not a stall.
+Positive values are sound.
+
+Clean, no FX — 1 to 4 voices:
+
+```
+CPU avg 16% max 17% shed 0 sv 15 | oled 0 fr 0 pg max 0us (= idle)
+1 voice:
+CPU avg 41% max 42% shed 0 sv 9 | oled 0 fr 0 pg max 0us
+CPU avg 41% max 43% shed 0 sv 9 | oled 1 fr 4 pg max 19827us
+CPU avg 41% max 43% shed 0 sv 9 | oled 1 fr 4 pg max 19933us
+CPU avg 41% max 43% shed 0 sv 9 | oled 0 fr 0 pg max 0us
+
+2 voices: 
+CPU avg 58% max 60% shed 0 sv 13 | oled 1 fr 4 pg max 27799us
+CPU avg 58% max 60% shed 0 sv 13 | oled 0 fr 0 pg max 0us
+CPU avg 58% max 61% shed 0 sv 13 | oled 0 fr 0 pg max 0us
+CPU avg 58% max 60% shed 0 sv 14 | oled 0 fr 0 pg max 0us
+
+3 voices:
+CPU avg 75% max 78% shed 0 sv 18 | oled 3 fr 12 pg max 47275us
+CPU avg 75% max 78% shed 0 sv 18 | oled 1 fr 4 pg max 47244us
+CPU avg 75% max 79% shed 0 sv 18 | oled 0 fr 0 pg max 0us
+
+4 voices:
+CPU avg 16% max 17% shed 0 sv 18 | oled 0 fr 0 pg max 0us
+CPU avg 92% max 95% shed 0 sv 18 | oled 4 fr 16 pg max 127667us
+CPU avg 92% max 95% shed 0 sv 18 | oled 1 fr 4 pg max 123691us
+CPU avg 92% max 95% shed 0 sv 18 | oled 0 fr 0 pg max 0us
+```
+
+100% drive (S30) — same voice counts, showing drive is CPU-neutral:
+
+```
+1 voice with 100% drive S30:
+CPU avg 16% max 17% shed 0 sv 23 | oled 0 fr 0 pg max 0us
+CPU avg 40% max 43% shed 0 sv 23 | oled 1 fr 4 pg max 19962us
+CPU avg 41% max 43% shed 0 sv 23 | oled 1 fr 4 pg max 19907us
+CPU avg 41% max 43% shed 0 sv 23 | oled 0 fr 0 pg max 0us
+
+2 voices 100% drive S30:
+CPU avg 16% max 17% shed 0 sv 24 | oled 0 fr 0 pg max 0us
+CPU avg 39% max 44% shed 0 sv 24 | oled 12 fr 36 pg max 19992us
+CPU avg 59% max 61% shed 0 sv 24 | oled 1 fr 4 pg max 28014us
+CPU avg 59% max 61% shed 0 sv 25 | oled 1 fr 4 pg max 28034us
+CPU avg 59% max 62% shed 0 sv 25 | oled 0 fr 0 pg max 0us
+CPU avg 60% max 62% shed 0 sv 25 | oled 0 fr 0 pg max 0us
+
+3 voices 100% drive S30:
+CPU avg 77% max 81% shed 0 sv 25 | oled 2 fr 8 pg max 48228us
+CPU avg 77% max 80% shed 0 sv 25 | oled 1 fr 4 pg max 48196us
+CPU avg 77% max 81% shed 0 sv 25 | oled 2 fr 8 pg max 51222us
+CPU avg 78% max 80% shed 0 sv 25 | oled 1 fr 4 pg max 48301us
+
+4 voices 100% drive S30: (this is where reports start hanging, other sessions had revealed above 100%, sometimes it crackled even at drive 2% sometimes it didn't at 100%)
+CPU avg 95% max 99% shed 0 sv 28 | oled 1 fr 4 pg max 187917us
+CPU avg 79% max 98% shed 2 sv 28 | oled 4 fr 16 pg max 179787us
+CPU avg 95% max 97% shed 1 sv 28 | oled 5 fr 20 pg max 179919us
+```
+
+Lifting and landing notes, hall reverb + drive, max 4 at a time:
+
+```
+CPU avg 79% max 101% shed 1 sv 30 | oled 3 fr 12 pg max 127848us
+CPU avg 77% max 96% shed 1 sv 30 | oled 6 fr 21 pg max 123852us
+CPU avg 94% max 97% shed 2 sv 30 | oled 6 fr 24 pg max 183854us
+CPU avg 76% max 115% shed 9 sv 31 | oled 10 fr 36 pg max 195935us
+CPU avg 78% max 115% shed 3 sv 31 | oled 3 fr 12 pg max 191756us
+CPU avg 95% max 98% shed 3 sv 31 | oled 4 fr 16 pg max 183862us
+CPU avg 95% max 115% shed 1 sv 31 | oled 1 fr 4 pg max 191863us
+CPU avg 77% max 115% shed 12 sv 31 | oled 8 fr 32 pg max 207754us
+CPU avg 78% max 116% shed 4 sv 31 | oled 4 fr 16 pg max 203796us
+```
+
+Dotted delay added on top of hall + 100% drive — this is the +5% FX figure:
+
+```
+adding dotted delay on top of 1 voice 100% drive with hall reverb:
+CPU avg 45% max 47% shed 0 sv 32 | oled 1 fr 4 pg max 20818us
+CPU avg 45% max 47% shed 0 sv 32 | oled 0 fr 0 pg max 0us
+CPU avg 45% max 47% shed 0 sv 32 | oled 17 fr 52 pg max 22469us
+CPU avg 45% max 49% shed 0 sv 33 | oled 1 fr 0 pg max 32us
+
+2 voices:, playing chords and playing fast and long all stay in this range:
+CPU avg 63% max 66% shed 0 sv 34 | oled 9 fr 20 pg max 31802us
+CPU avg 63% max 66% shed 0 sv 35 | oled 1 fr 4 pg max 31799us
+CPU avg 63% max 66% shed 0 sv 35 | oled 7 fr 28 pg max -21445678us
+CPU avg 63% max 66% shed 0 sv 35 | oled 16 fr 64 pg max 31928us
+CPU avg 63% max 66% shed 0 sv 35 | oled 15 fr 40 pg max 31851us
+
+3 voices, same playing as before, togheter fast , on top always max 3 at a time, does begin the crackle
+CPU avg 80% max 101% shed 1 sv 35 | oled 12 fr 48 pg max 63306us
+CPU avg 82% max 85% shed 0 sv 35 | oled 8 fr 24 pg max 59842us
+CPU avg 80% max 86% shed 0 sv 35 | oled 26 fr 104 pg max 59972us
+CPU avg 79% max 102% shed 2 sv 35 | oled 13 fr 48 pg max 59984us
+CPU avg 86% max 99% shed 1 sv 35 | oled 28 fr 112 pg max 63262us
+
+with 4 voices same style of playing: immediatly in distorted crackled territory: messages not coming through only between releasing pads:
+CPU avg 16% max 17% shed 0 sv 35 | oled 0 fr 0 pg max 0us
+CPU avg 86% max 101% shed 7 sv 35 | oled 10 fr 31 pg max -21415301us
+CPU avg 83% max 121% shed 26 sv 35 | oled 22 fr 88 pg max 63228us
+CPU avg 83% max 121% shed 38 sv 36 | oled 24 fr 96 pg max 267865us
+```
+
+One line worth keeping in view: `oled 1 fr 0 pg max 32us` — a redraw that
+transmitted **zero** pages in 32µs. That is the dirty-page shadow doing
+exactly its job, and the cheapest possible confirmation that it works.
+
+### Note on reading the CPU log
+
+Above ~100% the audio callback overruns its 4ms block and the main loop gets
+essentially nothing — serial prints, OLED and MIDI service all stall together.
+So **missing log lines during crackle are themselves data**, and the worst
+episodes are systematically underreported. `CPU avg` hides them (one window
+read `avg 78%` while containing a 507777us OLED frame, ~10x its neighbours at
+the same average); `max` and `shed` are the columns that carry signal.
+
+### Dead end worth recording
+
+DMA is not the follow-up. libDaisy returns `ERR` unconditionally from
+`TransmitDma` on I2C4 (needs BDMA with buffers in SRAM4; `src/per/i2c.cpp` has
+the TODO), and `SSD130xI2CTransport` has no DMA path on any peripheral — only
+the SPI transport does, and only `SSD1307Driver` wires it up. Real zero-CPU
+frames would mean converting the panel to 4-wire SPI.
+
+---
+
 ## Deliberate decisions
 
 **Block size: 192, rendered as 8 × 24-sample chunks**
