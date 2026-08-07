@@ -24,6 +24,10 @@ Design decisions, budget analyses, and implementation write-ups live in
   OLED round (A1–A6, B1–B4, C1–C12, section D's hardware checklists, E1) are
   in `notesarchive/notes_archive_2026-08.md`. Item letters/numbers there are
   still the reference for cross-links elsewhere in the repo.
+- **The visualizer round (V1–V6) — shipped 2026-08-07.** The app's own pass:
+  the mini screen's size floor, the expanded display uncovering the user LED,
+  one settings bar, a grouped menu, mobile auto-fit and the screen wake lock.
+  `notesarchive/notes_archive_2026-08.md` → "V. Visualizer round".
 
 ---
 
@@ -53,10 +57,29 @@ original list — this archive sweep — is done; that's why the file is short.)
       which it had never mentioned outside the source-tree table.
       One stale code comment fixed while here: `arp_oct_range` still cited
       `P1+P10/P11` after the 2026-08-05 swap.
-- [ ] **2 — A round of visualizer tweaks.** The app has been kept in
-      lockstep field-by-field through six protocol additions without anyone
-      standing back from it. Worth a pass in its own right now that the
-      firmware side has settled.
+- [x] **2 — A round of visualizer tweaks.** *Done 2026-08-07 — all six items
+      (V1–V6) shipped; write-up in `notesarchive/notes_archive_2026-08.md` →
+      "V. Visualizer round".* Two of the six were real bugs rather than taste
+      (the mini screen stopped tracking the drawing at small sizes; `100vh`
+      put the bottom of the drawing under a phone's browser chrome), and
+      measuring for V5 turned up a third that wasn't filed: the info panel is
+      positioned before its content lands, so on a phone its bottom third fell
+      off the screen. The two open questions the filing carried were both
+      answered on the way: the A−/A+ pairs stay separate but step alike, and
+      Fullscreen buys nothing towards keeping a phone awake — on iPhone Safari
+      it doesn't exist at all, so the wake lock is the only lever.
+- [ ] **3 — Code map check & update.** Section *Docs & site* below.
+
+## Docs & site
+
+- [ ] **Code map — check & update.** `tools/codemap.html` (served at
+      `/codemap/`) is the interactive hardware + memory atlas, and it hasn't
+      been walked against the source since a good deal shipped: the OLED and
+      its I2C interlock, protocol v11 telemetry, the per-engine held-note
+      cap, the output limiter, and the re-measured performance figures. Same
+      method as the 2026-08-06 doc read (item 1) — check it against the
+      source, not against the notes. Brief and design history:
+      `doc/codemap_brief.md` → `notesarchive/codemap-brief-archive.md`.
 
 ## F. From the 2026-08-06 doc read
 
@@ -151,8 +174,8 @@ rather than bolted onto the branch that raised them. E2 is what's left.
       bounds — **40 ms since 2026-08-07**, and only safe at that because the
       interlock is now held per *page* rather than per frame. Don't let a
       marquee run when nothing is being scrolled. Emulator parity:
-      `fitFont()` in `oled-mini.ts` implements the same shrinking rule and
-      has to change with it.
+      `pickValueFont()` in `oled-mini.ts` implements the same shrinking rule
+      and has to change with it.
       One measured caveat for whoever builds this: redraw rate is bounded by
       **audio load, not the bus**. A frame is wall clock, and the audio ISR
       preempts it — at 79% CPU a frame took ~52 ms against ~13 ms of actual
@@ -168,6 +191,61 @@ rather than bolted onto the branch that raised them. E2 is what's left.
 
 ## Sound
 
+- [ ] **A full ADSR — today there is only a decay** (filed 2026-08-07 from
+      the sketch). The wish is A/D/S/R where S31 is now the single unified
+      Decay.
+      **First, the question the sketch asks — what is controlling "ADS" in
+      the current Decay, and why does it differ per model type?** It was
+      worth chasing, because the answer decides how expensive the feature
+      is. There is no envelope of ours anywhere: `PlaitsVoice::Init` patches
+      the trigger and pins `level` at 1.0 while leaving `level_patched`
+      **false** (`synth/plaits_voice.cpp:107-110`), which puts Plaits' own
+      LPG into *ping* mode — `lpg_envelope_.ProcessPing(attack, ...)`,
+      `thirdparty/plaits/dsp/voice.cc:242-243`. In that mode the attack is
+      derived from the note frequency (high notes attack faster, and you
+      cannot set it), the fall comes from `patch.decay` and `lpg_colour`
+      (`voice.cc:236-237`), and there is **no sustain segment at all**: the
+      note decays whether or not the pad is still down. So "A" is fixed and
+      pitch-dependent, "S" doesn't exist, and "R" is just "D" — which is
+      exactly the shape the sketch drew, with the arrow marked *no longer
+      held* landing on a curve that was already falling.
+      **The per-model difference is real and has a single cause**: engines
+      flagged `already_enveloped` bypass the LPG entirely
+      (`voice.cc:230-231`), and those are the morph-decay family — Six-Op
+      2–4 and 19–23 — where S31 is routed to `patch.morph` instead of
+      `patch.decay` (`decay_via_morph()`, `TouchPlaited.cpp:249` and
+      `269-270`). On those engines the knob is the *model's own* envelope
+      time (the DX7 EG for Six-Op, damping/tail for 19–23), and the gate
+      genuinely holds — Six-Op keys its EG for as long as the trigger line
+      stays high (`plaits_voice.cpp:133-137`). That is why Six-Op feels like
+      it has its own decay mapped onto the same knob: it does. `MANUAL.md` →
+      *Unified Decay* already documents the routing; what it doesn't say is
+      that the two halves are different *kinds* of envelope, which is the
+      part that makes a shared ADSR hard.
+      **What building it would take**, in rising order of cost:
+      - *The DSP is nearly free for the LPG engines.* Set
+        `level_patched = true` and write our own AD/ADSR into
+        `modulations.level` each block; Plaits then runs
+        `lpg_envelope_.ProcessLP(compressed_level, ...)`
+        (`voice.cc:239-240`), which is precisely the "envelope patched in"
+        path the hardware module uses. One catch that is not cosmetic:
+        patching level also makes `p.accent` follow it
+        (`voice.cc:162`, `0.8f` fixed today), so **timbre** moves with the
+        envelope, not just level. That is Plaits' intent, but it changes the
+        shipped sound of every LPG engine, so it wants an audition pass.
+      - *The morph-decay engines need a different answer*, since their LPG
+        is bypassed — our envelope would have to be applied as a plain VCA
+        after `Render`, and S31's current meaning on them (the model's own
+        time) has to be reconciled with a D knob that means something else.
+        Possibly they simply keep the unified Decay and opt out of A/S/R.
+      - *The control surface is the real cost.* Four knobs where there is
+        one, and S31 is currently the same Decay in Basic Pitch, sound edit,
+        Arp/Hold and Rec — the one knob genuinely shared between modes. The
+        sketch puts A D S R in a row with S31 under them, which is a knob
+        layer, not four free pots. Decide that before any of the above.
+      **Design this together with *Weight → audio level* below** — both want
+      a per-note level into `modulations.level`, and doing them separately
+      means building that path twice.
 - [ ] **`kDrumKick` is two engines wide** (21 Bass drum, 10 FM 2-op) — option
       (c) of the old kick-curation item, untouched. Now that the pools are a
       table (`kDrumPools`, `TouchPlaited.cpp`), widening one is a one-line
@@ -191,6 +269,9 @@ rather than bolted onto the branch that raised them. E2 is what's left.
       every pattern, so it's filed rather than done. Analysis: `notes.md` →
       *Drum pattern system* (the `0xCW` step encoding and the
       `weight + density >= 5` rule this would reinterpret).
+      Shares its mechanism with the ADSR item above: both need a per-note
+      value on `modulations.level`, and patching that also switches Plaits'
+      accent from a fixed 0.8 to follow it — so build the path once.
 
 ## Hardware verification still owed
 
@@ -241,3 +322,18 @@ is worth doing here, so read them before picking anything up.
 - **Phase 8F retry** — controls out of ISR; needs `__disable_irq()` /
   `__enable_irq()` wrapping all `generate_*()` calls. Only if crackle returns
   at kBlockSize=192.
+
+
+--
+
+closing comment of last round 7/8/2026
+
+Deleted both. You're on main at 05669c3, clean tree, in sync with origin.
+
+One thing surfaced by the cleanup that I did not touch: libdaisy-sync-ssd1306-fix still exists locally and on origin. That's the branch carrying your SSD1306 driver fixes — the ones pinned in the submodule at 62ab175 and filed upstream as electro-smith/libDaisy#634, still open since 2025-08-13. It's outside this round and it's tracking an upstream PR rather than your own work, so it's the one branch that legitimately outlives the short-lived convention. Left alone.
+
+That closes the round. Summary of where it ended up versus where it started:
+
+The question was "will a dedicated OLED bus give me a smoother progress bar without costing audio?" The answer turned out to be no on both counts — it couldn't cost audio because the display never ran in the audio path, and it couldn't help smoothness because frame latency is set by main-loop starvation, not bus speed. Building it anyway was what produced the instrumentation, and the instrumentation is what caught the two things that actually mattered: the output stage was saturating every voice from zero, and four held Six-Op notes sat above the shed threshold with the safety net structurally unable to fire.
+
+Both of those were audible problems you'd described as separate mysteries. Neither was on the original plan.

@@ -28,10 +28,16 @@ body.transparent {
 }
 
 /* The stage owns the whole viewport; the topbar (just the ☰ button) floats
-   above it so a dragged-up device isn't clipped by a layout row. */
+   above it so a dragged-up device isn't clipped by a layout row.
+   dvh, not vh: on a phone 100vh is the viewport with the URL bar *hidden*, so
+   the drawing was sized to a box taller than what you can actually see and the
+   bottom of the device sat under the browser chrome — which is what made you
+   pinch to get at it. dvh tracks the visible height, vh stays as the fallback
+   for browsers without it. */
 #app {
   position: relative;
   height: 100vh;
+  height: 100dvh;
 }
 
 #topbar {
@@ -66,6 +72,25 @@ body.transparent {
   height: 100%;
   /* pads use pointer capture; don't let touches scroll/zoom or long-press */
   touch-action: none;
+}
+
+/* Phone, viewport narrower than the drawing (232:361) — i.e. the width-limited
+   case, where every bit of the slack is vertical. Filling the stage and
+   letterboxing inside the element split that slack into two useless bands and
+   left the info panel sitting over the pads; taking the element's intrinsic
+   height instead collects the whole band at the bottom, which is where the
+   info panel already anchors itself.
+   The element box then IS the drawing, so svgToOverlay's centering term goes
+   to zero by itself — no overlay code changes with this. Must stay after the
+   rule above: same specificity, and it overrides its height. */
+@media (max-width: 820px) and (max-aspect-ratio: 232 / 361) {
+  #panel-wrap {
+    align-items: flex-start;
+  }
+  #panel-wrap svg {
+    height: auto;
+    max-height: 100%;
+  }
 }
 
 #overlay {
@@ -174,6 +199,12 @@ body.transparent {
      into a smooth (and much less convincingly "physical") gradient. */
   image-rendering: pixelated;
   filter: drop-shadow(0 0 1.2px rgba(255, 178, 56, 0.55));
+}
+/* Below a 3-device-px dot grid the canvas is CSS-scaled down instead of
+   mapped 1:1 (oled-mini.ts place()) — nearest-neighbour would drop whole
+   rows of dots there, so let the browser resample. */
+.oled-mini.squeezed canvas {
+  image-rendering: auto;
 }
 
 /* --- wide OLED: expanded companion screen ------------------------------- */
@@ -328,17 +359,21 @@ body.transparent {
 .info-panel.dragging .info-handle {
   cursor: grabbing;
 }
+/* Reads "⠿ info" — with the settings gone from this bar it is the whole title
+   now, so it says what the box is as well as offering the grab target. */
 .info-drag-icon {
   color: var(--accent);
-  font-size: 12px;
-  letter-spacing: 0.15em;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
   opacity: 0.8;
 }
 .info-controls {
   display: flex;
   gap: 2px;
 }
-.info-controls button {
+.info-controls button,
+.settings-bar button {
   background: transparent;
   border: 1px solid var(--accent);
   color: var(--accent);
@@ -349,10 +384,62 @@ body.transparent {
   cursor: pointer;
 }
 
-/* Device handle cluster: pinned to the drawing's top-left corner (layout.ts
-   clamps it into the stage). Drag grip + label/screen text size + explicit
-   reset — replaces the old double-click reset, which pad double-taps kept
-   triggering. Reuses the .info-controls button styling. */
+/* --- settings bar: the one home for the display settings ----------------- */
+/* Pinned to the stage's top-left (the ☰ menu owns the top-right). Holds the
+   label-overlay mode, both text-size pairs and the single reset; ⚙ collapses
+   it to one icon so it stays out of a video shot. What is NOT here: the two
+   ⠿ drag grips, which have to sit on the things they drag. */
+.settings-bar {
+  position: absolute;
+  top: 8px;
+  left: 12px;
+  z-index: 25;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.settings-bar .settings-gear {
+  background: var(--surface);
+  font-size: 13px;
+  padding: 5px 7px;
+}
+.settings-bar .settings-gear:hover {
+  background: var(--line);
+}
+.settings-body {
+  display: none;
+}
+.settings-bar.open .settings-body {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--overlay);
+  border: 1px solid var(--line);
+  padding: 3px 6px;
+}
+.settings-groups {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.settings-group {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+/* Which text a pair resizes — the two pairs are identical otherwise, and
+   without the word above them they were guesswork. */
+.settings-cap {
+  color: var(--dim);
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  margin-right: 3px;
+}
+
+/* Device drag grip: pinned to the drawing's top-left corner (layout.ts clamps
+   it into the stage), and the only thing left of what used to be a control
+   cluster there. Reuses the .info-controls styling. */
 .panel-handle {
   position: absolute;
   align-items: center;
@@ -605,30 +692,62 @@ body.transparent {
   background: var(--line);
   border-color: var(--accent);
 }
-.menu-links {
+.menu-item:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.menu-item:disabled:hover {
+  background: var(--surface);
+  border-color: var(--line-hi);
+}
+
+/* Captioned sections — the menu had become one flat list where a transport, a
+   panel toggle and a link to another page all looked alike. */
+.menu-section {
   display: flex;
-  flex-wrap: wrap;
-  gap: 4px 14px;
-  padding: 6px 2px 0;
-  margin-top: 2px;
+  flex-direction: column;
+  gap: 4px;
+}
+.menu-section + .menu-section {
+  margin-top: 8px;
+  padding-top: 8px;
   border-top: 1px solid var(--line);
-  font-size: 11px;
-  letter-spacing: 0.08em;
+}
+.menu-caption {
+  color: var(--dim);
+  font-size: 10px;
+  letter-spacing: 0.12em;
   text-transform: uppercase;
 }
-.menu-links a {
-  color: var(--dim);
+/* Rows that leave the app: real links, and shaped like links rather than like
+   the buttons above them — the arrow is the tell that you're navigating away
+   (↗ = new tab). */
+.menu-link {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--text);
+  font-size: 12px;
   text-decoration: none;
+  padding: 4px 2px;
 }
-.menu-links a:hover {
+.menu-link:hover {
+  color: var(--accent-hi);
+}
+.menu-link:hover span:first-child {
+  text-decoration: underline;
+}
+.menu-arrow {
+  color: var(--dim);
+}
+.menu-link:hover .menu-arrow {
   color: var(--accent-hi);
 }
 .menu-status {
   color: var(--dim);
   font-size: 12px;
-  padding: 6px 2px 0;
-  margin-top: 2px;
-  border-top: 1px solid var(--line);
+  padding: 2px 2px 0;
 }
 
 /* --- MIDI drawer (CC faders + piano) ------------------------------------ */
