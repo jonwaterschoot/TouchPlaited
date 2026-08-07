@@ -2,7 +2,13 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- viewport-fit=cover: the stage is sized in dvh and has its own
+         letterboxing, so let it use the notch area rather than have the UA
+         inset the whole page. -->
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, viewport-fit=cover"
+    />
     <title>TouchPlaited Visualizer</title>
     <!-- Condensed face for the static label overlays ('Aa' mode). -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />

@@ -40,6 +40,9 @@ const CONFIRM_FLASH_MS = 220;
 // each logical pixel becomes a CELL×CELL device-px square (minus GAP), CELL
 // recomputed on every resize/pan/zoom so the canvas is always drawn at its
 // native display resolution — no CSS scaling, so the grid never blurs.
+// Outside [MIN_CELL, MAX_CELL] the backing store clamps and the element is
+// CSS-scaled instead: the screen keeps tracking the drawing at any size, and
+// only the 1:1 device-pixel mapping is given up (see place()).
 const MIN_CELL = 3;
 const MAX_CELL = 14;
 const GAP = 0.22; // fraction of each cell left as the dark gap between dots
@@ -115,6 +118,10 @@ export class OledMini {
   private idlePool: { names: string[]; mask: number } | null = null;
   private blinkPhase = false;
   private cell = 4; // device px per logical pixel — set for real by place()
+  // True while the element is smaller than a MIN_CELL grid: the canvas is
+  // being CSS-scaled rather than mapped 1:1, so the dot gaps are dropped and
+  // the browser is allowed to resample (see place()/rasterize()).
+  private squeezed = false;
 
   constructor(private overlay: HTMLElement, private panel: Panel, private screen: {
     x: number; y: number; w: number; h: number;
@@ -520,7 +527,7 @@ export class OledMini {
     ctx.fillStyle = '#000';
     ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
     ctx.fillStyle = COLOR;
-    const dot = cell * (1 - GAP);
+    const dot = cell * (this.squeezed ? 1 : 1 - GAP);
     const inset = (cell - dot) / 2;
     for (let y = 0; y < H; y++) {
       for (let x = 0; x < W; x++) {
@@ -559,16 +566,36 @@ export class OledMini {
     // others, which reads as uneven/blurry letterforms rather than a
     // crisp panel. Snapping first guarantees a true 1:1 device-pixel
     // mapping, so what's rasterized is exactly what's shown.
+    //
+    // Snapping can only be *offered* between MIN_CELL and MAX_CELL, though,
+    // and clamping the cell used to clamp the element with it: below a
+    // MIN_CELL grid the screen stopped shrinking and stayed put while the
+    // drawing carried on down, so the two drifted apart at small sizes (and
+    // the oversized element then overflowed its zone). Outside the range the
+    // letterboxed size wins instead — geometry tracks the drawing at every
+    // scale, and it is the 1:1 mapping that gives way, not the position.
     const dpr = window.devicePixelRatio || 1;
-    const cell = Math.min(MAX_CELL, Math.max(MIN_CELL, Math.round((w * dpr) / W)));
-    w = (W * cell) / dpr;
-    h = (H * cell) / dpr;
+    const ideal = Math.round((w * dpr) / W);
+    const cell = Math.min(MAX_CELL, Math.max(MIN_CELL, ideal));
+    const squeezed = ideal < MIN_CELL;
+    if (ideal >= MIN_CELL && ideal <= MAX_CELL) {
+      w = (W * cell) / dpr;
+      h = (H * cell) / dpr;
+    }
 
     this.el.style.left = `${(a.x + (boxW - w) / 2).toFixed(1)}px`;
     this.el.style.top = `${(a.y + (boxH - h) / 2).toFixed(1)}px`;
     this.el.style.width = `${w.toFixed(1)}px`;
     this.el.style.height = `${h.toFixed(1)}px`;
 
+    // Downscaling a dot grid nearest-neighbour drops whole rows of dots and
+    // eats the letterforms, so a squeezed screen is drawn as solid pixels
+    // and resampled smoothly — a small OLED seen from across the room.
+    if (squeezed !== this.squeezed) {
+      this.squeezed = squeezed;
+      this.el.classList.toggle('squeezed', squeezed);
+      this.rasterize();
+    }
     if (cell !== this.cell || this.canvas.width !== W * cell) {
       this.cell = cell;
       this.canvas.width = W * cell;

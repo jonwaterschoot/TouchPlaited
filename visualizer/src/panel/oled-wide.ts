@@ -16,10 +16,17 @@ import { svgToOverlay, labelScale, LABEL_SCALE_EVENT, splitLabelValue } from './
 
 // Screen rect in SVG user units: over the "Daisy" group on the faceplate
 // (id="Daisy" bbox x 60.17–213.33, y 38.84–89.86 in panel.svg) — a couple of
-// units bigger on every side so the board's edges (header pins, USB) don't
-// peek out from behind it, and clear of the "TouCH" logo letters above it
-// (id="pad-p10"/"pad-p11", bbox bottom ~33.6).
-const SCREEN = { x: 58, y: 38, w: 158, h: 52 };
+// units bigger on the top, left and bottom so the board's edges (header pins,
+// USB) don't peek out from behind it, and clear of the "TouCH" logo letters
+// above it (id="pad-p10"/"pad-p11", bbox bottom ~33.6).
+//
+// The right edge stops at 190 instead of covering the board out to its end,
+// because the two LEDs sit at x 193.5–202.1 — and #led-user is not artwork,
+// it is driven by bindings.ts and carries the limit/state blinks. Sitting the
+// screen on top of it hid a signal that reads nowhere else on the drawing.
+// What stays covered to the left of 190 is board only: the reset/boot buttons
+// (x 169–182) have no state to show.
+const SCREEN = { x: 58, y: 38, w: 132, h: 52 };
 const LINES = 3;
 const VISIBLE_KEY = 'tp-oled-wide-visible';
 

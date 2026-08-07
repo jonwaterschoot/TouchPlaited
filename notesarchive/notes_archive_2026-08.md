@@ -941,3 +941,92 @@ deciding the UX first.
 - The dead-knob message is `no effect`, not `no effect on <model>`.
 - ~~No idle/status fallback~~ — resolved by A4 (2026-08-04): both sides now
   show the same per-mode status row after the same 2.2 s timeout.
+
+---
+
+## V. Visualizer round — all six shipped (moved from `ROADMAP.md` 2026-08-07)
+
+The round `ROADMAP.md` filed as *Next up item 2*: a pass over the app in its
+own right, after six protocol additions had been tracked field-by-field
+without anyone standing back from it. Nothing here touched the protocol or the
+firmware. Verified in a headless browser at desktop, phone-portrait and
+phone-landscape sizes; the two layout items were checked against measured
+element rects, not against how the screenshots looked.
+
+- **V1 — the mini OLED stopped tracking the drawing below a certain size.**
+  Cause: `place()` in `oled-mini.ts` clamped the dot-grid cell to
+  `MIN_CELL = 3` and then *sized the element from the clamped cell*, so under
+  ~384 device px the screen stopped shrinking while the drawing carried on
+  down — measured at panel zoom 0.32 the screen stayed 384 px wide against a
+  61 px zone, floating clear of the panel entirely. The clamp itself is right
+  (a whole-device-pixel grid is what keeps the dots crisp); sizing the element
+  from it was the bug. Outside `[MIN_CELL, MAX_CELL]` the letterboxed size now
+  wins and the canvas is CSS-scaled — the 1:1 device-pixel mapping gives way,
+  not the geometry. A squeezed screen also drops the inter-dot gaps and lets
+  the browser resample, because nearest-neighbour downscaling of a dot grid
+  eats whole rows of dots and with them the letterforms.
+  Worth knowing: at a normal desktop window the screen is *already* in the
+  squeezed path (a 217 px zone wants cell 1.7), and that is what the crisp
+  screenshots show — the snapped path only engages when the drawing is zoomed
+  well in.
+- **V2 — the expanded display sat on the user LED.** `oled-wide.ts`'s SCREEN
+  covered the whole Daisy silhouette out to x 216; the two LEDs are at
+  x 193.5–202.1, and `#led-user` is driven by `bindings.ts` — it carries the
+  limit/state blinks and reads nowhere else on the drawing. Right edge now
+  stops at 190. What stays covered is board only (the reset/boot buttons at
+  x 169–182 have no state to show). Cost: the screen is 132 units wide instead
+  of 158, so its text is ~16% smaller at the same label scale — three lines
+  fit more comfortably in the same height as a result.
+- **V3 — one settings bar.** The buttons lived in two rows that had each grown
+  their own idiom: a cluster pinned to the drawing (label/screen text size +
+  reset) and the info panel's title bar (overlay mode, info font size, reset).
+  New `ui/settings-bar.ts` collects them at the stage's top-left, with ⚙ to
+  collapse (persisted; collapsed by default on phone-sized viewports). Two
+  decisions taken on the walk:
+  - *Fixed to the stage, not to the drawing.* It's chrome, not part of the
+    device, and a settings row that slides around while you pan is what made
+    the old cluster hard to aim at.
+  - *Two A−/A+ pairs, not one.* They resize different text (faceplate labels +
+    screens vs. the info panel) and the finer control is worth keeping for
+    video framing — but they now step and clamp identically (0.15, 0.6–2.2;
+    the info scale used to run to 3×), which is what "resizing should behave
+    the same" was asking for. Each pair is captioned, since they are otherwise
+    indistinguishable.
+  What deliberately stayed put: both ⠿ drag grips. A drag handle has to be on
+  the thing it drags. The drawing's grip now steps below the bar when the two
+  land on the same corner (`layout.ts` `place()` takes `settings.bounds()`).
+- **V4 — the menu read as one flat list.** A transport, a panel toggle and a
+  link to another page all looked alike, and the entries that navigate away
+  didn't read as links. Three captioned sections now — Connect / Display /
+  Elsewhere — with the site links as real `<a>` rows carrying → (same tab) or
+  ↗ (new tab). The code map joined the list; it had never been linked from
+  the app.
+- **V5 — auto-fit on mobile.** Four separate things, and the one that actually
+  broke it was `height: 100vh`: on a phone that is the viewport with the URL
+  bar *hidden*, so the drawing was sized to a box taller than what you can see
+  and its bottom sat under the browser chrome — with `overflow: hidden` and no
+  scrolling, pinching was the only way to reach it. Now `100dvh` (with `vh` as
+  the fallback). Then: the drawing takes its intrinsic height when the
+  viewport is narrower than 232:361, so the width-limited case collects all
+  its slack at the bottom instead of splitting it into two useless bands with
+  the info panel over the pads; turning the phone re-fits, since a pan saved in
+  the other orientation points somewhere that no longer exists (the stored
+  transform now carries the orientation it was made in); and a *Fit to screen*
+  menu entry for everything else.
+  **Found while measuring, not filed:** the info panel is positioned from
+  `offsetHeight` before its content lands, which on a phone left its bottom
+  third off the screen with no way to scroll to it. A `ResizeObserver` now
+  re-clamps the box into the stage whenever it changes size, which covers the
+  fill-in, the model section expanding and a font change alike.
+- **V6 — keep the phone awake.** `navigator.wakeLock.request('screen')` on a
+  menu toggle (the API needs a user gesture, so it can't be applied on load),
+  re-taken on `visibilitychange` — the browser drops the lock on every tab
+  switch, screen blank and rotation — and, after a reload, on the first tap
+  anywhere, which is the earliest gesture we're allowed to use. The wish is
+  persisted; the lock is not, because it can't be.
+  The roadmap asked what Fullscreen alone buys on iOS: **nothing here.**
+  Fullscreen doesn't hold the screen up on any platform, and iPhone Safari has
+  no Fullscreen API at all (iPad and video elements only) — which is why the
+  existing entry is feature-detected and simply doesn't appear there. So on
+  iPhone the wake lock is the only lever, and only from iOS 16.4; below that
+  the entry reads *n/a* and says so in its tooltip rather than pretending.

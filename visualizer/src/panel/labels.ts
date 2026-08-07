@@ -13,6 +13,8 @@ import {
   splitLabelValue, stripTags,
 } from './overlay-utils';
 import type { DeviceStore, StateEvent, DeviceState } from '../core/state';
+import { SettingsBar } from '../ui/settings-bar';
+import type { MenuSection } from '../ui/toolbar';
 import {
   CONTROLS, PADS, SW1_POSITIONS, SW2_POSITIONS, MODE_NAMES, modelName,
   DRUM_NOTES, noteName, fxValueLabel, engineKnobLabel, formatKnobValue,
@@ -372,7 +374,8 @@ export class Labels {
     private overlay: HTMLElement,
     private panel: Panel,
     private store: DeviceStore,
-    addToMenu?: (el: HTMLElement) => void,
+    settings: SettingsBar,
+    addToMenu?: (el: HTMLElement, section?: MenuSection) => void,
   ) {
     // Static label layer sits under the info panel and the OLED screens.
     this.staticWrap = document.createElement('div');
@@ -396,21 +399,21 @@ export class Labels {
         localStorage.setItem(OLED_WIDE_VISIBLE_KEY, v ? '1' : '0');
         btn.textContent = label(v);
       });
-      addToMenu(btn);
+      addToMenu(btn, 'view');
     }
 
     this.infoPanel = document.createElement('div');
     this.infoPanel.className = 'info-panel';
-    // Always-visible title bar: a drag handle (the hover-revealed grip/font
-    // controls don't work on touch, so grabbing the panel needs a permanent
-    // target), the overlay-mode + font-size controls, and a reset button
-    // replacing the old double-click gesture, which mobile users can't
-    // discover or reliably trigger.
+    // Always-visible title bar: a drag handle, and nothing else. The
+    // hover-revealed resize grip doesn't work on touch, so grabbing the panel
+    // needs a permanent target — but the overlay-mode / font-size / reset
+    // buttons that grew here have moved to the one settings bar
+    // (ui/settings-bar.ts), which is where you'd look for them.
     const handle = document.createElement('div');
     handle.className = 'info-handle';
     const dragIcon = document.createElement('span');
     dragIcon.className = 'info-drag-icon';
-    dragIcon.textContent = '⠿';
+    dragIcon.textContent = '⠿ info';
     this.status = document.createElement('div');
     this.status.className = 'status-chip';
     // Collapsible model section — the current engine's knob functions and
@@ -434,6 +437,7 @@ export class Labels {
       this.modelOpen = !this.modelOpen;
       localStorage.setItem(MODEL_OPEN_KEY, this.modelOpen ? '1' : '0');
       this.renderModel(store.state);
+      this.placeInfoPanel(); // expanding can push the box off a short screen
     });
     // Hovering a row lights the matching control on the drawing.
     this.modelBody.addEventListener('mouseover', (e) => {
@@ -451,44 +455,37 @@ export class Labels {
     const scroll = document.createElement('div');
     scroll.className = 'info-scroll';
     scroll.append(this.status, modelSection, this.logEl);
-    // Font size is its own control now — the grip resizes the box only.
-    // Lives in the header, grouped with the overlay-mode and reset buttons.
-    const fontCtl = document.createElement('div');
-    fontCtl.className = 'info-controls';
-    const mkFont = (txt: string, d: number) => {
-      const b = document.createElement('button');
-      b.textContent = txt;
-      b.addEventListener('pointerdown', (e) => e.stopPropagation());
-      b.addEventListener('click', (e) => {
-        e.stopPropagation();
-        this.applyInfoScale(this.infoScale + d);
-        localStorage.setItem(INFO_SCALE_KEY, String(this.infoScale));
-      });
-      return b;
-    };
     // Label-overlay mode cycle: dynamic → designators → full labels.
     const storedMode = localStorage.getItem(OVERLAY_MODE_KEY) as OverlayMode | null;
     if (storedMode && OVERLAY_MODES.includes(storedMode)) this.overlayMode = storedMode;
-    const ovBtn = document.createElement('button');
-    ovBtn.textContent = OVERLAY_MODE_LABEL[this.overlayMode];
-    ovBtn.title = 'Label overlay: screen only / designators / full labels';
-    ovBtn.addEventListener('pointerdown', (e) => e.stopPropagation());
-    ovBtn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      const next =
-        OVERLAY_MODES[(OVERLAY_MODES.indexOf(this.overlayMode) + 1) % OVERLAY_MODES.length];
-      this.overlayMode = next;
-      localStorage.setItem(OVERLAY_MODE_KEY, next);
-      ovBtn.textContent = OVERLAY_MODE_LABEL[next];
-      this.renderStatic(this.store.state);
-    });
-    fontCtl.append(ovBtn, mkFont('A−', -0.15), mkFont('A+', 0.15));
-    const resetBtn = document.createElement('button');
-    resetBtn.textContent = '⟲';
-    resetBtn.title = 'Reset panel position, size and font';
-    resetBtn.addEventListener('pointerdown', (e) => e.stopPropagation());
-    resetBtn.addEventListener('click', (e) => {
-      e.stopPropagation();
+    const ovBtn = SettingsBar.button(
+      OVERLAY_MODE_LABEL[this.overlayMode],
+      'Label overlay: screen only / designators / full labels',
+      () => {
+        const next =
+          OVERLAY_MODES[(OVERLAY_MODES.indexOf(this.overlayMode) + 1) % OVERLAY_MODES.length];
+        this.overlayMode = next;
+        localStorage.setItem(OVERLAY_MODE_KEY, next);
+        ovBtn.textContent = OVERLAY_MODE_LABEL[next];
+        this.renderStatic(this.store.state);
+      },
+    );
+    settings.addGroup('Labels', 10, ovBtn);
+    // Font size is its own control — the grip resizes the box only, so a
+    // bigger box means more text fits, not bigger text. Same 0.15 step and
+    // 0.6–2.2 range as the faceplate pair next to it in the bar.
+    const mkFont = (txt: string, title: string, d: number) =>
+      SettingsBar.button(txt, title, () => {
+        this.applyInfoScale(this.infoScale + d);
+        localStorage.setItem(INFO_SCALE_KEY, String(this.infoScale));
+      });
+    settings.addGroup(
+      'Info',
+      30,
+      mkFont('A−', 'Smaller info panel text', -0.15),
+      mkFont('A+', 'Larger info panel text', 0.15),
+    );
+    settings.onReset(() => {
       localStorage.removeItem(INFO_POS_KEY);
       localStorage.removeItem(INFO_SCALE_KEY);
       localStorage.removeItem(INFO_SIZE_KEY);
@@ -496,8 +493,7 @@ export class Labels {
       this.applyInfoSize(null, null);
       this.placeInfoPanel();
     });
-    fontCtl.append(resetBtn);
-    handle.append(dragIcon, fontCtl);
+    handle.append(dragIcon);
     this.infoPanel.append(handle, scroll, grip);
     overlay.appendChild(this.infoPanel);
     this.initInfoDrag(handle);
@@ -508,6 +504,12 @@ export class Labels {
       if (sz) this.applyInfoSize(sz.w, sz.h);
     } catch { /* keep defaults */ }
     this.placeInfoPanel();
+    // The placement above is measured against an empty panel, and the box
+    // then grows as state, the model section and the log land in it — on a
+    // phone that left its bottom third off the screen, with no way to scroll
+    // to it. Re-clamp whenever the box actually changes size, which covers
+    // the fill-in, the model section expanding and a font change alike.
+    new ResizeObserver(() => this.clampInfoPanel()).observe(this.infoPanel);
     window.addEventListener('resize', () => {
       this.placeInfoPanel();
       this.renderStatic(this.store.state);
@@ -1290,6 +1292,17 @@ export class Labels {
     const y = Math.min(Math.max(0, fy), 0.95) * o.height;
     this.infoPanel.style.left = `${x}px`;
     this.infoPanel.style.top = `${y}px`;
+    this.clampInfoPanel();
+  }
+
+  /** Keep the box inside the stage — it clips, and the body doesn't scroll,
+   * so anything past an edge is simply gone. Called on every size change as
+   * well as after placing, since the box grows as it fills. */
+  private clampInfoPanel() {
+    const o = this.overlay.getBoundingClientRect();
+    const p = this.infoPanel;
+    p.style.left = `${Math.min(p.offsetLeft, Math.max(0, o.width - p.offsetWidth - 8))}px`;
+    p.style.top = `${Math.min(p.offsetTop, Math.max(0, o.height - p.offsetHeight - 8))}px`;
   }
 
   private initInfoDrag(handle: HTMLDivElement) {
@@ -1323,7 +1336,10 @@ export class Labels {
   private infoScale = 1;
 
   private applyInfoScale(scale: number) {
-    this.infoScale = Math.min(3, Math.max(0.6, Number.isFinite(scale) ? scale : 1));
+    // Same 0.6–2.2 clamp as labelScale() in overlay-utils — the two A−/A+
+    // pairs sit next to each other in the settings bar, so they step and stop
+    // alike (this one used to run to 3×).
+    this.infoScale = Math.min(2.2, Math.max(0.6, Number.isFinite(scale) ? scale : 1));
     this.infoPanel.style.fontSize = `${(14 * this.infoScale).toFixed(1)}px`;
   }
 
