@@ -936,6 +936,67 @@ file. UI brainstorming lives in `tools/editornotes.md`.
 
 ---
 
+## Upstream libDaisy — the SSD1306 column offset, and the fork topology (2026-08-08)
+
+Reference for the two PRs filed against `electro-smith/libDaisy`. Open
+actions are in `ROADMAP.md` → *Upstream — libDaisy PRs*.
+
+**The rule the OLED bug turned on.** SSD1306 page writes are preceded by a
+column-start address, split across two commands: lower nibble `0x00 | (off &
+0x0F)`, higher nibble `0x10 | (off >> 4)`. The offset a panel needs is
+
+> `offset = (controller RAM columns − panel width) / 2`
+
+— 128 columns on the SSD1306/SSD1309, **132** on the SH1106. That gives 0 for
+128×32 and 128×64, 32 for 64×32, 28 for 72×40, and 2 for an SH1106 128×64.
+libDaisy already encodes the last one: `oled_sh1106.h` sends `0x02` as its
+lower column start where the SSD1306 driver sends `0x00`. Nothing in the
+SSD1306 datasheet documents per-module offsets — it's a glass-bonding choice,
+so it lives in the module vendor's datasheet. u8g2 is the best practical
+cross-reference; it carries per-panel init sequences with the offsets baked in.
+
+**Why the bug existed.** `SSD130xDriver::Update()` keyed the offset on
+`height` alone — `case 32: 0x12` — which is right for a 64×32 panel and wrong
+for a 128×32 one. `git blame` puts that line in PR #326 (recursinging, May
+2021), whose description names the motivation: the kxmx_bluemchen's **64×32**
+I2C SSD1306. So `0x12` was never a mistake, just under-conditioned. `Init()`
+already distinguishes the two inside `case 32:` via `if(width == 64)` for the
+COM-pins command; the column-start line never got the same treatment. The fix
+is geometry-derived (`(width == 64 && height == 32) ? 0x12 : 0x10`) and lives
+in `Config` so odd panels need no library edit.
+
+**TouchPlaited cannot test that fix.** `SSD1306DirtyDriver::Update()`
+(`display/oled_dirty_driver.h`) fully overrides the base `Update()` and sends
+its own hardcoded `0x10`, so the line the PR changes never executes here. The
+app *does* exercise the PR's other commit — the batched I2C page write is in
+`SendData()`, which the dirty driver calls straight into.
+
+**The probe.** `oled_probe/` is a standalone sketch using the stock
+`SSD130xI2c128x32Driver`, listed in `.git/info/exclude` so it stays invisible
+to `git status` and can't leak into a commit. `BOOT_QSPI` like the app, so it
+flashes the same way and leaves the bootloader alone. It alternates every 3 s
+between `0x10` and `0x12`; the `0x12` phase is byte-for-byte what unpatched
+upstream sends, so one build both reproduces the bug and proves the new
+`Config` override reaches the panel. Hardware-verified 2026-08-08 on the
+128×32 I2C build. Delete it (and its `.git/info/exclude` line) once #707 lands.
+
+**Fork topology — three refs that disagree.** `lib/libDaisy` has
+`origin = Synthux-Academy/libDaisy` and `upstream = electro-smith/libDaisy`.
+
+| Ref | OLED | UART |
+|---|---|---|
+| `upstream/master` | unfixed | — |
+| `origin/master` | flat `0x10` (fork PR #1) — **known-wrong for 64×32** | merged (#2) then **reverted** (#3) |
+| `origin/touchplaited-pin` → the submodule pin | flat `0x10` | re-applied on top |
+| `origin/fix/ssd1306-128x32-column-address` | final `Config` version | — |
+
+The fork is 12 ahead / 3 behind upstream. Nothing shipped is exposed to the
+64×32 regression — no Synthux board has one — but fork master shouldn't keep
+it. Sync fork master **from upstream** once #707 merges rather than merging
+the topic branch, so the fork stops accumulating parallel history.
+
+---
+
 ## Where the history lives
 
 Everything below was written up here and has since moved out. Listed so a

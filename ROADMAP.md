@@ -232,6 +232,46 @@ The ordering is deliberate: each step narrows what the next one has to read.
       CV"; the original sketch is in
       `notesarchive/notes_archive_2026-07.md` → "Syncing".
 
+## Upstream — libDaisy PRs
+
+Two PRs open against `electro-smith/libDaisy`, both from bugs this firmware
+hit. Reference material — the column-offset rule, why the OLED bug existed,
+the probe, and the fork/pin topology — is in `notes.md` → *Upstream libDaisy*.
+Maintainer (`stephenhensley`) has explicitly welcomed further PRs.
+
+- [ ] **#707 — SSD1306 128×32 column start.** Reworked per review and pushed
+      2026-08-08 (`3d4803e6`): default is now geometry-derived
+      (`(width == 64 && height == 32) ? 0x12 : 0x10`) and exposed as a
+      `Config` member, which answers the maintainer's concern that a flat
+      `0x10` would break the kxmx_bluemchen's 64×32 panel. Hardware-verified
+      on the 128×32 I2C build via `oled_probe/`. **Waiting on:** the comment
+      being posted with the photo collage, then review. Two questions raised
+      for the maintainer to rule on — the fourth copy of the same bug in
+      `oled_sh1106.h:24` (latent; both its aliases are 128×64), and whether
+      the 64×48 aliases should get `0x12` by the offset rule (unreported,
+      probably unused — deliberately not changed on a guess).
+
+- [ ] **#708 — `HAL_UART_ErrorCallback` null deref.** Needs the **TRS MIDI
+      unit**, which is why it's still open. The maintainer gave a merge path
+      — *"if that works for you, please update... then I can give this a
+      quick regression test and we can merge it"* — and two non-equivalent
+      variants. Push **v1** (null guard, `DmaTransferFinished` always runs);
+      it keeps existing behaviour and only adds the guard. If the freeze
+      survives it, **v2** (skip `DmaTransferFinished` while in listener mode)
+      is the likely answer — and that difference lands exactly on the TRS
+      MIDI listening path this firmware uses, so whichever holds is real
+      information for him. Note his v2 snippet dereferences `handle`
+      unguarded, i.e. the very bug being fixed; he flags that himself.
+
+- [ ] **Fork sync — after #707 merges, not before.** `origin/master`
+      (Synthux-Academy) currently carries the superseded flat `0x10`, and
+      `origin/touchplaited-pin` — what the submodule actually pins — carries
+      it too plus the re-applied UART fix that fork master reverted. Doing
+      this before the PRs settle just creates a third state. Then:
+      `git checkout master && git merge upstream/master && git push`, rebase
+      `touchplaited-pin` onto it, re-pin the submodule here and commit that.
+      Worth doing in the same sitting as #708.
+
 ## Parking lot — performance
 
 Re-measured 2026-08-07 on hardware (Six-Op C, one group). Raw captures and
