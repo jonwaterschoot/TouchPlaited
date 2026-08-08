@@ -80,6 +80,7 @@ SW1 picks the sub-state — **Hold** (left) · **Arp** (center) · **Rec** (righ
 | P1 + S30 | Reverb (drum group) — center = off; room ◄ · ► hall | — |
 | P1 + S35 | Delay (drum group) — center = off; slapback ◄ · ► dotted 1/8 | — |
 | P3–P9 | Play drums: kick / snare / cl. hat / op. hat / clap / tom / perc | notes in/out, ch 10 (GM) |
+| P0 + P10 / P11 | Previous / next kick preset — the twelve-strong *kick bank* | — |
 | Hold P3–P9 for 2 s | Enter Recording for that drum | — |
 | P0 + P2 hold 2 s / 4 s | Vary current kit / generate new kit | — |
 | P2 (hold) + P11 | Play / pause | Start/Continue/Stop |
@@ -102,6 +103,15 @@ SW1 picks the sub-state — **Hold** (left) · **Arp** (center) · **Rec** (righ
 | Hold source pad 1.2 s | Confirm — save and exit |
 | Tap any other pad | Cancel — restore and exit |
 | Source pad + other pad 1.2 s | Copy slot to the other pad |
+
+**On the kick pad (P3)** four of these change — see *The kick bank*:
+
+| Control | Function |
+|---------|----------|
+| P0 + S35, full right | **KICK BANK** — a 12th model position past the eleven engines |
+| S32 | Kick select — the twelve presets |
+| S33 / S34 / S37 | Kick **tone** / **punch** / **body**, each bounded to that preset's usable range |
+| P0 + P10 / P11 | Previous / next preset |
 
 MIDI CCs keep addressing the *global* functions while recording — they never edit the slot being recorded. Recording is Seq-only: in Arp/Mel holding a pad is the playing gesture, so pitched per-slot editing retired with the old Random mode.
 
@@ -399,7 +409,19 @@ one pad you're editing — usually only one drum is wrong. Both stages re-arm
 every knob against the slot's new values, so nothing jumps afterwards. See
 *Re-randomize gestures* for the full picture.
 
-### The kick bank
+### Confirming, cancelling, copying
+
+| Gesture | Result |
+|---------|--------|
+| Hold the *source pad* alone for **1.2 s** | **Confirm** — saves edits, exits recording (3 rapid blinks). The screen shows `HOLD P5 TO SAVE` with a filling bar while you hold, then flashes `Saved`. Keeping the pad held after the save is ignored — it can't re-enter recording or copy; release everything and start a fresh 2 s hold to edit again |
+| Tap any *other* pad (0.05–1.2 s) then release | **Cancel** — restores original slot, exits recording; the screen flashes `Cancelled` |
+| Hold *source pad* + hold *another pad* for **1.2 s** | **Copy** — the accelerating countdown animation restarts while both pads are down, then the clone lands with an affirmation on both channels: the copied sound plays on the target and the LED gives 3 rapid blinks; repeat to copy to more pads |
+
+---
+
+## The kick bank
+
+*Seq mode (SW2 Up), and inside Recording on the kick pad.*
 
 The kick is the one drum whose sounds are **chosen rather than rolled**. Instead of a pool of engines and parameter ranges, the kick pad has a bank of **twelve fixed, numbered kicks** — the 808 and the 909 as two separate instruments rather than a mix of both, long pitch sweeps, the bass drum's own overdrive, a stacked 909-over-808, a pure sine kick, and three from engines that were never meant to be drums but get there. The randomizer draws from this bank too, so a randomized kit always has a kick you can name.
 
@@ -445,14 +467,6 @@ The screen names what loaded — `K05 909 SWEEP` — on the flash, on S32's own 
 Editing a preset keeps you on it (it is still "K05, shorter"), and varying the pad or the kit nudges it without leaving the bank. You leave by pointing the pad somewhere else: picking a plain engine with P0/P2 + S35, or copying another drum onto the kick pad.
 
 **Voice cost:** K8 909+808 is two voices for the length of its second tail, a few tens of milliseconds by design; K12 MODAL KNOCK is the one expensive engine in the bank. The kick is also **protected from being cut for 150 ms after each hit** — long enough to cover the attack and body of every preset, which is the part whose loss reads as a dropped downbeat. Its ring-out is not protected: with only six voices, reserving a one-second kick tail would come straight out of everything else's decay.
-
-### Confirming, cancelling, copying
-
-| Gesture | Result |
-|---------|--------|
-| Hold the *source pad* alone for **1.2 s** | **Confirm** — saves edits, exits recording (3 rapid blinks). The screen shows `HOLD P5 TO SAVE` with a filling bar while you hold, then flashes `Saved`. Keeping the pad held after the save is ignored — it can't re-enter recording or copy; release everything and start a fresh 2 s hold to edit again |
-| Tap any *other* pad (0.05–1.2 s) then release | **Cancel** — restores original slot, exits recording; the screen flashes `Cancelled` |
-| Hold *source pad* + hold *another pad* for **1.2 s** | **Copy** — the accelerating countdown animation restarts while both pads are down, then the clone lands with an affirmation on both channels: the copied sound plays on the target and the LED gives 3 rapid blinks; repeat to copy to more pads |
 
 ---
 
@@ -542,7 +556,7 @@ Hold both pads together. Two stages fire in sequence.
 | Hold time | Stage | Result |
 |-----------|-------|--------|
 | 2 s | 1 — Soft variance | Randomizes parameters of the current drum models with slight variance; engines stay the same — **except** a slot sitting on an engine outside its own role pool, which is re-picked from that pool (see below) |
-| 4 s | 2 — Full new kit | Fully randomizes all drum models and parameters; new engines picked from the per-role drum pools |
+| 4 s | 2 — Full new kit | Fully randomizes all drum models and parameters; new engines picked from the per-role drum pools — and, on the kick pad, a preset drawn from *The kick bank* |
 
 **Randomizing never starts the sequencer.** Stage 2 used to force-start it, so
 a new kit could not be auditioned pad by pad against a stopped seq — the kit
@@ -554,11 +568,17 @@ same idea as the audition in the pitched modes. A running sequencer is its own
 confirmation, so nothing extra fires there.
 
 **Every randomize stays in role.** Each of the seven slots draws from its own
-curated pool — kick engines on the kick pad, hat engines on the hats — so a
+curated pool — kick presets on the kick pad, hat engines on the hats — so a
 new kit is always a kit. Because Recording's S35 reaches all 24 engines, a
 slot can be pointed at something else by hand; stage 1 snaps such a slot back
 into its pool rather than jittering the off-role sound, which is what used to
 make "vary kit" unable to bring a hand-picked pad back to a kick.
+
+**The kick is the exception, and deliberately so.** The other six slots roll an
+engine and a set of parameter ranges; the kick draws one of the twelve
+*kick bank* presets — a sound somebody chose, with a name. Varying it (either
+stage 1) nudges it inside the same bounds its knobs use, so a varied kick is
+still a kick, and the screen still says which preset it started from.
 
 ### In Seq Recording — one pad's sound
 
@@ -754,6 +774,8 @@ The 24 Plaits models are spread over the two shift pads: hold **P0** and turn S3
 | 9 | Waveshaping | Triangle through a wavefolder |
 | 10 | FM 2-op | Two-operator phase modulation |
 | 11 | Grain | Granular formant oscillator |
+
+While recording the **kick pad**, bank 0 has one more position past Grain: **KICK BANK**, the twelve curated kicks (see *The kick bank*). It is the only place on the panel where a knob position means something different on one pad than on the others.
 
 ### Bank 1 — P2 + S35 (engines 12–23)
 
