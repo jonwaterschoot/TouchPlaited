@@ -96,7 +96,7 @@ shipped behaviour either way — so neither is blocking.
       is room and blink LIMIT when there isn't, so every rail on the panel
       answers the same way. The manual's LED table drops the exception it had
       just gained and lists the base octave with the other limits.
-- [ ] **F2 — Seq Recording swallows both transport combos.** While editing a
+- [0] **F2 — Seq Recording swallows both transport combos.** While editing a
       drum slot, P10/P11 stay on drum pitch regardless of P2, so the P2+P11
       branch (drum play/pause) and the P2+P10 branch (melodic transport) are
       both unreachable — you have to save or cancel out of the slot first.
@@ -107,6 +107,8 @@ shipped behaviour either way — so neither is blocking.
       whereas here it is pausing the drums while tweaking one of them, which
       the audition pulse arguably covers. If it should work, the fix is the
       same shape as C12's: test P2 before the drum-pitch branch.
+
+      > Decision: We do not need access to the transport combo in this mode
 
 ## E. Arp/Mel screen round (filed 2026-08-05, from the second walk)
 
@@ -126,6 +128,10 @@ rather than bolted onto the branch that raised them. E2 is what's left.
         callout; drawing it large in the value row either duplicates it at two
         sizes or gives up that persistence. Agreed on the walk that **Rec's
         layer UX needs its own pass** — this belongs in that, not ahead of it.
+
+      > Decision: 
+      >  - add the info for "what the next press will remove"  a repeated or larger icon row is not needed      
+
 - [x] **E3 — Arp/Hold: show the pool with the held notes marked.**
       *Done 2026-08-06, confirmed on hardware the same day* — the 9 px marker
       and the 18 px columns read fine on the real panel, so the geometry
@@ -151,6 +157,14 @@ rather than bolted onto the branch that raised them. E2 is what's left.
       The visualizer decodes the byte, mirrors both screens and logs pool
       moves by name (`Arp pool +D#`) — in Hold that log line is the only
       report of which way a press went.
+
+      > Important note:
+      >
+      > While holding notes and touching / releasing notes, the display does not immediatly update. In this case we should make each pad touched, pad released trigger the update.
+
+      > In Pitch mode:
+      > We'll also show the touched notes, this can also help show which voice is 'lost' when more notes are touched
+
 
 ## OLED — the two strands left from the 2026-08-04/05 round
 
@@ -182,12 +196,14 @@ rather than bolted onto the branch that raised them. E2 is what's left.
       I2C traffic, and observed rate topped out near 19 fps where the 40 ms
       interval allows 25. Moving the display to its own faster bus was built,
       rewired and measured, and changed nothing observable (`notes.md`).
-- [ ] **A2 leftover — the bar sits full while P0+P2 stays held.** In Basic
+- [0] **A2 leftover — the bar sits full while P0+P2 stays held.** In Basic
       Pitch `p0p2_all_done` pins `progress = 127` while the pads stay held
       (`TouchPlaited.cpp`), so after the 3 s stage the full bar sits there
       until release. A1's hold-end redraw doesn't cover it — `hold_kind` is
       still 1. Decide whether the bar should clear at `all_done` or keep
       showing "nothing more to reach".
+
+      > Decision: No change needed. keep current message until released
 
 ## Sound
 
@@ -246,6 +262,15 @@ rather than bolted onto the branch that raised them. E2 is what's left.
       **Design this together with *Weight → audio level* below** — both want
       a per-note level into `modulations.level`, and doing them separately
       means building that path twice.
+
+      > Decision:
+      > On Hold: most likely interaction would be the FX modifier and then swap S31 - S34 with A D S R (moves decay temporary from current implementation)
+      > Another option would be to just make S31 a knob that makes a curve from 1 - 0; to: 0 - 1 - 0; to 0 - 1 
+      > - However in this case: the decay setting won't be like our current implementation being a short burst, up to long decay.
+      > - E.g. with samples with a set length you could use that as the length info Spotykach has a envelope from off to fade-out to fade-in/out to fade-in.
+      > Thin we'd need at least an AD Attack and a Decay (Decay being like a release) But then we'd still need at least two knobs, making it again "might as well use 4 in the FX mode
+
+
 - [ ] **`kDrumKick` is two engines wide** (21 Bass drum, 10 FM 2-op) — option
       (c) of the old kick-curation item, untouched. Now that the pools are a
       table (`kDrumPools`, `TouchPlaited.cpp`), widening one is a one-line
@@ -262,6 +287,13 @@ rather than bolted onto the branch that raised them. E2 is what's left.
       parameters* (what each drum engine's knobs mean, which non-drum engines
       hold up as percussion, and the tuning lessons that keep being
       relearned).
+
+      > Decision: 
+      > - of all the drum sounds Kick is to me the most important one, hence i'd like more variations, atm the variation is an either very synth sound or the rather low energy kick model. 
+      > - another improvement would be that we could make kick be a priority voice, avoiding that it gets choked out too quickly
+      > - suggestion to research make a branch that focuses on a test round, build kick presets from the existing models, number them to the display for easy auditioning and judging
+      > - in this audiotion mode we could use some of the buttons to tune parameters per preset, which could then be reported by me as what ranges are efficient
+
 - [ ] **Weight → audio level.** MIDI out now carries the pattern's accents as
       velocity, but the *audio* still fires every step at full level — weight
       is only a density gate there. Making ghosts quieter internally is
