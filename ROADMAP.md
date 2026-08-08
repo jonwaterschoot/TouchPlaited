@@ -261,9 +261,11 @@ Maintainer (`stephenhensley`) has explicitly welcomed further PRs.
       (`(width == 64 && height == 32) ? 0x12 : 0x10`) and exposed as a
       `Config` member, which answers the maintainer's concern that a flat
       `0x10` would break the kxmx_bluemchen's 64×32 panel. Hardware-verified
-      on the 128×32 I2C build via `oled_probe/`. **Waiting on:** the comment
-      being posted with the photo collage, then review. Two questions raised
-      for the maintainer to rule on — the fourth copy of the same bug in
+      on the 128×32 I2C build via `oled_probe/`. Comment with the photo
+      collage posted 2026-08-08. **Waiting on:** review — nothing to do here
+      but wait (`upstream/master` still `3bd68f20` as of 2026-08-09). Two
+      questions raised for the maintainer to rule on — the fourth copy of the
+      same bug in
       `oled_sh1106.h:24` (latent; both its aliases are 128×64), and whether
       the 64×48 aliases should get `0x12` by the offset rule (unreported,
       probably unused — deliberately not changed on a guess).
@@ -279,6 +281,19 @@ Maintainer (`stephenhensley`) has explicitly welcomed further PRs.
       MIDI listening path this firmware uses, so whichever holds is real
       information for him. Note his v2 snippet dereferences `handle`
       unguarded, i.e. the very bug being fixed; he flags that himself.
+
+      **Both variants are written, 2026-08-09.** In `lib/libDaisy`, as local
+      branches off the PR's own base (`c02245d2`), so either can replace
+      `73083e80` with a force-push and leave the PR a one-file diff:
+      `fix/uart-error-callback-null-deref-v1` (`d80daae5`) and
+      `...-v2` (`0a3f1ea7`). Both compile clean at `-O3 -Wall` and are
+      clang-format-10 clean. Not pushed on purpose — pushing *is* the "that
+      works for me" answer to his question, so it waits on the hardware.
+      **To test:** point the submodule at v1, flash the TRS MIDI build, leave
+      the MIDI input floating to generate framing errors, and watch the
+      symptoms from the original report — touch pads dead, USB enumeration
+      failing, and the OLED frozen if that unit is wired with one. Restore the
+      pin afterwards with `git submodule update --checkout lib/libDaisy`.
 
 - [ ] **Fork sync — after #707 merges, not before.** `origin/master`
       (Synthux-Academy) currently carries the superseded flat `0x10`, and
