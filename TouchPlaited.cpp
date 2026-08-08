@@ -342,10 +342,14 @@ static const AudPreset kSixOpAud[3] = {
 // Per-role drum options: { engine, morph_lo,hi, timbre_lo,hi, harm_lo,hi, decay_lo,hi, note_lo,hi }
 struct DrumOpt { int e; float mlo,mhi, tlo,thi, hlo,hhi, dlo,dhi, nlo,nhi; };
 
-static const DrumOpt kDrumKick[]  = {
-    { 21, 0.05f,0.30f, 0.20f,0.65f, 0.20f,0.55f, 0.4f,0.8f, 36.f,48.f },
-    { 10, 0.10f,0.30f, 0.00f,0.30f, 0.10f,0.40f, 0.3f,0.6f, 36.f,48.f },
-};
+// The kick has no DrumOpt table: its pool is the curated bank
+// (`synth/kick_presets.h`), drawn from by index rather than by rolling inside
+// parameter ranges. The two entries that used to live here are exactly the two
+// sounds the 2026-08-08 audition rejected, and for reasons a range cannot fix
+// — engine 10's kick was inaudible two octaves down, and engine 21's range
+// stopped short of both its overdrive and its long tails. Curated points beat
+// rolled ones for one instrument; the other six keep their ranges, where the
+// variety is the point.
 // Particle (18) is excluded from every drum table: its intentionally sporadic
 // crackle reads as a hardware fault when it lands in a random kit. Noise (17)
 // covers the same ground and stays.
@@ -385,9 +389,14 @@ static const DrumOpt kDrumPerc[]  = {
 // "is this slot still playing its own role" test below. Splitting it out of
 // generate_drum_random() is what made per-slot randomizing (Rec P0+P2) and
 // the off-pool snap-back possible without a second copy of the table.
+// Slot 0's entry is null: the kick draws from the preset bank instead, and
+// carries its volume per preset rather than per role. Everything that reads
+// this table has to allow for that, which is one `if` in two places
+// (fill_drum_slot_from_pool and slot_engine_in_pool) and is the price of the
+// kick being the one instrument curated by hand.
 struct DrumPool { const DrumOpt* opts; int n; float volume; };
 static const DrumPool kDrumPools[kPadSlots] = {
-    { kDrumKick,  2, 0.90f }, { kDrumSnare, 2, 0.80f }, { kDrumCHH,  2, 0.55f },
+    { nullptr,    0, 0.90f }, { kDrumSnare, 2, 0.80f }, { kDrumCHH,  2, 0.55f },
     { kDrumOHH,   1, 0.65f }, { kDrumClap,  2, 0.75f }, { kDrumTom,  2, 0.70f },
     { kDrumPerc,  3, 0.50f },
 };
@@ -402,39 +411,21 @@ static void fill_drum_slot(PadSlot& s, const DrumOpt* opts, int n) {
     s.note      = rand_range(o.nlo, o.nhi);
 }
 
-// True while slot i is still on one of the engines its role is curated for.
-// Rec mode's S35 reaches all 24 engines, so a slot can be pointed at anything
-// by hand — this is how the randomizers tell "a kick that needs varying" from
-// "a Speech engine somebody parked on the kick pad".
-static bool slot_engine_in_pool(int i, int engine) {
-    const DrumPool& p = kDrumPools[i];
-    for (int j = 0; j < p.n; j++)
-        if (p.opts[j].e == engine) return true;
-    return false;
-}
-
 // ─── Kick lab ─────────────────────────────────────────────────────────────────
 // Which entry of kKickPresets (synth/kick_presets.h) the kick pad is currently
-// playing, or -1 for "whatever the pool randomized". The index is the whole of
-// the feature's state: the preset's values live in drum_slots[0] like any other
-// sound and stay editable there, while the index is what still knows the
-// preset's *name*, how much of S30 Drive its punch wants, and whether it fires
-// a second layered voice — none of which fit in a PadSlot.
+// playing, or -1 for "somebody put something else here by hand". The index is
+// the whole of the feature's state: the preset's values live in drum_slots[0]
+// like any other sound and stay editable there, while the index is what still
+// knows the preset's *name*, its Tone/Punch/Body windows, how much of S30 Drive
+// its punch wants, and whether it fires a second layered voice — none of which
+// fit in a PadSlot.
 //
-// It is cleared by anything that replaces the kick with something that is no
-// longer that preset (a pool re-pick, a hand-picked engine in Rec). Editing the
-// preset's knobs does NOT clear it: "preset 7 with a shorter tail" is still
-// preset 7 for the purpose of judging preset 7, which is what this bank is for.
+// Since the bank became the kick's random pool this is the *normal* state: a
+// randomized kit lands on a preset, so the kick can always be named. It only
+// goes to -1 when the pad is pointed at something outside the bank in Rec.
+// Editing a preset's knobs does NOT clear it: "preset 7 with a shorter tail" is
+// still preset 7 for the purpose of judging preset 7.
 static int kick_preset = -1;
-
-// Re-pick slot i from its own curated pool: new engine, new params, role
-// volume. The "stick to kick models" primitive — every randomizer that
-// replaces a sound goes through here, so none of them can wander off-role.
-static void fill_drum_slot_from_pool(int i) {
-    fill_drum_slot(drum_slots[i], kDrumPools[i].opts, kDrumPools[i].n);
-    drum_slots[i].volume = kDrumPools[i].volume;
-    if (i == 0) kick_preset = -1;   // the pool just overwrote the preset
-}
 
 // Load preset idx onto the kick slot. Everything a PadSlot can hold is copied;
 // what it cannot hold stays behind the index (see kick_preset above).
@@ -454,12 +445,58 @@ static void apply_kick_preset(int idx) {
     kick_preset = idx;
 }
 
+// Tone / Punch / Body (S33 / S34 / S37 on a loaded preset) live in per-preset
+// windows rather than on the raw parameter — see KickAxes for why. These two
+// convert between a knob position and the parameter it lands on, and are each
+// other's inverse, which is what lets a pickup be armed at the position the
+// slot's current value already sits at.
+static float kick_axis_value(float lo, float hi, float pos) {
+    return lo + clampf(pos) * (hi - lo);
+}
+static float kick_axis_pos(float lo, float hi, float value) {
+    const float span = hi - lo;
+    return (span <= 0.f) ? 0.f : clampf((value - lo) / span);
+}
+
+// True while slot i is still on one of the engines its role is curated for.
+// Rec mode's S35 reaches all 24 engines, so a slot can be pointed at anything
+// by hand — this is how the randomizers tell "a kick that needs varying" from
+// "a Speech engine somebody parked on the kick pad". The kick's roster is the
+// bank rather than a DrumOpt table, so it is asked separately.
+static bool slot_engine_in_pool(int i, int engine) {
+    if (i == 0) return kick_bank_has_engine(engine);
+    const DrumPool& p = kDrumPools[i];
+    for (int j = 0; j < p.n; j++)
+        if (p.opts[j].e == engine) return true;
+    return false;
+}
+
+// Re-pick slot i from its own curated pool: new engine, new params, role
+// volume. The "stick to kick models" primitive — every randomizer that
+// replaces a sound goes through here, so none of them can wander off-role.
+// For the kick that pool is the bank, so a re-pick is a preset draw: the
+// randomized kit gets a kick somebody chose, and one that can be named
+// afterwards rather than only described.
+static void fill_drum_slot_from_pool(int i) {
+    if (i == 0) {
+        apply_kick_preset(static_cast<int>(rand_f() * kNumKickPresets)
+                          % kNumKickPresets);
+        return;
+    }
+    fill_drum_slot(drum_slots[i], kDrumPools[i].opts, kDrumPools[i].n);
+    drum_slots[i].volume = kDrumPools[i].volume;
+}
+
 static void generate_drum_random() {
-    for (int i = 0; i < kPadSlots; i++) fill_drum_slot_from_pool(i);
-    // slot.drive is a ratio of the overall S30 drive in seq mode; 1.0 = follow fully.
-    // Blend/width/FX-send trims reset with the kit: a mono flag, AUX-only blend
-    // or dry-trimmed send from an old kit shouldn't silently reshape whatever
-    // new engine lands on the slot.
+    // Reset BEFORE the fill, not after. slot.drive is a ratio of the overall
+    // S30 drive in seq mode; 1.0 = follow fully. Blend/width/FX-send trims
+    // reset with the kit: a mono flag, AUX-only blend or dry-trimmed send from
+    // an old kit shouldn't silently reshape whatever new engine lands on the
+    // slot. This used to run second, which was harmless while every slot was
+    // filled from a DrumOpt table (those set none of these fields) — but the
+    // kick is filled from a preset now, and blend is half of what a preset
+    // means on engine 21, so resetting afterwards would flatten every kick the
+    // randomizer produced back to the same 0.5 the bank exists to escape.
     for (int i = 0; i < kPadSlots; i++) {
         drum_slots[i].drive    = 1.0f;
         drum_slots[i].blend    = 0.5f;
@@ -467,6 +504,7 @@ static void generate_drum_random() {
         drum_slots[i].rev_send = 1.0f;
         drum_slots[i].dly_send = 1.0f;
     }
+    for (int i = 0; i < kPadSlots; i++) fill_drum_slot_from_pool(i);
     drum_kit_ready = true;
 }
 
@@ -556,6 +594,17 @@ static void mutate_drum_slot_soft(int i) {
     s.harmonics = clampf(s.harmonics + rand_range(-0.10f, 0.10f));
     s.timbre    = clampf(s.timbre    + rand_range(-0.10f, 0.10f));
     s.decay     = clampf(s.decay     + rand_range(-0.08f, 0.08f));
+    // A varied preset kick stays a kick: the jitter is confined to the same
+    // Tone/Punch windows the knobs are. Without this, "vary kit" is the one
+    // path that can walk a preset out of the territory it was bounded into —
+    // and it is the path most likely to be used repeatedly.
+    if (i == 0 && kick_preset >= 0) {
+        const KickAxes& ax = kKickPresets[kick_preset].axes;
+        s.harmonics = kick_axis_value(ax.punch_lo, ax.punch_hi,
+                                      kick_axis_pos(ax.punch_lo, ax.punch_hi, s.harmonics));
+        s.timbre    = kick_axis_value(ax.tone_lo,  ax.tone_hi,
+                                      kick_axis_pos(ax.tone_lo,  ax.tone_hi,  s.timbre));
+    }
 }
 
 // Seq P0+P2 stage 1: nudge params of the current kit — same engines, same
@@ -565,16 +614,10 @@ static void mutate_drum_slot_soft(int i) {
 // model had been chosen by hand, so "vary kit" could never bring the kit
 // back to kit-shaped sounds. In-pool slots are untouched by the snap, so
 // this is still "same kit, new variation" for a kit that was randomized.
-// A loaded kick preset counts as in-role whatever engine it sits on: the bank
-// reaches engines the kick pool doesn't (Additive, Waveshaping, VA+VCF), and
-// without this exception stage 1 would treat every one of them as "somebody
-// parked a synth on the kick pad" and snap it away mid-audition.
 static void mutate_drum_soft() {
     for (int i = 0; i < kPadSlots; i++) {
-        const bool in_role = slot_engine_in_pool(i, drum_slots[i].engine)
-                             || (i == 0 && kick_preset >= 0);
-        if (!in_role) fill_drum_slot_from_pool(i);
-        else          mutate_drum_slot_soft(i);
+        if (!slot_engine_in_pool(i, drum_slots[i].engine)) fill_drum_slot_from_pool(i);
+        else                                               mutate_drum_slot_soft(i);
     }
 }
 
@@ -913,6 +956,12 @@ struct MoveCatch {
     }
 };
 static MoveCatch rec_k37w;    // P0+S37 in recording = slot stereo width
+// S32 while recording the kick pad on a bank preset: the preset selector.
+// A MoveCatch rather than a KnobPickup because the target is a *position in a
+// 12-way quantizer*, not a stored float — there is nothing to cross, and
+// requiring a deliberate ~3% nudge is exactly the behaviour wanted: entering
+// Rec must not jump the kick to whatever preset the pot happens to sit over.
+static MoveCatch rec_k32sel;
 static MoveCatch seq_puw;     // P0+S37 in Seq = drum-group stereo width
 static MoveCatch pitch_pu_w;  // P0+S37 in pitched modes = pitched-group width
 static MoveCatch fx_mc_rev;   // P1+S30 = reverb mirror knob (any mode)
@@ -1821,6 +1870,11 @@ static void process_model_select(float s35_val) {
     }
 }
 
+// Defined with the other recording helpers below; needed here because picking
+// the kick bank (or leaving it) changes what four of the pots mean, so the
+// whole layer has to be re-armed against the values they now edit.
+static void arm_rec_slot_pickups(int slot);
+
 // Model select that only updates the recording slot's engine (used while in RECORDING mode).
 static void process_rec_model_select(float s35_val) {
     if (rec_slot < 0) return;
@@ -1838,21 +1892,51 @@ static void process_rec_model_select(float s35_val) {
         rec_bank_caught[bank] = true;
     }
 
+    // On the kick pad, bank 0 gets a 12th position past the eleven engines:
+    // KICK, the curated bank as a loadable model. It sits at the top of the
+    // throw rather than anywhere else because that is the one boundary a
+    // hand can find without looking, and because the alternative — a 24th
+    // engine slot — would mean the same position meaning different things on
+    // different pads for the whole of both banks. Positions 0-10 keep their
+    // engines; only the divisions between them narrow slightly, and only here.
+    const bool kick_slot   = is_drum_mode && rec_slot == 0;
+    const int  bank0_slots = kick_slot ? 12 : 11;
+
     int new_engine;
     if (bank == 0) {
-        int idx    = std::min(10, static_cast<int>(s35_val * 10.5f));
+        int idx = static_cast<int>(s35_val * (bank0_slots - 0.5f));
+        if (idx > bank0_slots - 1) idx = bank0_slots - 1;
+        if (kick_slot && idx == 11) {
+            // Entering the bank loads the last preset this kick was on, or the
+            // first if it has never been on one. Re-selecting KICK while
+            // already in it does nothing — S32 is the selector from here.
+            if (kick_preset < 0) {
+                apply_kick_preset(0);
+                rec_bank_thresh[bank] = s35_val;
+                arm_rec_slot_pickups(0);
+                pool.UpdateAuditionEngine(drum_slots[0].engine);
+                rec_hit_flash = true;
+                fire_confirm(9, 1);
+            }
+            return;
+        }
         new_engine = (idx >= 7) ? idx + 1 : idx;
     } else {
         new_engine = 12 + std::min(11, static_cast<int>(s35_val * 11.5f));
     }
-    if (new_engine != live_slots()[rec_slot].engine) {
+    // Leaving the bank is tested on the *selection*, not on the engine: a
+    // preset sitting on engine 21 and a hand-picked engine 21 are the same
+    // number, and only the second one should drop the preset's punch, layer
+    // and Tightness exemption.
+    const bool leaving_bank = kick_slot && kick_preset >= 0;
+    if (leaving_bank || new_engine != live_slots()[rec_slot].engine) {
         live_slots()[rec_slot].engine = new_engine;
         rec_bank_thresh[bank]         = s35_val;
         pool.UpdateAuditionEngine(new_engine);
-        // Hand-picking an engine on the kick pad leaves the bank: the preset's
-        // parameters were authored for the engine they came with, and its
-        // punch/layer would keep applying to a sound that is no longer it.
-        if (rec_slot == 0) kick_preset = -1;
+        if (leaving_bank) {
+            kick_preset = -1;
+            arm_rec_slot_pickups(0);   // S32/S33/S34/S37 are plain params again
+        }
     }
 }
 
@@ -1893,13 +1977,26 @@ static void blink_confirm() {
 // value the slot no longer has.
 static void arm_rec_slot_pickups(int slot) {
     const auto& sl = live_slots()[slot];
+    // On the kick pad with a bank preset loaded, three of these pots have a
+    // different meaning (S33 Tone, S34 Punch, S37 Body) and one is a selector
+    // (S32). The pickups still arm against what the slot holds — but expressed
+    // as a *position in the preset's window*, which is what the pot now reads.
+    // Arming Tone at the raw timbre would put the catch point in the wrong
+    // place by exactly the window's offset.
+    const bool bank = is_drum_mode && slot == 0 && kick_preset >= 0;
+    const KickAxes& ax = kKickPresets[bank ? kick_preset : 0].axes;
+
     rec_k30.arm_to(sl.drive,     touch.knobs().s30().Value());
     rec_k31.arm_to(sl.decay,     touch.knobs().s31().Value());
     rec_k32.arm_to(sl.harmonics, touch.knobs().s32().Value());
-    rec_k33.arm_to(sl.timbre,    touch.knobs().s33().Value());
-    rec_k34.arm_to(sl.morph,     touch.knobs().s34().Value());
+    rec_k32sel.arm(touch.knobs().s32().Value());
+    rec_k33.arm_to(bank ? kick_axis_pos(ax.tone_lo, ax.tone_hi, sl.timbre) : sl.timbre,
+                   touch.knobs().s33().Value());
+    rec_k34.arm_to(bank ? kick_axis_pos(ax.punch_lo, ax.punch_hi, sl.harmonics) : sl.morph,
+                   touch.knobs().s34().Value());
     rec_k36.arm_to(sl.volume,    touch.knobs().s36().Value());
-    rec_k37.arm_to(sl.blend,     touch.knobs().s37().Value());
+    rec_k37.arm_to(bank ? kick_axis_pos(ax.body_lo, ax.body_hi, sl.blend) : sl.blend,
+                   touch.knobs().s37().Value());
     rec_k37w.arm(touch.knobs().s37().Value());
 
     // Arm model-select pickup.
@@ -3046,6 +3143,14 @@ void AudioCallback(AudioHandle::InputBuffer in, AudioHandle::OutputBuffer out, s
         }
         if (!p1_snd && rec_k30.update(v30)) { slot.drive  = v30; if (!seq_mode_on) pool.SetDrive(v30); }
         if (rec_k36.update(v36)) { slot.volume = v36; }
+        // The kick knob layer, live only while the kick pad is being edited on
+        // a bank preset. S30 Drive, S31 Decay, S36 Volume and P0+S37 Width
+        // keep their normal jobs above and below; the three that change are
+        // the ones whose raw meaning differs per engine, which is exactly why
+        // they are the ones the bank re-labels.
+        const bool kick_bank = is_drum_mode && rec_slot == 0 && kick_preset >= 0;
+        const KickAxes& ax   = kKickPresets[kick_bank ? kick_preset : 0].axes;
+
         if (touch.pads().IsTouched(0)) {
             if (rec_k37w.update(v37)) {
                 slot.width = snap_width(v37);
@@ -3053,26 +3158,56 @@ void AudioCallback(AudioHandle::InputBuffer in, AudioHandle::OutputBuffer out, s
             }
         } else {
             if (rec_k37.update(v37)) {
-                slot.blend = v37;
+                slot.blend = kick_bank ? kick_axis_value(ax.body_lo, ax.body_hi, v37) : v37;
                 pool.UpdateAuditionBlend(slot.blend);
             }
         }
-        if (rec_k31.update(v31)) { slot.decay     = v31; changed = true; }
-        if (rec_k32.update(v32)) { slot.harmonics = v32; changed = true; }
-        if (rec_k33.update(v33)) { slot.timbre    = v33; changed = true; }
-        if (rec_k34.update(v34)) { slot.morph     = v34; changed = true; }
+        if (rec_k31.update(v31)) { slot.decay = v31; changed = true; }
+        if (kick_bank) {
+            // S32 = preset select. Quantized the same way as model select's
+            // banks (n - 0.5 multiplier), and it re-arms the whole layer
+            // afterwards — a new preset is a new set of values under every
+            // pot — except its own catch, which has to stay caught or a single
+            // sweep would only ever advance one preset.
+            if (rec_k32sel.update(v32)) {
+                int idx = static_cast<int>(v32 * (kNumKickPresets - 0.5f));
+                if (idx >= kNumKickPresets) idx = kNumKickPresets - 1;
+                if (idx != kick_preset) {
+                    apply_kick_preset(idx);
+                    arm_rec_slot_pickups(0);
+                    rec_k32sel.caught = true;
+                    rec_hit_flash = true;
+                    if (!seq.IsActive()) audition_drum(0);
+                    fire_confirm(9, static_cast<uint8_t>(idx + 1));
+                    changed = true;
+                }
+            }
+            if (rec_k33.update(v33)) {
+                slot.timbre    = kick_axis_value(ax.tone_lo,  ax.tone_hi,  v33);
+                changed = true;
+            }
+            if (rec_k34.update(v34)) {
+                slot.harmonics = kick_axis_value(ax.punch_lo, ax.punch_hi, v34);
+                changed = true;
+            }
+        } else {
+            if (rec_k32.update(v32)) { slot.harmonics = v32; changed = true; }
+            if (rec_k33.update(v33)) { slot.timbre    = v33; changed = true; }
+            if (rec_k34.update(v34)) { slot.morph     = v34; changed = true; }
+        }
         if (changed) {
-            // Drum audition updates carry the same shaping as drum_params
-            // (tightness on the tail, punch on the kick riding drive) —
-            // otherwise the sound jumps on the next retrigger.
-            float upd_morph = slot.morph;
-            if (decay_via_morph(slot.engine))
-                upd_morph = is_drum_mode ? slot.decay * (0.2f + seq_tight_lk * 0.8f)
-                                         : slot.decay;
-            float upd_timbre = slot.timbre;
-            if (is_drum_mode && rec_slot == 0)
-                upd_timbre = slot.timbre + seq_drive_lk * (1.0f - slot.timbre);
-            pool.UpdateAuditionParams(slot.harmonics, upd_timbre, upd_morph, slot.decay);
+            // Drum audition updates carry the same shaping the trigger will
+            // (tightness on the tail, punch on the kick riding drive, and both
+            // of the kick bank's exemptions from those) — otherwise the sound
+            // jumps on the next retrigger. Taken from drum_params() itself
+            // rather than re-derived, which is what let the two drift apart.
+            if (is_drum_mode) {
+                const VoiceParams p = drum_params(rec_slot);
+                pool.UpdateAuditionParams(p.harmonics, p.timbre, p.morph, p.decay);
+            } else {
+                pool.UpdateAuditionParams(slot.harmonics, slot.timbre,
+                                          slot.morph, slot.decay);
+            }
         }
         // Fixed-rate pulse — NOT keyed on `changed`: that flag is level (pickup
         // caught), not edge, so a changed-gated scheme ran at two speeds

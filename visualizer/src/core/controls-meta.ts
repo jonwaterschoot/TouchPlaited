@@ -271,10 +271,8 @@ export const MIDI_DRUM_CH = 9;  // ch 10 — GM drum notes
  * ever needs to turn the published 1-based index back into a name). */
 export const KICK_PRESETS = [
   '808 DEEP', '808 SUB', '808 DRIVE',
-  '909 PUNCH', '909 SWEEP', '909 CLICK', 'HYBRID',
-  'FM 1:1', 'FM SUB 1:2', 'FM AUX SUB', 'FM GRIT', 'FM SNAP', 'FM LONG',
+  '909 PUNCH', '909 SWEEP', '909 CLICK', 'HYBRID', '909+808',
   'SINE PURE', 'FOLD SUB', 'VCF BOOM', 'MODAL KNOCK',
-  'SUB+CLICK', 'SUB+SNAP', '909+808',
 ];
 
 /** "K07 909 SWEEP" from the 1-based index the device publishes. */

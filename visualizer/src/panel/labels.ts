@@ -227,8 +227,20 @@ function describeControl(
   const recEngine =
     s.mode === 0 && s.recSlot !== null ? s.kit?.[s.recSlot]?.engine : undefined;
   if (recEngine !== undefined) {
+    // Recording the kick pad on a bank preset: four pots have kick-specific
+    // meanings, named for what they do to a kick rather than for the engine
+    // parameter underneath — the same field means six different things across
+    // the six engines the bank uses, which is what the windows exist to hide.
+    if (s.recSlot === 0 && s.kickPreset && !s.pads[0] && !s.pads[1] && !s.pads[2]) {
+      if (i === 2) return { combo: 'S32', fn: `Kick select · ${kickPresetText(s.kickPreset)}` };
+      if (i === 3) return { combo: 'S33', fn: 'Kick tone · dark ↔ bright' };
+      if (i === 4) return { combo: 'S34', fn: 'Kick punch · soft ↔ hard' };
+      if (i === 7) return { combo: 'S37', fn: 'Kick body · weight of the drum' };
+    }
     if (s.pads[1] && meta.fx)
       return { combo: `P1 + ${meta.name}`, fn: i === 0 ? 'Slot reverb send' : 'Slot delay send' };
+    if (i === 5 && s.pads[0] && s.recSlot === 0 && s.controls[5] >= 11 / 11.5)
+      return { combo: 'P0 + S35', fn: 'Slot model · KICK BANK' };
     if (i === 5 && s.pads[0]) return { combo: 'P0 + S35', fn: 'Slot model · bank 0' };
     if (i === 5 && s.pads[2]) return { combo: 'P2 + S35', fn: 'Slot model · bank 1' };
     if (i === 7 && s.pads[0]) return { combo: 'P0 + S37', fn: 'Slot width' };

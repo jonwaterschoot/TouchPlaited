@@ -520,16 +520,42 @@ void describe_control(int i, const TelemetryState& t,
 
     bool dead         = false;
     int  value_engine = -1; // set only when i is 1..4 and an engine table applies
+    bool kick_name    = false; // value row is a kick preset name, not a number
 
     bool handled = false;
 
-    if (rec_active) {
+    // Recording the kick pad on a bank preset: four pots have kick-specific
+    // meanings, and they are named for what they do to a *kick* rather than
+    // for the engine parameter underneath — which is the whole point of the
+    // windows (S33 is "tone" on all twelve presets; the field it writes means
+    // six different things across the six engines they use).
+    const bool kick_bank = rec_active && t.rec_slot == 0 && t.kick_preset != 0;
+    if (kick_bank && !p0 && !p1 && !p2) {
+        switch (i) {
+            case 2: set_label(label, "S32", "Kick select");
+                    kick_name = true;  handled = true; break;
+            case 3: set_label(label, "S33", "Kick tone");   handled = true; break;
+            case 4: set_label(label, "S34", "Kick punch");  handled = true; break;
+            case 7: set_label(label, "S37", "Kick body");   handled = true; break;
+            default: break;
+        }
+    }
+
+    if (!handled && rec_active) {
         if (p1 && meta.fx) {
             set_label(label, (i == 0) ? "P1+S30" : "P1+S35",
                       (i == 0) ? "Slot reverb send" : "Slot delay send");
             handled = true;
         } else if (i == 5 && p0) {
             set_label(label, "P0+S35", "Slot model bank0");
+            // On the kick pad bank 0 has a 12th position — the bank itself.
+            // Say so while the knob is over it, rather than leaving the row
+            // on a percentage that looks like the engine list ran out.
+            if (t.rec_slot == 0 && v >= 11.f / 11.5f) {
+                value.Clear();
+                value.Append("KICK BANK");
+                return;
+            }
             handled = true;
         } else if (i == 5 && p2) {
             set_label(label, "P2+S35", "Slot model bank1");
@@ -637,6 +663,13 @@ void describe_control(int i, const TelemetryState& t,
     if (dead) {
         value.Clear();
         value.Append("no effect");
+        return;
+    }
+    // S32 as the kick selector reads out what it selected, not where the pot
+    // is: the pot position is meaningless once quantized to twelve, and the
+    // number is what gets reported back after an audition pass.
+    if (kick_name) {
+        kick_preset_text(value, t.kick_preset);
         return;
     }
     if (value_engine != -1 && i >= 1 && i <= 4) {

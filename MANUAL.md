@@ -369,7 +369,7 @@ All six timbral knobs are per-slot and require pickup before changing the slot.
 | S32 | Per-slot harmonics |
 | S33 | Per-slot timbre |
 | S34 | Per-slot morph (no effect on engines 19–23) |
-| S35 | Per-slot model select — hold P0 (bank 0) or P2 (bank 1), turn S35 |
+| S35 | Per-slot model select — hold P0 (bank 0) or P2 (bank 1), turn S35. On the kick pad bank 0 has a 12th position at the top: **KICK BANK** (see *The kick bank*) |
 | S36 | Per-slot volume — this slot's level in the mix; audible live in the audition |
 | S37 | Per-slot model mix — OUT↔AUX blend for this slot. Hold P0: per-slot stereo width — fader fully down = mono; a mono'd slot stays dead center regardless of group width. Blend/width reset to defaults when the kit is regenerated (P0+P2 stage 2) |
 | P1 + S30 / P1 + S35 | Per-slot reverb / delay send trim: this drum's share (0–100%) of the drum group's wet set on the global mirror knobs (level only; the character stays global). Same pickup hand-off as everywhere: each role catches its own stored value, so flipping between drive and reverb send on S30 never jumps either |
@@ -392,7 +392,7 @@ P10/P11 keep retuning the slot even with P2 held, so the two transport combos (P
 | Gesture | Result |
 |---------|--------|
 | P0 + P2 hold **2 s** | Vary the sound this pad already has — engine and pitch untouched |
-| P0 + P2 hold **4 s** | New sound for this pad, picked from its own curated pool (kick engines on the kick pad, and so on) |
+| P0 + P2 hold **4 s** | New sound for this pad, picked from its own curated pool (a preset from the bank on the kick pad, an engine-and-range roll on the others) |
 
 The same combo that randomizes the whole kit outside Recording, scoped to the
 one pad you're editing — usually only one drum is wrong. Both stages re-arm
@@ -401,28 +401,50 @@ every knob against the slot's new values, so nothing jumps afterwards. See
 
 ### The kick bank
 
-The kick pad has a bank of **20 fixed, numbered sounds** on top of the random pool — the presets the drum engines can reach but the randomizer's parameter ranges never do: the 808 and the 909 as two separate instruments rather than a mix of both, long pitch sweeps, the bass drum's own overdrive, FM kicks tuned where they are actually audible, a pure sine kick, and three layered ones that fire a second short voice for a transient the deep body cannot make.
+The kick is the one drum whose sounds are **chosen rather than rolled**. Instead of a pool of engines and parameter ranges, the kick pad has a bank of **twelve fixed, numbered kicks** — the 808 and the 909 as two separate instruments rather than a mix of both, long pitch sweeps, the bass drum's own overdrive, a stacked 909-over-808, a pure sine kick, and three from engines that were never meant to be drums but get there. The randomizer draws from this bank too, so a randomized kit always has a kick you can name.
+
+| K | Name | | K | Name |
+|---|------|-|---|------|
+| 1 | 808 DEEP | | 7 | HYBRID |
+| 2 | 808 SUB | | 8 | 909+808 |
+| 3 | 808 DRIVE | | 9 | SINE PURE |
+| 4 | 909 PUNCH | | 10 | FOLD SUB |
+| 5 | 909 SWEEP | | 11 | VCF BOOM |
+| 6 | 909 CLICK | | 12 | MODAL KNOCK |
+
+**Three ways in:**
 
 | Gesture | Effect |
 |---------|--------|
-| P0 + P11 | Next kick preset |
-| P0 + P10 | Previous kick preset |
+| P0 + P11 / P0 + P10 | Next / previous kick preset — in Seq, or while recording the kick pad |
+| P0 + S35, full right | **KICK BANK** — the 12th model position on the kick pad, past the eleven engines |
+| S32 (recording the kick) | Kick select — sweep the whole bank on one knob |
 
-Works two ways, with the same combo:
+The first is the fast walk: step through the bank in Seq while the pattern plays, with the kick landing on every kick step. The other two are for when you are already recording the kick pad (hold P3 for 2 s) and want to tune what you land on.
 
-- **In Seq**, without entering Recording — step through the bank while the pattern plays, with the kick landing on every kick step. The fastest way to hear the whole bank against a groove.
-- **While recording the kick pad (P3)**, where the per-slot knobs are live: step to a preset, then tune it with S31 decay, S32 harmonics, S33 timbre, S37 blend and P10/P11 pitch. Every knob re-arms against the preset's own values when it loads, so nothing jumps.
+**The knobs while a preset is loaded**
 
-The screen names what loaded — `K07 909 SWEEP` — and while you are recording the kick pad the same name sits in the status row, so the number is still there after the flash has gone. The visualizer logs each step by name too. The bank rails rather than wraps: at either end the LED gives the usual limit blink.
+Three knobs are renamed for what they do to a *kick*, rather than for the engine parameter underneath — so the same gesture means the same thing on all twelve, whichever engine each one is built from. Each stays inside a range chosen for that preset, so a knob cannot be turned out of kick territory:
 
-Two things behave differently while a preset is loaded, both so that what you hear is the preset as written:
+| Knob | Function |
+|------|----------|
+| S32 | **Kick select** — the bank, 12 positions |
+| S33 | **Tone** — dark ↔ bright |
+| S34 | **Punch** — soft ↔ hard (on the 808s the attack and overdrive; on the 909s the pitch sweep) |
+| S37 | **Body** — the weight of the drum (on engine 21, how far it sits between the 808 and the 909) |
 
-- **S37 Tightness does not shorten it.** Tightness compresses every other morph-decay engine's tail by up to 5×, which is enough to make the deep presets unrecognisable. Use the per-slot decay (S31 in Recording) to shorten one kick.
-- **Drive pushes the kick's punch by a per-preset amount** rather than the flat boost a pool kick gets. Punch works by opening the kick's timbre, which on the bass drum engine is also its brightness and click — so the deep presets take only a small share of it and stay deep as you turn Drive up.
+Everything else keeps its normal recording job: S30 per-slot drive, S31 decay, S36 volume, P0+S37 width, P10/P11 pitch. Each knob re-arms against the new preset's own values when one loads, so nothing jumps.
 
-Editing a preset's knobs keeps you on that preset (it is still "K07, shorter"). You leave the bank by re-randomizing the pad from its pool (P0+P2 hold 4 s) or by picking an engine by hand (P0/P2 + S35); the whole-kit randomize leaves it too. Varying the pad or the kit (either stage 1) keeps the preset and nudges it.
+The screen names what loaded — `K05 909 SWEEP` — on the flash, on S32's own readout, and in the status row while you are recording the kick pad. The visualizer logs each change by name. The P0+P10/P11 stepper rails rather than wraps: at either end the LED gives the usual limit blink.
 
-**Voice cost:** the layered presets use two of the six voices for the length of the layer's own tail, which is a few tens of milliseconds by design. The kick is also now the **last** voice the synth will steal when it runs out — a long kick tail is usually the oldest thing sounding when the next bar's hats arrive, and losing the downbeat is the one truncation you always hear.
+**Two things behave differently on a kick preset**, both so that what you hear is the preset as written:
+
+- **S37 Tightness does not shorten it.** Tightness compresses every other morph-decay engine's tail by up to 5×, enough to make the deep presets unrecognisable. Use the per-slot decay (S31 in Recording) to shorten one kick.
+- **Drive pushes the kick's punch by a per-preset amount** rather than a flat boost. Punch works by opening the kick's timbre, which on the bass drum engine is also its brightness and click — so the deep presets take only a small share of it and stay deep as you turn Drive up.
+
+Editing a preset keeps you on it (it is still "K05, shorter"), and varying the pad or the kit nudges it without leaving the bank. You leave by pointing the pad somewhere else: picking a plain engine with P0/P2 + S35, or copying another drum onto the kick pad.
+
+**Voice cost:** K8 909+808 is two voices for the length of its second tail, a few tens of milliseconds by design; K12 MODAL KNOCK is the one expensive engine in the bank. The kick is also now the **last** voice the synth will steal when it runs out — a long kick tail is usually the oldest thing sounding when the next bar's hats arrive, and losing the downbeat is the one truncation you always hear.
 
 ### Confirming, cancelling, copying
 

@@ -271,33 +271,50 @@ rather than bolted onto the branch that raised them. E2 is what's left.
       > Thin we'd need at least an AD Attack and a Decay (Decay being like a release) But then we'd still need at least two knobs, making it again "might as well use 4 in the FX mode
 
 
-- [~] **`kDrumKick` is two engines wide** — *built as the kick lab on branch
-      `kick-lab`, 2026-08-08; **awaiting the hardware audition pass**, which is
-      the whole point of it.* Full write-up: `notes.md` → *Kick lab*.
-      The open question — existing engines or purpose-written ones? — answered
-      **(a)**: nothing had to be written into `thirdparty/plaits`. What was
-      missing was reachable parameter space, in four findable places. Engine 21
-      renders the 808 to OUT and the 909-ish synthetic drum to AUX, and the kit
-      randomizer pins blend at 0.5, so every random kick has been the same
-      half-and-half compromise ("the very synth sound"). Engine 10 plays two
-      octaves below its note, so the pool's 36-48 range put the FM kick's
+- [~] **`kDrumKick` is two engines wide** — *built and auditioned on branch
+      `kick-lab`, 2026-08-08. Twenty candidates, **twelve kept**, and the bank
+      is now the kick pad's pool rather than a probe alongside it. What is left
+      is a second listen at the new knob layer.* Write-up: `notes.md` →
+      *Kick lab*.
+      **The audition cut a family and a technique, not a scatter of numbers.**
+      All six 2-op FM presets read as "regular synth" rather than as drums —
+      one verdict about engine 10, whose only envelope is the LPG in ping mode,
+      so an FM kick has no pitch drop of its own and lands as a bass note with
+      a fast decay. And two of the three layered presets failed (a noise
+      transient crackled, an FM snap sat too high) while the one that layers
+      engine 21 with *itself* survived: a layer has to be the same instrument
+      twice, or it reads as a fault or as a second sound. All four "outside
+      bet" engines held up, which was not the expected result.
+      **`kDrumKick` is deleted.** Its two entries were exactly the two rejected
+      sounds, so the kick's pool is the bank: `fill_drum_slot_from_pool(0)`
+      draws a preset, and a randomized kit gets a kick that can be named.
+      Reachable as a model too — the 12th position of P0+S35 on the kick pad —
+      after which S32 selects within the bank and S33/S34/S37 become **Tone /
+      Punch / Body**, semantic knobs that land on the same three PadSlot fields
+      whatever engine is underneath and sweep inside a per-preset window, so
+      one gesture means one thing across all twelve and none of them can be
+      turned out of kick territory.
+      **Still open, and it is a listening question:** whether the twelve
+      windows are drawn in the right places. They were derived from reading the
+      engines; only the hardware can say.
+      **The original question — existing engines or purpose-written ones? —
+      answered (a):** nothing had to be written into `thirdparty/plaits`. What
+      was missing was reachable parameter space, in four findable places.
+      Engine 21 renders the 808 to OUT and the 909-ish synthetic drum to AUX,
+      and the kit randomizer pinned blend at 0.5, so every random kick was the
+      same half-and-half compromise ("the very synth sound"). Engine 10 plays
+      two octaves below its note, so the pool's 36-48 range put the FM kick's
       fundamental at 16-33 Hz with a modulation index of 0.18 ("the low energy
-      model"). Tails were being cut twice, by a short pool range and then again
-      by Tightness. And `harmonics` on engine 21 is three controls in a row,
-      with the overdrive and the long pitch sweeps both living above 0.5, where
-      the pool range stopped.
-      What shipped on the branch: **20 numbered presets** (`synth/kick_presets.h`)
-      across engines 21, 10, 12, 9, 0, 20, three of them layered; stepped with
-      **P0+P10/P11** in Seq or while recording the kick pad (both combos were
-      unbound); named on the OLED and published to the visualizer so a pass can
-      be reported back by number. Per-preset punch, because Drive pushing timbre
-      toward 1.0 made every deep kick bright. And the second half of the
-      decision below: **kick voices are stolen last** (`find_free_or_steal()`
-      and `ShedVoice()`), rather than never, so nothing can wedge the pool.
-      **What is left is the listening**, and the two things it decides: which
-      presets earn a place, and whether the bank replaces `kDrumKick`'s ranges
-      for the random kit or stays a hand-picked layer over it. The bank does
-      not touch kit generation today.
+      model"). Tails were cut twice, by a short pool range and then again by
+      Tightness. And `harmonics` on engine 21 is three controls in a row, with
+      the overdrive and the long pitch sweeps both above 0.5, where the pool
+      range stopped.
+      Also on the branch: per-preset punch, because Drive pushing timbre toward
+      1.0 made every deep kick bright; a preset's tail is exempt from
+      Tightness, so the bank plays as authored; and the second half of the
+      decision below — **kick voices are stolen and shed last**
+      (`find_free_or_steal()`, `ShedVoice()`) rather than never, so nothing can
+      wedge the pool.
 
       > Decision: 
       > - of all the drum sounds Kick is to me the most important one, hence i'd like more variations, atm the variation is an either very synth sound or the rather low energy kick model. 
