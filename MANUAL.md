@@ -444,7 +444,7 @@ The screen names what loaded — `K05 909 SWEEP` — on the flash, on S32's own 
 
 Editing a preset keeps you on it (it is still "K05, shorter"), and varying the pad or the kit nudges it without leaving the bank. You leave by pointing the pad somewhere else: picking a plain engine with P0/P2 + S35, or copying another drum onto the kick pad.
 
-**Voice cost:** K8 909+808 is two voices for the length of its second tail, a few tens of milliseconds by design; K12 MODAL KNOCK is the one expensive engine in the bank. The kick is also now the **last** voice the synth will steal when it runs out — a long kick tail is usually the oldest thing sounding when the next bar's hats arrive, and losing the downbeat is the one truncation you always hear.
+**Voice cost:** K8 909+808 is two voices for the length of its second tail, a few tens of milliseconds by design; K12 MODAL KNOCK is the one expensive engine in the bank. The kick is also **protected from being cut for 150 ms after each hit** — long enough to cover the attack and body of every preset, which is the part whose loss reads as a dropped downbeat. Its ring-out is not protected: with only six voices, reserving a one-second kick tail would come straight out of everything else's decay.
 
 ### Confirming, cancelling, copying
 

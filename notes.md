@@ -723,18 +723,55 @@ figures to check against. Everything is stated per sounding voice.
 - The layer fires on **voice id 24**, outside the pad range (0–6) and the drum
   range (16–22), so nothing NoteOffs it and it rings out as a one-shot.
 
-### Kick priority
+### Kick priority — and the starvation it caused first
 
 The second half of the roadmap's decision. `VoicePool::find_free_or_steal()`
 stole the oldest voice, and on a dense pattern the oldest voice is very often
 the kick — a long 808 tail is still allocated when the next bar's hats and
 percussion arrive. Losing the downbeat is the one truncation that is always
-audible. Kick voices (16 and its layer 24) are now stolen **last**, not never:
-if every voice in the pool is a kick voice the plain oldest-first rule still
-applies, so a stuck kick can never wedge the pool. `ShedVoice()` gets the same
-preference. The test is `awake[i]`, not `pad_slot[i]` alone — drum voices never
-get a NoteOff, so slot id alone would keep protecting a kick long after it
-decayed and went to sleep.
+audible. So kick voices (16 and its layer 24) are stolen **last**, not never:
+if every voice is a protected kick the plain oldest-first rule still applies,
+and the pool can never wedge. `ShedVoice()` gets the same preference.
+
+**The first version of this was wrong in a way worth recording**, because the
+mistake is one that looks like the obvious implementation. It keyed the
+protection on `awake[i]` — protect the kick for as long as it is still making
+sound. With the bank's presets that is 0.4–1.4 s, which on a four-on-the-floor
+is most of the bar, so one or two of six voices became effectively *reserved*
+and the other six drums thrashed what was left. It came back from hardware as
+"the general tightness of all drums except the kick is super short", which
+sounds like an S37 fault and is not one: `seq_tight_lk` was never touched.
+
+The tell was the second half of the report — **a freshly randomized kit
+sounded right for about a bar, then clamped down.** Nothing about a stuck knob
+does that. Voice contention does exactly that: for the first bar the oldest
+voices still belong to the *previous* kit and have already finished, so
+stealing them is inaudible; from the second bar on, every steal cuts a live
+tail. Two changes from this branch compounded — kicks that hold a voice for a
+second (intended) and a protection with no end (not).
+
+Two fixes, and the second is the bigger one:
+
+- **The window is now 150 ms from the strike** (`kProtectChunks`), fixed, not
+  the length of the sound. What the protection is for is the attack and body,
+  the part whose loss reads as a dropped downbeat; the ring-out is not worth a
+  hat. It also releases before the next kick at any usable tempo.
+- **A sleeping voice is stolen before any sounding one.** This is independent
+  of the kick and was a latent fault the whole time: drum voices never get a
+  NoteOff, so their `pad_slot` stays set forever and the free-slot scan can
+  never see them — the pool went straight to stealing the oldest *sounding*
+  voice while a finished one sat unused beside it. With six voices and seven
+  drum slots that happens constantly, and it is the single biggest cause of
+  drum tails being cut short. Now a live tail is only ever truncated when all
+  six voices are genuinely sounding.
+
+Related, found while chasing the same report: the P0 release edge re-armed
+S37's Rec pickup against the slot's **raw blend** rather than its position in
+the preset's Body window (`arm_rec_slot_pickups()` had already been taught the
+conversion; this second site had not). Since several presets sit at blend 0.0
+that also armed a *rail*, which catches on any 3% nudge — so Body jumped the
+moment S37 was touched after using P0 for anything, including the P0+P10/P11
+stepper. That one really was an S37 bug, just not the one that was audible.
 
 ### Where the bank lives on the panel, and why
 

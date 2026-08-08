@@ -315,6 +315,15 @@ rather than bolted onto the branch that raised them. E2 is what's left.
       decision below — **kick voices are stolen and shed last**
       (`find_free_or_steal()`, `ShedVoice()`) rather than never, so nothing can
       wedge the pool.
+      **One regression from that priority, found on hardware and fixed the
+      same day:** protecting the kick for as long as it was *sounding* reserved
+      one to two of six voices for most of the bar, and the other six drums
+      thrashed what was left — reported as "everything except the kick is super
+      short". Protection is now a fixed 150 ms window from the strike, and
+      separately the pool learned to steal a *sleeping* voice before any
+      sounding one, which was a latent fault all along (drum voices never get a
+      NoteOff, so the free-slot scan could never see a finished one).
+      `notes.md` → *Kick priority — and the starvation it caused first*.
 
       > Decision: 
       > - of all the drum sounds Kick is to me the most important one, hence i'd like more variations, atm the variation is an either very synth sound or the rather low energy kick model. 

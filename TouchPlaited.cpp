@@ -2608,8 +2608,25 @@ void AudioCallback(AudioHandle::InputBuffer in, AudioHandle::OutputBuffer out, s
             last_p0_held = p0_held;
             float v37 = k.s37().Value();
             if (rec_mode == RecMode::RECORDING && rec_slot >= 0) {
-                if (p0_held) rec_k37w.arm(v37);
-                else         rec_k37.arm_to(live_slots()[rec_slot].blend, v37);
+                if (p0_held) {
+                    rec_k37w.arm(v37);
+                } else {
+                    // Same window conversion arm_rec_slot_pickups() does, and
+                    // for the same reason: on a kick preset S37 reads a
+                    // position in the Body window, not the raw blend. Arming
+                    // to the raw value put the catch point off by the window's
+                    // offset — and since several presets sit at blend 0.0 it
+                    // also armed a *rail*, which catches on any 3% nudge, so
+                    // Body jumped the moment the pot was touched after using
+                    // P0 for anything (width, or the P0+P10/P11 stepper).
+                    const PadSlot& sl = live_slots()[rec_slot];
+                    float target = sl.blend;
+                    if (is_drum_mode && rec_slot == 0 && kick_preset >= 0) {
+                        const KickAxes& ax = kKickPresets[kick_preset].axes;
+                        target = kick_axis_pos(ax.body_lo, ax.body_hi, sl.blend);
+                    }
+                    rec_k37.arm_to(target, v37);
+                }
             } else if (seq_mode_on) {
                 if (p0_held) seq_puw.arm(v37);
                 else         seq_pu37.arm_to(seq_tight_lk, v37);

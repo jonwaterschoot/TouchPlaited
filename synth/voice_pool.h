@@ -97,6 +97,7 @@ public:
             gate_held[i]    = false;
             quiet_chunks[i] = 0;
             gate_chunks[i]  = 0;
+            protect_chunks[i] = 0;
         }
         tick         = 0;
         audition_idx = -1;
@@ -183,6 +184,7 @@ public:
         voice_dly_send[idx] = 1.0f;
         voice_group[idx]  = VoiceGroup::kBP;
         gate_chunks[idx]  = 0;   // gate held until the pad's NoteOff
+        protect_chunks[idx] = 0;
         wake(idx, true);
     }
 
@@ -229,6 +231,7 @@ public:
         // timer instead of a NoteOff, and they're free to sleep as soon as
         // their tail decays.
         gate_chunks[idx]  = lock_params ? one_shot_gate_chunks(p.decay) : 0;
+        protect_chunks[idx] = is_kick_voice(slot) ? kProtectChunks : 0;
         wake(idx, !lock_params);
     }
 
@@ -244,6 +247,7 @@ public:
                 if (voice_group[i] == VoiceGroup::kDrum) voice_group[i] = VoiceGroup::kBP;
                 gate_held[i] = false;   // release tail may now decay to sleep
                 gate_chunks[i] = 0;
+                protect_chunks[i] = 0;
             }
         }
     }
@@ -255,6 +259,7 @@ public:
             voice_group[i] = VoiceGroup::kBP;
             gate_held[i] = false;
             gate_chunks[i] = 0;
+            protect_chunks[i] = 0;
         }
         audition_idx = -1;
     }
@@ -284,6 +289,7 @@ public:
         voice_rev_send[idx] = 1.0f;
         voice_dly_send[idx] = 1.0f;
         gate_chunks[idx]  = one_shot_gate_chunks(0.6f);  // matches SetDecay above
+        protect_chunks[idx] = 0;
         wake(idx, false);   // auditions are one-shots — sleep after decay
     }
 
@@ -320,6 +326,7 @@ public:
         voice_rev_send[idx] = p.rev_send;
         voice_dly_send[idx] = p.dly_send;
         gate_chunks[idx]  = one_shot_gate_chunks(p.decay);
+        protect_chunks[idx] = 0;
         wake(idx, false);   // auditions are one-shots — sleep after decay
     }
 
@@ -337,6 +344,10 @@ public:
             if (gate_chunks[i] && --gate_chunks[i] == 0) {
                 voices[i].Trigger(false);
             }
+            // Runs for sleeping voices too, like the gate countdown above: a
+            // kick that decayed inside its own protection window must not stay
+            // protected once it is silent.
+            if (protect_chunks[i]) --protect_chunks[i];
             if (!awake[i]) continue;
             __builtin_memset(tmp_l, 0, size * sizeof(float));
             __builtin_memset(tmp_r, 0, size * sizeof(float));
@@ -410,6 +421,7 @@ public:
         pad_slot[victim] = -1;
         voice_group[victim] = VoiceGroup::kBP;
         gate_chunks[victim] = 0;
+        protect_chunks[victim] = 0;
         if (victim == audition_idx) audition_idx = -1;
         return true;
     }
@@ -463,8 +475,30 @@ private:
     bool     gate_held[kVoices];
     uint32_t quiet_chunks[kVoices];
     uint16_t gate_chunks[kVoices];   // one-shot gate countdown; 0 = no timer
+    // Kick steal-protection countdown, in chunks; 0 = not protected. See
+    // kProtectChunks — this is a window after the strike, deliberately NOT the
+    // length of the sound.
+    uint16_t protect_chunks[kVoices];
     uint32_t tick;
     int      audition_idx;
+
+    // How long a kick voice is protected from being stolen: 150 ms, fixed.
+    //
+    // The first version of this keyed on `awake[i]`, i.e. protected the kick
+    // for as long as it was still making sound. With the kick lab's presets
+    // that is 0.4-1.4 s, which on a four-on-the-floor is most of the bar — so
+    // one or two of six voices became effectively *reserved*, and the other
+    // six drums thrashed what was left. Reported from hardware as "everything
+    // except the kick is super short", with the tell that a freshly randomized
+    // kit sounded right for about a bar first: for that bar the oldest voices
+    // still belonged to the previous kit and had already finished, so stealing
+    // them was free.
+    //
+    // What the protection is actually for is the *strike* — the attack and
+    // body, the part whose loss reads as a dropped downbeat. The ring-out is
+    // not worth a hat. 150 ms covers the transient of every preset in the bank
+    // and releases well before the next kick at any usable tempo.
+    static constexpr uint16_t kProtectChunks = 300;   // 150 ms at 0.5 ms/chunk
 
     // Voices the global setters must not touch — anything but kBP.
     bool skip(int i) const { return voice_group[i] != VoiceGroup::kBP; }
@@ -537,14 +571,19 @@ private:
     }
 
     // The kick's own voice id (16 + slot 0) and its optional layered second
-    // voice — see the kick lab in TouchPlaited.cpp. Steal-last, not
-    // steal-never: on a dense pattern the oldest voice is very often the kick,
-    // because a long 808 tail is still allocated when the next bar's hats and
-    // percussion arrive, and losing the downbeat is the one truncation that is
-    // always audible. If every voice in the pool is a kick voice the ordinary
-    // oldest-first rule still applies, so a stuck kick can never wedge the
-    // pool — it just goes last in the queue.
+    // voice — see the kick lab in TouchPlaited.cpp.
     static bool is_kick_voice(int slot) { return slot == 16 || slot == 24; }
+
+    // Oldest voice matching a predicate, or -1.
+    template <typename Pred>
+    int oldest_where(Pred ok) const {
+        int best = -1;
+        for (int i = 0; i < kVoices; i++) {
+            if (!ok(i)) continue;
+            if (best < 0 || timestamp[i] < timestamp[best]) best = i;
+        }
+        return best;
+    }
 
     int find_free_or_steal() {
         // Prefer a genuinely free voice (not the active audition slot).
@@ -558,26 +597,25 @@ private:
             pad_slot[idx] = -1;
             return idx;
         }
-        // Steal the oldest voice that isn't a *sounding* kick; only if the
-        // pool is nothing but those does the plain oldest-first rule take
-        // over. Drum voices never get a NoteOff, so pad_slot alone would keep
-        // protecting a kick long after it decayed and went to sleep — awake is
-        // what distinguishes "still ringing" from "finished, reusable".
-        int oldest = -1;
-        for (int i = 0; i < kVoices; i++) {
-            if (is_kick_voice(pad_slot[i]) && awake[i]) continue;
-            if (oldest < 0 || timestamp[i] < timestamp[oldest]) oldest = i;
-        }
-        if (oldest < 0) {
-            oldest = 0;
-            for (int i = 1; i < kVoices; i++) {
-                if (timestamp[i] < timestamp[oldest]) oldest = i;
-            }
-        }
-        if (oldest == audition_idx) audition_idx = -1;
-        voices[oldest].Trigger(false);
-        pad_slot[oldest] = -1;
-        return oldest;
+        // A voice that has finished and gone to sleep is silent, so taking it
+        // costs nothing — and there is usually one. Drum voices never get a
+        // NoteOff, so their pad_slot stays set forever and the free-slot scan
+        // above can never see them; without this pass the pool went straight
+        // to stealing the oldest *sounding* voice while a finished one sat
+        // there unused. That is the single biggest cause of drum tails being
+        // cut, and it is independent of the kick.
+        int victim = oldest_where([&](int i) { return !awake[i]; });
+        // Then the oldest voice that is not a kick inside its protection
+        // window (below). Only if every voice is a protected kick does the
+        // plain oldest-first rule take over, so the pool can never wedge.
+        if (victim < 0) victim = oldest_where([&](int i) {
+            return !(is_kick_voice(pad_slot[i]) && protect_chunks[i]);
+        });
+        if (victim < 0) victim = oldest_where([](int) { return true; });
+        if (victim == audition_idx) audition_idx = -1;
+        voices[victim].Trigger(false);
+        pad_slot[victim] = -1;
+        return victim;
     }
 };
 
