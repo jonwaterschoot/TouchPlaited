@@ -318,14 +318,15 @@ These knob assignments apply only while SW2 is Up. If the seq keeps playing in a
 
 | Knob | Function | MIDI CC |
 |------|----------|---------|
-| S30 | Drive — overall soft-clip saturation (per-slot drive settable in Recording as a percentage of overall); also pushes the kick's punch (extra timbre boost on trigger) | 24 |
+| S30 | Drive — overall soft-clip saturation (per-slot drive settable in Recording as a percentage of overall); also pushes the kick's punch (extra timbre boost on trigger — a per-preset share of it once a kick preset is loaded) | 24 |
 | S31 | Tempo — 60–180 BPM | 27 (muted while an external clock — MIDI or CV — is present) |
 | S32 | Shuffle — swing delay on odd 16th steps (0 = straight, max = ~50%) | 28 |
 | S33 | **Pattern density** — which weight layers fire, four stages: `layer 4` (weight-4 hits only) · `layers 3-4` (the main pattern) · `layers 2-4` (ghosts audible) · `layers 1-4` (everything); never goes silent | 29 |
 | S34 | **Step chance** — scales every step's own authored chance nibble up or down. The screen names the zone rather than showing a percentage, because a raw % reads backwards here (full right is the *sparsest* setting, not "always plays"): `always fire` at full left · `fuller 60%` approaching center · `as authored` at center, which plays patterns exactly as written · `sparse 2.4x` to the right, up to 3× the authored miss rate. Steps authored "always" (no chance roll, e.g. a four-on-the-floor kick) are never affected | 30 |
 | S35 | Pattern select — steps through the patterns of the current SW1 genre (knob range splits evenly across that genre's pattern count; custom patterns can be drawn with `tools/pattern_editor.html` and added via a firmware rebuild — see the README) | — |
 | S36 | Seq volume - drum group level, independent of the pitched modes; picked up on re-entry | — |
-| S37 | Tightness — compresses the tail of all morph-decay engines (19–23); lower = shorter decay. Hold P0: drum-group stereo width (0 = mono) | 31 |
+| S37 | Tightness — compresses the tail of all morph-decay engines (19–23); lower = shorter decay. A loaded kick preset is exempt (see *The kick bank*). Hold P0: drum-group stereo width (0 = mono) | 31 |
+| P0 + P10 / P11 | Previous / next kick preset — see *The kick bank* | — |
 | P1 + S30 / P1 + S35 | Reverb / delay for the drum group — see *FX* below | — |
 
 ---
@@ -384,7 +385,7 @@ While the sequencer runs it fires the slot being edited every other step (8th no
 | P10 alone | Pitch the drum down 1 semitone |
 | P11 alone | Pitch the drum up 1 semitone |
 
-P10/P11 keep retuning the slot even with P2 held, so the two transport combos (P2+P11 drums, P2+P10 melody) are the one thing you cannot reach while editing a drum — save or cancel first.
+P10/P11 keep retuning the slot even with P2 held, so the two transport combos (P2+P11 drums, P2+P10 melody) are the one thing you cannot reach while editing a drum — save or cancel first. Holding **P0** changes what they do on the kick pad only: they step the kick bank instead (see *The kick bank* below).
 
 ### Randomizing just this pad
 
@@ -397,6 +398,31 @@ The same combo that randomizes the whole kit outside Recording, scoped to the
 one pad you're editing — usually only one drum is wrong. Both stages re-arm
 every knob against the slot's new values, so nothing jumps afterwards. See
 *Re-randomize gestures* for the full picture.
+
+### The kick bank
+
+The kick pad has a bank of **20 fixed, numbered sounds** on top of the random pool — the presets the drum engines can reach but the randomizer's parameter ranges never do: the 808 and the 909 as two separate instruments rather than a mix of both, long pitch sweeps, the bass drum's own overdrive, FM kicks tuned where they are actually audible, a pure sine kick, and three layered ones that fire a second short voice for a transient the deep body cannot make.
+
+| Gesture | Effect |
+|---------|--------|
+| P0 + P11 | Next kick preset |
+| P0 + P10 | Previous kick preset |
+
+Works two ways, with the same combo:
+
+- **In Seq**, without entering Recording — step through the bank while the pattern plays, with the kick landing on every kick step. The fastest way to hear the whole bank against a groove.
+- **While recording the kick pad (P3)**, where the per-slot knobs are live: step to a preset, then tune it with S31 decay, S32 harmonics, S33 timbre, S37 blend and P10/P11 pitch. Every knob re-arms against the preset's own values when it loads, so nothing jumps.
+
+The screen names what loaded — `K07 909 SWEEP` — and while you are recording the kick pad the same name sits in the status row, so the number is still there after the flash has gone. The visualizer logs each step by name too. The bank rails rather than wraps: at either end the LED gives the usual limit blink.
+
+Two things behave differently while a preset is loaded, both so that what you hear is the preset as written:
+
+- **S37 Tightness does not shorten it.** Tightness compresses every other morph-decay engine's tail by up to 5×, which is enough to make the deep presets unrecognisable. Use the per-slot decay (S31 in Recording) to shorten one kick.
+- **Drive pushes the kick's punch by a per-preset amount** rather than the flat boost a pool kick gets. Punch works by opening the kick's timbre, which on the bass drum engine is also its brightness and click — so the deep presets take only a small share of it and stay deep as you turn Drive up.
+
+Editing a preset's knobs keeps you on that preset (it is still "K07, shorter"). You leave the bank by re-randomizing the pad from its pool (P0+P2 hold 4 s) or by picking an engine by hand (P0/P2 + S35); the whole-kit randomize leaves it too. Varying the pad or the kit (either stage 1) keeps the preset and nudges it.
+
+**Voice cost:** the layered presets use two of the six voices for the length of the layer's own tail, which is a few tens of milliseconds by design. The kick is also now the **last** voice the synth will steal when it runs out — a long kick tail is usually the oldest thing sounding when the next bar's hats arrive, and losing the downbeat is the one truncation you always hear.
 
 ### Confirming, cancelling, copying
 
@@ -416,7 +442,7 @@ Octave is per-mode: Basic Pitch, the arp (Arp/Hold) and Rec each remember their 
 |---------|--------|
 | P10 | Octave down (range −3 to +3) — whichever of Basic Pitch/Arp/Hold/Rec is currently active |
 | P11 | Octave up (disabled while P2 is held — P2+P11 is the seq play/pause combo) |
-| P0 + P10 / P11 | **Basic Pitch:** root semitone − / + (within one octave) · **Arp/Mel:** arp octave range − / + (0–3 extra octaves the arp climbs) · no effect in Seq |
+| P0 + P10 / P11 | **Basic Pitch:** root semitone − / + (within one octave) · **Arp/Mel:** arp octave range − / + (0–3 extra octaves the arp climbs) · **Seq:** previous / next kick preset (see *The kick bank*) |
 | P1 + P10 | *(Arp/Mel's Rec state only)* undo layer — see *Rec layer gestures* |
 
 **The screen names the span, not the range.** Base octave and range compose —

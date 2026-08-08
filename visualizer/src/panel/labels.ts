@@ -20,6 +20,7 @@ import {
   DRUM_NOTES, noteName, fxValueLabel, engineKnobLabel, formatKnobValue,
   ENGINE_KNOBS, pitchedNote, arpOrderName, patternValue, patternSlotValue,
   densityValue, chanceValue, ROOT_NAMES, scaleNotes, scaleNoteList, PITCH_BASE,
+  kickPresetText,
 } from '../core/controls-meta';
 import type { KnobParam } from '../core/controls-meta';
 
@@ -104,8 +105,12 @@ function melodicState(mode: number, arpSub: number, running: boolean, armed: boo
  * forced the ± pairs onto one row each. Rows are self-labelling, so no header
  * row is spent naming the modifier already under your finger. */
 const COMBO_ROWS: Record<string, string[]> = {
-  'p0.seq':     ['S37 drum width', '+P2 hold: vary kit'],
+  'p0.seq':     ['S37 drum width', 'P10/P11 kick preset', '+P2 hold: vary kit'],
   'p0.seqrec':  ['S35 slot model b0', 'S37 slot width', '+P2 hold: vary pad'],
+  // Recording the kick pad specifically: P10/P11 lose their drum-pitch
+  // meaning under P0 and step the kick bank instead (kick lab).
+  'p0.seqreckick': ['S35 slot model b0', 'S37 slot width',
+                    'P10/P11 kick preset', '+P2 hold: vary pad'],
   'p0.pitch':   ['S35 model bank 0', 'S37 stereo width',
                  'P10/P11 root -/+', '+P2 hold: randomize'],
   // Arp and Arp Rec share one P0 list: since undo moved to P1 (2026-08-05)
@@ -132,7 +137,8 @@ const COMBO_ROWS: Record<string, string[]> = {
 function comboRows(mod: number, s: DeviceState): string[] {
   const seqRec = s.mode === 0 && s.recSlot !== null;
   const arpRec = s.mode === 1 && s.arpSub === 2;
-  const ctx = seqRec ? 'seqrec'
+  const ctx = seqRec && s.recSlot === 0 && mod === 0 ? 'seqreckick'
+            : seqRec ? 'seqrec'
             : s.mode === 0 ? 'seq'
             // P0's list is the same in Arp and Arp Rec since undo left it;
             // P1 and P2 both have Rec-specific rows.
@@ -153,6 +159,9 @@ function holdLabel(kind: number, mode: number, recSlot: number | null): string {
     // Same combo as kind 1, named for its scope: in Rec it changes the one
     // pad being edited, not the whole kit.
     case 8: return `P0+P2 ${recSlot === null ? 'pad' : `P${recSlot + 3}`} sound`;
+    // Confirm-only, like kind 6: the kick lab steps instantly, so this label
+    // is only ever seen over the confirm flash, never over a bar.
+    case 9: return 'P0+P10/11 Kick bank';
     default: return 'Hold';
   }
 }
@@ -176,6 +185,9 @@ function confirmText(kind: number, mode: number, stage: number, outcome: number)
     // by the time the latched flash draws, so it can't be read here.
     case 7: return outcome === 2 ? 'Arp knobs' : 'Sound edit';
     case 8: return stage >= 2 ? 'New sound' : 'Pad varied';
+    // Kick lab: `stage` carries the 1-based preset number, so the flash names
+    // what loaded rather than reporting that something did.
+    case 9: return kickPresetText(stage);
     default: return 'OK';
   }
 }
@@ -321,9 +333,16 @@ function describePad(i: number, s: DeviceState): { combo: string; fn: string } |
             : `${signed(s.octave)}..${signed(s.octave + s.arpRange)}`);
       return { combo: `P0 + P${i}`, fn: `Arp octave range ${i === 11 ? '+' : '−'} · ${span}` };
     }
-    return s.mode === 2
-      ? { combo: `P0 + P${i}`, fn: `Root ${dir} → ${ROOT_NAMES[s.root] ?? '?'} · ${scaleNotes(s.scaleLatched, s.root)}` }
-      : { combo: `P0 + P${i}`, fn: 'Root · Pitch mode only' };
+    if (s.mode === 2)
+      return { combo: `P0 + P${i}`, fn: `Root ${dir} → ${ROOT_NAMES[s.root] ?? '?'} · ${scaleNotes(s.scaleLatched, s.root)}` };
+    // Seq: the kick lab stepper, from idle or while recording the kick pad
+    // itself. On any other rec slot the combo is unbound.
+    if (s.mode === 0 && (s.recSlot === null || s.recSlot === 0)) {
+      const where = s.kickPreset ? kickPresetText(s.kickPreset) : 'kit random';
+      return { combo: `P0 + P${i}`,
+               fn: `Kick preset ${i === 11 ? '+' : '−'} · ${where}` };
+    }
+    return { combo: `P0 + P${i}`, fn: 'Root · Pitch mode only' };
   }
   // Name where the shift landed, not just which way it went: after a few taps
   // the direction alone tells you nothing about where you are.
@@ -859,6 +878,16 @@ export class Labels {
         this.oledMini.show('P2+P11 Drum seq', s.playing ? 'Play' : 'Stop');
         this.renderStatus(s);
         break;
+      // Kick lab. The confirm flash already names the preset on the mini
+      // screen; this puts the same move in the log, which is where a curation
+      // pass gets read back afterwards — the flash is gone in 220 ms and the
+      // whole point of the bank is being able to say which number worked.
+      case 'kickPreset':
+        this.addLog('kick-preset', ev.v
+          ? `<b>Kick preset</b> <span>${kickPresetText(ev.v)}</span>`
+          : '<b>Kick preset</b> <span>cleared - kit random</span>');
+        this.renderStatus(s);
+        break;
       case 'mode':
       case 'seqStep':
       case 'recSlot':
@@ -1146,9 +1175,15 @@ export class Labels {
       // not otherwise touching. Same three phases and period as the
       // firmware's status_row() (kRecCycleMs).
       const phase = Math.floor(Date.now() / REC_CYCLE_MS) % 3;
+      // On the kick pad with a preset loaded the preset is the more useful of
+      // the two names — the engine is implied by it, and this is the row you
+      // read while deciding whether K12 beat K11.
+      const loaded = s.recSlot === 0 && s.kickPreset
+        ? kickPresetText(s.kickPreset)
+        : modelName(s.kit?.[s.recSlot]?.engine ?? s.model);
       const value = phase === 1 ? `Hold P${s.recSlot + 3} save`
                   : phase === 2 ? '+pad copies'
-                  : modelName(s.kit?.[s.recSlot]?.engine ?? s.model);
+                  : loaded;
       this.oledMini.setStatus(
         `Rec P${s.recSlot + 3}${role ? ` ${role}` : ''}`, value);
     } else if (s.mode === 0) {

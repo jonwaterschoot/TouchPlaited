@@ -266,6 +266,24 @@ export const MIDI_DRUM_CH = 9;  // ch 10 — GM drum notes
  *     44  45 [46 OHH] 47
  *     40 [41 TOM][42 CHH][43 PERC]
  *    [36 KICK] 37 [38 SNARE][39 CLAP]  */
+/** Kick lab bank — names only, in lockstep with kKickPresets in
+ * `synth/kick_presets.h` (the firmware owns the parameter values; the app only
+ * ever needs to turn the published 1-based index back into a name). */
+export const KICK_PRESETS = [
+  '808 DEEP', '808 SUB', '808 DRIVE',
+  '909 PUNCH', '909 SWEEP', '909 CLICK', 'HYBRID',
+  'FM 1:1', 'FM SUB 1:2', 'FM AUX SUB', 'FM GRIT', 'FM SNAP', 'FM LONG',
+  'SINE PURE', 'FOLD SUB', 'VCF BOOM', 'MODAL KNOCK',
+  'SUB+CLICK', 'SUB+SNAP', '909+808',
+];
+
+/** "K07 909 SWEEP" from the 1-based index the device publishes. */
+export function kickPresetText(n: number): string {
+  const num = `K${n < 10 ? '0' : ''}${n}`;
+  const name = KICK_PRESETS[n - 1];
+  return name ? `${num} ${name}` : num;
+}
+
 export const DRUM_NOTES: Record<number, number> = {
   3: 36, // Kick
   4: 38, // Snare

@@ -53,6 +53,8 @@ export interface DeviceState {
   arpRange: number;       // arp octave range 0..3 — extra octaves the arp
                           // climbs ABOVE its base octave, so the two compose:
                           // base +1 with range 2 spans +1..+3
+  kickPreset: number;     // kick lab: 1-based index into KICK_PRESETS, 0 = the
+                          // kick pad is on whatever the kit randomizer gave it
   seqPattern: number;     // Seq pattern slot playing within the genre, 0-based
   holdKind: number;       // 0 none, 1 P0+P2, 2 rec entry, 3 layer clear,
                           // 4 layer copy, 5 rec save — a hold building
@@ -100,6 +102,7 @@ export type StateEvent =
   | { kind: 'arpRange'; v: number }
   | { kind: 'arpPool'; v: number; prev: number }
   | { kind: 'seqPattern'; v: number }
+  | { kind: 'kickPreset'; v: number; prev: number }
   | { kind: 'sw1Latch'; genre: number; scale: number }
   | { kind: 'hold'; holdKind: number; progress: number; stage: number; outcome: number }
   | { kind: 'pickup'; armed: number; targets: number[] }
@@ -136,6 +139,7 @@ function initialState(): DeviceState {
     recArmed: false,
     arpRunning: true,   // device default: the plain arp sounds from boot
     seqPattern: 0,
+    kickPreset: 0,
     holdKind: 0,
     holdProgress: 0,
     holdStage: 0,
@@ -307,6 +311,16 @@ export class DeviceStore {
     if (this.state.seqPattern === v) return;
     this.state.seqPattern = v;
     this.emit({ kind: 'seqPattern', v });
+  }
+
+  /** Which kick lab preset is loaded, 1-based (0 = none). Carries the previous
+   * value so the log can say which way a step went — the point of a numbered
+   * bank is being able to report "K12 worked, K11 didn't" afterwards. */
+  setKickPreset(v: number) {
+    const prev = this.state.kickPreset;
+    if (v === prev) return;
+    this.state.kickPreset = v;
+    this.emit({ kind: 'kickPreset', v, prev });
   }
 
   /** What SW1's two roles actually hold, as opposed to where the lever sits.

@@ -106,6 +106,13 @@ struct TelemetryState {
                             // kind 7 (sound edit): 1 entered, 2 left — the
                             // same combo both ways, and snd_edit has already
                             // flipped by the time the flash draws. 0 = n/a.
+    uint8_t  kick_preset;   // kick lab: 1-based index into kKickPresets
+                            // (synth/kick_presets.h), 0 = no preset loaded —
+                            // the kick pad is on whatever the kit randomizer
+                            // gave it. Published because the whole point of a
+                            // numbered bank is being able to say which one you
+                            // liked, and the confirm flash that names it is
+                            // gone in 220 ms.
 };
 
 // Emits full-state SysEx frames over USB MIDI, rate-limited:

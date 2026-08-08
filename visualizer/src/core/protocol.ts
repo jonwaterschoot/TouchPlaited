@@ -167,6 +167,9 @@ export function applySysex(data: Uint8Array, store: DeviceStore): boolean {
       // pads are the only clue it ever gave — but they are the wrong answer
       // in Hold, so leave it empty rather than guessing from them.
       if (p.length >= 39) store.setArpPool(p[38] & 0x7f);
+      // Kick lab preset, added v12. Older firmware has no bank at all, so the
+      // absent byte and "no preset loaded" are the same state — 0 either way.
+      if (p.length >= 40) store.setKickPreset(p[39] & 0x7f);
       return true;
     }
     case FrameType.EVENT: {

@@ -30,6 +30,7 @@ bool StateChanged(const TelemetryState& a, const TelemetryState& b) {
     if (a.hold_stage != b.hold_stage || a.hold_outcome != b.hold_outcome) return true;
     if (a.seq_pattern != b.seq_pattern) return true;
     if (a.sw1_latch != b.sw1_latch) return true;
+    if (a.kick_preset != b.kick_preset) return true;
     if (a.pickup_armed != b.pickup_armed) return true;
     for (int i = 0; i < 8; i++)
         if (a.controls[i] != b.controls[i]) return true;
@@ -78,7 +79,7 @@ void Telemetry::Service(const TelemetryState& s, uint32_t now_ms, MidiIO& midi) 
 }
 
 void Telemetry::SendState(const TelemetryState& s, uint32_t now_ms, MidiIO& midi) {
-    uint8_t f[46];
+    uint8_t f[47];
     f[0] = 0xF0; f[1] = 0x7D; f[2] = 0x54; f[3] = 0x50; f[4] = 0x01;
     f[5]  = kFrameState;
     f[6]  = static_cast<uint8_t>(s.pads & 0x7F);         // P0..P6
@@ -109,7 +110,8 @@ void Telemetry::SendState(const TelemetryState& s, uint32_t now_ms, MidiIO& midi
     for (int i = 0; i < 8; i++) f[35 + i] = s.pickup_target[i] & 0x7F;
     f[43] = s.sw1_latch & 0x7F;    // bits0-1 latched genre, bits2-3 latched scale
     f[44] = s.arp_pool & 0x7F;     // bit i = pad P(3+i) in the arp's pool
-    f[45] = 0xF7;
+    f[45] = s.kick_preset & 0x7F;  // 1-based kick lab preset, 0 = none (fw v12)
+    f[46] = 0xF7;
     midi.SendSysexUsb(f, sizeof(f));
     last_state_ = s;
     state_ms_   = now_ms;

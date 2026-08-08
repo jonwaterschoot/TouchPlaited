@@ -8,6 +8,7 @@
 #include "synth/sequencer.h"
 #include "synth/arp.h"
 #include "synth/note_rec.h"
+#include "synth/kick_presets.h"
 #include "synth/fx.h"
 #include "synth/settings_journal.h"
 #include "midi/midi_io.h"
@@ -412,12 +413,45 @@ static bool slot_engine_in_pool(int i, int engine) {
     return false;
 }
 
+// ─── Kick lab ─────────────────────────────────────────────────────────────────
+// Which entry of kKickPresets (synth/kick_presets.h) the kick pad is currently
+// playing, or -1 for "whatever the pool randomized". The index is the whole of
+// the feature's state: the preset's values live in drum_slots[0] like any other
+// sound and stay editable there, while the index is what still knows the
+// preset's *name*, how much of S30 Drive its punch wants, and whether it fires
+// a second layered voice — none of which fit in a PadSlot.
+//
+// It is cleared by anything that replaces the kick with something that is no
+// longer that preset (a pool re-pick, a hand-picked engine in Rec). Editing the
+// preset's knobs does NOT clear it: "preset 7 with a shorter tail" is still
+// preset 7 for the purpose of judging preset 7, which is what this bank is for.
+static int kick_preset = -1;
+
 // Re-pick slot i from its own curated pool: new engine, new params, role
 // volume. The "stick to kick models" primitive — every randomizer that
 // replaces a sound goes through here, so none of them can wander off-role.
 static void fill_drum_slot_from_pool(int i) {
     fill_drum_slot(drum_slots[i], kDrumPools[i].opts, kDrumPools[i].n);
     drum_slots[i].volume = kDrumPools[i].volume;
+    if (i == 0) kick_preset = -1;   // the pool just overwrote the preset
+}
+
+// Load preset idx onto the kick slot. Everything a PadSlot can hold is copied;
+// what it cannot hold stays behind the index (see kick_preset above).
+static void apply_kick_preset(int idx) {
+    const KickPreset& k = kKickPresets[idx];
+    PadSlot& s  = drum_slots[0];
+    s.engine    = k.engine;
+    s.harmonics = k.harmonics;
+    s.timbre    = k.timbre;
+    s.morph     = k.morph;
+    s.decay     = k.decay;
+    s.note      = k.note;
+    s.blend     = k.blend;
+    s.width     = k.width;
+    s.volume    = k.volume;
+    s.drive     = 1.0f;    // follow the overall S30 fully; `punch` is the trim
+    kick_preset = idx;
 }
 
 static void generate_drum_random() {
@@ -445,12 +479,51 @@ static void generate_drum_random() {
 // sequencer-wide control, see Sequencer::SetChance) and punch instead rides
 // S30 Drive — turning the kick up pushes both together, so there's no
 // dedicated knob to go dead on models that don't need it (2026-08-04).
+//
+// Two things behave differently once a kick preset is loaded, and both are
+// there so that what the bank plays is what the bank was authored as:
+//   - **Tightness does not scale a preset's tail.** S37 multiplies every
+//     morph-decay engine's tail by 0.2..1.0, so at the centre detent a stored
+//     0.78 sounds as 0.47 — the deep presets simply could not be heard as
+//     written, and a knob quietly rescaling the thing under audition makes the
+//     audition meaningless. Per-slot decay (S31 in Recording) is the right
+//     place to shorten one kick; tightness keeps its meaning everywhere else.
+//   - **Punch is a per-preset share of Drive.** A flat boost toward timbre 1.0
+//     opens engine 21's tone lowpass and raises the synthetic click, so drive
+//     turned every deep preset bright. Deep presets take 0.15-0.35 of it,
+//     bright ones most of it; a pool kick keeps the old flat 1.0.
 static VoiceParams drum_params(int i) {
-    const PadSlot& s = drum_slots[i];
-    VoiceParams p = slot_params(s, seq_tight_lk);
-    if (i == 0) p.timbre = p.timbre + seq_drive_lk * (1.0f - p.timbre);
+    const PadSlot& s   = drum_slots[i];
+    const bool preset  = (i == 0 && kick_preset >= 0);
+    VoiceParams p = slot_params(s, preset ? -1.f : seq_tight_lk);
+    if (i == 0) {
+        const float punch = preset ? kKickPresets[kick_preset].punch : 1.0f;
+        p.timbre = p.timbre + punch * seq_drive_lk * (1.0f - p.timbre);
+    }
     p.drive = clampf(seq_drive_lk * s.drive);
     return p;
+}
+
+// The kick preset's second voice, if it has one. Fired alongside the kick on
+// voice id 24 — outside both the pad range (0-6) and the drum range (16-22),
+// so nothing NoteOffs it and it rings out as a one-shot like every other drum.
+// Costs one voice of the six for as long as its own tail sounds, which is why
+// the layers in the bank are all short transients.
+static bool kick_layer_params(VoiceParams& p, float& note, float vel) {
+    if (kick_preset < 0) return false;
+    const KickLayer& L = kKickPresets[kick_preset].layer;
+    if (L.engine < 0) return false;
+    p.engine    = L.engine;
+    p.harmonics = L.harmonics;
+    p.timbre    = L.timbre;
+    p.morph     = decay_via_morph(L.engine) ? L.decay : L.morph;
+    p.decay     = L.decay;
+    p.volume    = L.volume * vel;
+    p.blend     = L.blend;
+    p.width     = 0.f;
+    p.drive     = clampf(seq_drive_lk);
+    note        = L.note;
+    return true;
 }
 
 // Fire drum slot i — used by both seq steps and manual pad hits in Seq mode.
@@ -460,6 +533,20 @@ static void trigger_drum(int i, float vel = 1.0f) {
     VoiceParams p = drum_params(i);
     p.volume *= vel;   // MIDI velocity; pads and seq steps pass 1.0
     pool.NoteOnWithParams(16 + i, drum_slots[i].note, p, VoiceGroup::kDrum);
+    VoiceParams lp; float ln;
+    if (i == 0 && kick_layer_params(lp, ln, vel))
+        pool.NoteOnWithParams(24, ln, lp, VoiceGroup::kDrum);
+}
+
+// Preview the kick (or any drum slot) exactly as a seq step would play it,
+// layer included. Every drum audition goes through here so a layered preset is
+// never auditioned as only half of itself — which is what auditioning
+// AuditionWithParams(drum_params(i)) directly would do.
+static void audition_drum(int i) {
+    pool.AuditionWithParams(drum_slots[i].note, drum_params(i), VoiceGroup::kDrum);
+    VoiceParams lp; float ln;
+    if (i == 0 && kick_layer_params(lp, ln, 1.0f))
+        pool.NoteOnWithParams(24, ln, lp, VoiceGroup::kDrum);
 }
 
 // Vary one slot in place: same engine, same note, params nudged. The unit
@@ -478,10 +565,16 @@ static void mutate_drum_slot_soft(int i) {
 // model had been chosen by hand, so "vary kit" could never bring the kit
 // back to kit-shaped sounds. In-pool slots are untouched by the snap, so
 // this is still "same kit, new variation" for a kit that was randomized.
+// A loaded kick preset counts as in-role whatever engine it sits on: the bank
+// reaches engines the kick pool doesn't (Additive, Waveshaping, VA+VCF), and
+// without this exception stage 1 would treat every one of them as "somebody
+// parked a synth on the kick pad" and snap it away mid-audition.
 static void mutate_drum_soft() {
     for (int i = 0; i < kPadSlots; i++) {
-        if (!slot_engine_in_pool(i, drum_slots[i].engine)) fill_drum_slot_from_pool(i);
-        else                                               mutate_drum_slot_soft(i);
+        const bool in_role = slot_engine_in_pool(i, drum_slots[i].engine)
+                             || (i == 0 && kick_preset >= 0);
+        if (!in_role) fill_drum_slot_from_pool(i);
+        else          mutate_drum_slot_soft(i);
     }
 }
 
@@ -683,6 +776,11 @@ enum class RecMode { IDLE, RECORDING };
 static volatile RecMode rec_mode = RecMode::IDLE;
 static int              rec_slot = -1;      // 0–6: slot being edited
 static PadSlot          rec_backup;          // saved state, restored on cancel
+static int              rec_backup_kick = -1; // kick_preset at entry — the slot
+                                              // alone doesn't carry it, so a
+                                              // cancel after stepping the bank
+                                              // would restore the parameters
+                                              // and keep the wrong index
 
 // Recording entry: hold pad 3–9 for kRecEntryHoldBlocks (AudioCallback-driven,
 // not touch callback). The count is read by the main loop for the accelerating
@@ -1419,6 +1517,8 @@ static void service_telemetry() {
     // exactly the state that outlives the visit.
     t.arp_pool  = arp.PoolMask();
     t.seq_pattern = static_cast<uint8_t>(seq.VariantSlot());
+    // Kick lab: 1-based so 0 can mean "not on a preset" without a sentinel.
+    t.kick_preset = static_cast<uint8_t>(kick_preset + 1);
     capture_pickups(t);
     const uint32_t now_ms = System::GetNow();
     compute_hold_telemetry(now_ms, t.hold_kind, t.hold_progress, t.hold_stage, t.hold_outcome);
@@ -1749,6 +1849,10 @@ static void process_rec_model_select(float s35_val) {
         live_slots()[rec_slot].engine = new_engine;
         rec_bank_thresh[bank]         = s35_val;
         pool.UpdateAuditionEngine(new_engine);
+        // Hand-picking an engine on the kick pad leaves the bank: the preset's
+        // parameters were authored for the engine they came with, and its
+        // punch/layer would keep applying to a sound that is no longer it.
+        if (rec_slot == 0) kick_preset = -1;
     }
 }
 
@@ -1804,10 +1908,51 @@ static void arm_rec_slot_pickups(int slot) {
     rec_bank_thresh[0]  = rec_bank_thresh[1] = s35;
 }
 
+// ─── Kick lab: stepping the bank ──────────────────────────────────────────────
+// P0+P10/P11 in Seq, and the same combo in Recording while the kick pad is the
+// one being edited. Both were unbound: Seq has no pitched octave for P0+P10/P11
+// to move, and Recording's P10/P11 drum-pitch branch already requires P0 to be
+// up. That is the whole reason this lives on a pad combo rather than a knob —
+// stepping a numbered bank wants discrete presses and an immediate sound, and
+// every free knob is behind pickup protection, which is exactly the wrong
+// behaviour for "play me the next one".
+//
+// Rails rather than wrap, blinking LIMIT at each end like every other rail on
+// the panel (root, base octave, arp range, layers): with 20 entries, wrapping
+// from the last to the first mid-audition reads as a fault, and "there is no
+// preset 21" is a thing worth being told.
+//
+// Called from the pad-down callback, i.e. ISR context — no blocking calls.
+static void step_kick_preset(int dir) {
+    const int next = (kick_preset < 0)
+                         ? (dir > 0 ? 0 : kNumKickPresets - 1)
+                         : kick_preset + dir;
+    if (next < 0 || next >= kNumKickPresets) {
+        led_event = LedEvent::LIMIT;
+        return;
+    }
+    apply_kick_preset(next);
+    // Recording has the whole knob layer armed against the slot's old values;
+    // the preset just replaced every one of them (same reasoning as the
+    // per-pad randomize stages, see fire_rec_slot_stage).
+    if (rec_mode == RecMode::RECORDING && rec_slot == 0) {
+        arm_rec_slot_pickups(0);
+        rec_hit_flash = true;
+    }
+    // A running seq plays the new kick on the next kick step; a stopped one
+    // would change in silence.
+    if (!seq.IsActive()) audition_drum(0);
+    led_event = LedEvent::CONFIRM;
+    // stage carries the 1-based preset number — the screen turns it back into
+    // "K07 909 SWEEP" (display/oled_ui.cpp, confirm_text case 9).
+    fire_confirm(9, static_cast<uint8_t>(next + 1));
+}
+
 static void enter_rec_mode(int slot) {
     rec_mode   = RecMode::RECORDING;
     rec_slot   = slot;
-    rec_backup = live_slots()[slot];
+    rec_backup      = live_slots()[slot];
+    rec_backup_kick = kick_preset;
     rec_hold_count     = 0;
     rec_entry_released = false;
     rec_tick           = 0;
@@ -1829,7 +1974,7 @@ static void enter_rec_mode(int slot) {
     // volume/sends (kDrum) — the pitched fader may be at zero.
     if (!(seq_mode_on && seq.IsActive())) {
         if (is_drum_mode) {
-            pool.AuditionWithParams(drum_slots[slot].note, drum_params(slot), VoiceGroup::kDrum);
+            audition_drum(slot);
         } else {
             pool.AuditionWithParams(root_note_f(), slot_params(live_slots()[slot]));
         }
@@ -1839,6 +1984,7 @@ static void enter_rec_mode(int slot) {
 
 static void cancel_rec_mode() {
     if (rec_slot >= 0) live_slots()[rec_slot] = rec_backup;
+    kick_preset = rec_backup_kick;
     rec_mode       = RecMode::IDLE;
     rec_slot       = -1;
     rec_hold_count = 0;
@@ -1937,8 +2083,7 @@ static void fire_hold_stage(int stage) {
     // in total silence. Audition the kick: it's slot 0, it's the sound the
     // curation is about, and one hit is enough to say "that landed".
     if (seq_mode_on) {
-        if (!seq.IsActive())
-            pool.AuditionWithParams(drum_slots[0].note, drum_params(0), VoiceGroup::kDrum);
+        if (!seq.IsActive()) audition_drum(0);
     } else {
         if (current_mode == PlayMode::ARP_MEL) {
             pool.AuditionWithParams(root_note_f(),
@@ -1962,9 +2107,7 @@ static void fire_hold_stage(int stage) {
 static void fire_rec_slot_stage(int stage) {
     if (rec_slot < 0) return;
     arm_rec_slot_pickups(rec_slot);
-    if (!(seq_mode_on && seq.IsActive()))
-        pool.AuditionWithParams(drum_slots[rec_slot].note, drum_params(rec_slot),
-                                VoiceGroup::kDrum);
+    if (!(seq_mode_on && seq.IsActive())) audition_drum(rec_slot);
     rec_hit_flash        = true;
     rec_p0p2_stage_fired = static_cast<uint32_t>(stage);
     fire_confirm(8, static_cast<uint8_t>(stage));
@@ -2841,6 +2984,11 @@ void AudioCallback(AudioHandle::InputBuffer in, AudioHandle::OutputBuffer out, s
             copy_hold_anim = src_held ? cancel_count : 0;
             if (cancel_count >= kLongHoldBlocks && src_held) {
                 live_slots()[cancel_pad] = live_slots()[rec_slot];
+                // Copying another drum onto the kick pad leaves the bank: the
+                // slot no longer holds the preset the index names. (The other
+                // direction is fine — a preset copied onto the snare pad is
+                // just a sound; punch and the layer are the kick's alone.)
+                if (cancel_pad == 0 && rec_slot != 0) kick_preset = -1;
                 // Audible confirmation: play the copied sound on the target.
                 if (is_drum_mode) {
                     trigger_drum(cancel_pad);
@@ -2938,7 +3086,7 @@ void AudioCallback(AudioHandle::InputBuffer in, AudioHandle::OutputBuffer out, s
             // *pitched* group, which is silent whenever that fader is down,
             // so editing against a paused seq gave no sound at all.
             if (is_drum_mode) {
-                pool.AuditionWithParams(slot.note, drum_params(rec_slot), VoiceGroup::kDrum);
+                audition_drum(rec_slot);
             } else {
                 pool.AuditionWithParams(root_note_f(), slot_params(slot));
             }
@@ -3273,7 +3421,13 @@ void AudioCallback(AudioHandle::InputBuffer in, AudioHandle::OutputBuffer out, s
 // recorder's loop content (that's a take, not a setting). The snapshot
 // doubles as the change detector inside SettingsJournal::Tick, so no gesture
 // handler needs a dirty flag.
-static constexpr uint16_t kPersistVersion = 1;
+// v2 (2026-08-08) added kick_preset. A version bump discards existing records
+// (Init returns false and boot falls through to the randomized start), which
+// is the intended behaviour for a layout change — and the alternative here was
+// worse: without it, a restored kick would come back with the preset's
+// parameters but not its identity, so its punch, its layer and its exemption
+// from Tightness would all silently disappear across a power cycle.
+static constexpr uint16_t kPersistVersion = 2;
 
 struct __attribute__((packed)) SlotPersist {
     uint8_t  engine;
@@ -3297,6 +3451,7 @@ struct __attribute__((packed)) PersistState {
     uint8_t arp_state8;
     uint8_t flags;   // bit0 bp_slots_active, 1 drum_kit_ready,
                      // 2 arp_snd_ready, 3 rec_snd_ready, 4 arp_run_on
+    uint8_t kick_preset;  // kick lab, 1-based; 0 = no preset (see kick_preset)
     SlotPersist bp[kPadSlots], drum[kPadSlots], arp_s, rec_s;
 };
 static_assert(sizeof(PersistState) <= SettingsJournal::kMaxPayload,
@@ -3367,6 +3522,7 @@ static void capture_state(PersistState& st) {
     st.flags = (bp_slots_active ? 1u : 0u) | (drum_kit_ready ? 2u : 0u)
              | (arp_snd_ready ? 4u : 0u)  | (rec_snd_ready ? 8u : 0u)
              | (arp_run_on ? 16u : 0u);
+    st.kick_preset = static_cast<uint8_t>(kick_preset + 1);
     for (int i = 0; i < kPadSlots; i++) {
         persist_slot(st.bp[i],   bp_slots[i]);
         persist_slot(st.drum[i], drum_slots[i]);
@@ -3412,6 +3568,10 @@ static void apply_state(const PersistState& st) {
     arp_snd_ready   = st.flags & 4u;
     rec_snd_ready   = st.flags & 8u;
     arp_run_on      = st.flags & 16u;
+    // Range-checked rather than trusted: the bank can shrink between builds,
+    // and an index past its end would read off the table on the first kick.
+    kick_preset = (st.kick_preset >= 1 && st.kick_preset <= kNumKickPresets)
+                      ? st.kick_preset - 1 : -1;
     for (int i = 0; i < kPadSlots; i++) {
         restore_slot(bp_slots[i],   st.bp[i]);
         restore_slot(drum_slots[i], st.drum[i]);
@@ -3578,11 +3738,18 @@ int main() {
             }
 
         } else if (pad == 10) {
-            if (rec_mode == RecMode::RECORDING && is_drum_mode
+            if (seq_mode_on && touch.pads().IsTouched(0)
+                    && !touch.pads().IsTouched(2)   // P2 keeps its transport combos
+                    && (rec_mode == RecMode::IDLE
+                        || (rec_mode == RecMode::RECORDING && rec_slot == 0))) {
+                // Kick lab: previous preset. Free in both states — see
+                // step_kick_preset().
+                step_kick_preset(-1);
+            } else if (rec_mode == RecMode::RECORDING && is_drum_mode
                     && !touch.pads().IsTouched(0) && rec_slot >= 0) {
                 auto& s = live_slots()[rec_slot];
                 s.note = std::max(0.f, s.note - 1.f);
-                pool.AuditionWithParams(s.note, drum_params(rec_slot), VoiceGroup::kDrum);
+                audition_drum(rec_slot);
             } else if (rec_mode == RecMode::IDLE && touch.pads().IsTouched(2)
                        && !seq_mode_on && current_mode == PlayMode::ARP_MEL
                        && arp_state == ArpState::REC) {
@@ -3675,11 +3842,17 @@ int main() {
             }
 
         } else if (pad == 11) {
-            if (rec_mode == RecMode::RECORDING && is_drum_mode
+            if (seq_mode_on && touch.pads().IsTouched(0)
+                    && !touch.pads().IsTouched(2)   // P2 keeps its transport combos
+                    && (rec_mode == RecMode::IDLE
+                        || (rec_mode == RecMode::RECORDING && rec_slot == 0))) {
+                // Kick lab: next preset — see the P10 branch.
+                step_kick_preset(1);
+            } else if (rec_mode == RecMode::RECORDING && is_drum_mode
                     && !touch.pads().IsTouched(0) && rec_slot >= 0) {
                 auto& s = live_slots()[rec_slot];
                 s.note = std::min(127.f, s.note + 1.f);
-                pool.AuditionWithParams(s.note, drum_params(rec_slot), VoiceGroup::kDrum);
+                audition_drum(rec_slot);
             } else if (rec_mode == RecMode::IDLE && touch.pads().IsTouched(2)) {
                 // P2 (held first) + P11 → drum seq play/pause, in any playmode.
                 // P2 being down disables P11's octave function until release.

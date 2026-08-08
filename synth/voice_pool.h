@@ -393,9 +393,14 @@ public:
     // gate-held. Called when the previous audio block ran too close to the
     // budget — an early tail fade instead of a buffer overrun.
     bool ShedVoice() {
+        // Same kick preference as find_free_or_steal(): shedding the downbeat
+        // to save a hat is the wrong trade, so the kick is the last thing
+        // fading early — but it is still sheddable if it is all there is.
         int victim = -1;
-        for (int i = 0; i < kVoices; i++) {
-            if (awake[i] && !gate_held[i]) {
+        for (int pass = 0; pass < 2 && victim < 0; pass++) {
+            for (int i = 0; i < kVoices; i++) {
+                if (!awake[i] || gate_held[i]) continue;
+                if (pass == 0 && is_kick_voice(pad_slot[i])) continue;
                 if (victim < 0 || timestamp[i] < timestamp[victim]) victim = i;
             }
         }
@@ -531,6 +536,16 @@ private:
         }
     }
 
+    // The kick's own voice id (16 + slot 0) and its optional layered second
+    // voice — see the kick lab in TouchPlaited.cpp. Steal-last, not
+    // steal-never: on a dense pattern the oldest voice is very often the kick,
+    // because a long 808 tail is still allocated when the next bar's hats and
+    // percussion arrive, and losing the downbeat is the one truncation that is
+    // always audible. If every voice in the pool is a kick voice the ordinary
+    // oldest-first rule still applies, so a stuck kick can never wedge the
+    // pool — it just goes last in the queue.
+    static bool is_kick_voice(int slot) { return slot == 16 || slot == 24; }
+
     int find_free_or_steal() {
         // Prefer a genuinely free voice (not the active audition slot).
         for (int i = 0; i < kVoices; i++) {
@@ -543,10 +558,21 @@ private:
             pad_slot[idx] = -1;
             return idx;
         }
-        // Steal oldest note.
-        int oldest = 0;
-        for (int i = 1; i < kVoices; i++) {
-            if (timestamp[i] < timestamp[oldest]) oldest = i;
+        // Steal the oldest voice that isn't a *sounding* kick; only if the
+        // pool is nothing but those does the plain oldest-first rule take
+        // over. Drum voices never get a NoteOff, so pad_slot alone would keep
+        // protecting a kick long after it decayed and went to sleep — awake is
+        // what distinguishes "still ringing" from "finished, reusable".
+        int oldest = -1;
+        for (int i = 0; i < kVoices; i++) {
+            if (is_kick_voice(pad_slot[i]) && awake[i]) continue;
+            if (oldest < 0 || timestamp[i] < timestamp[oldest]) oldest = i;
+        }
+        if (oldest < 0) {
+            oldest = 0;
+            for (int i = 1; i < kVoices; i++) {
+                if (timestamp[i] < timestamp[oldest]) oldest = i;
+            }
         }
         if (oldest == audition_idx) audition_idx = -1;
         voices[oldest].Trigger(false);
