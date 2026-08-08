@@ -462,7 +462,7 @@ morph on the starred engines), **S32 Harmonics**, **S33 Timbre**,
 
 | #  | Engine           | S32 Harmonics | S33 Timbre | S34 Morph | S31 Decay/Tail |
 |----|------------------|---------------|------------|-----------|----------------|
-| 0  | VA + VCF         | Filter cutoff | Resonance  | Osc mix   | Env decay |
+| 0  | VA + VCF         | Resonance     | Filter cutoff | Osc mix/sub | Env decay |
 | 1  | Phase Distortion | PD waveform   | Saturation | Symmetry  | Env decay |
 | 2  | Six-Op A *       | FM algorithm  | Op levels  | **→ S31** | = morph: DX7 env time |
 | 3  | Six-Op B *       | FM algorithm  | Op levels  | **→ S31** | = morph: DX7 env time |
@@ -489,6 +489,12 @@ morph on the starred engines), **S32 Harmonics**, **S33 Timbre**,
 
 \* morph-decay engines. Six-Op additionally renders identical OUT and AUX, so
 blend and stereo width do nothing on 2–4.
+
+**Engine 0's harmonics/timbre were swapped in this table until 2026-08-08**
+(found while building the kick lab, `virtual_analog_vcf_engine.cc`: cutoff is
+`f0 * 2^((timbre - 0.2) * 10)`, resonance is `|harmonics - 0.5|`). The
+visualizer's `ENGINE_KNOBS` always had it right, so this row was the only place
+the error lived.
 
 **Six-Op A/B/C note:** these engines produce sound only in specific parameter
 regions. At random/default values they are often silent, and some combinations
@@ -529,14 +535,365 @@ moved to 76–100); Modal's tail has to be capped well below 0.9 for percussion;
 a Snare engine pitched high with a body-heavy timbre gives the rim/wood tick
 that String was wrongly used for.
 
-> **Feeds ROADMAP:** the open `kDrumKick` question — whether more kicks can
-> come from existing engines with the right preset, or need a purpose-written
-> one — is exactly a question about this list. The pool entries are
-> engine + parameter ranges (`kDrumPools`, `TouchPlaited.cpp`), so a
-> candidate engine only has to reach kick territory in harmonics/decay at
-> some settings. Waveshaping (9) and the 2-op FM (10) are the obvious first
-> auditions; Modal (20) and Particle (18, if the crackle can be dialled out)
-> are the outside bets.
+> **Answered by the kick lab below** (2026-08-08): yes, existing engines
+> reach it — nothing had to be written into `thirdparty/plaits`. What was
+> missing was not DSP but *reachable parameter space*, in three specific
+> places the pool ranges never went.
+
+---
+
+## Kick lab (2026-08-08)
+
+The branch that turned the open `kDrumKick` question into a bank you can step
+through. Twenty candidates were built and auditioned on hardware the same day;
+**twelve survived** (`synth/kick_presets.h`), and the bank went from a probe to
+the kick pad's actual pool.
+
+### The audition round, and what it cut
+
+Verdict from the hardware pass, verbatim in effect: **the entire 2-op FM family
+(the old K8–K13) reads as "too much regular synth"** — not as a drum. Six
+presets, one engine, one verdict, which makes it a finding about engine 10 as a
+kick rather than about six sets of numbers. Worth holding onto: the FM engine's
+own envelope is the LPG in ping mode, so an FM kick has no pitch envelope of
+its own, and what makes an FM drum read as a drum is precisely the pitch drop.
+It can be tuned into kick *territory* — the analysis below was right about the
+16–33 Hz fundamental — but it lands there as a bass note with a fast decay,
+which is the description of "regular synth".
+
+**Two of the three layered presets also failed**, and in different ways: the
+noise transient (old K18, engine 17 over a deep 808) "sounds bad crackled", and
+the FM snap (old K19, engine 10 at note 84) sat "too high pitch on top". The
+one that survived is the one that layers engine 21 with *itself* — 909 attack
+over an 808 sub. So the lesson is not "layering doesn't work" but that a layer
+has to be the same instrument twice: a foreign transient stapled to a kick
+reads as a fault or as a second sound, not as one drum. That it is also the
+cheapest of the three (one engine, no second render path) is a coincidence
+worth taking.
+
+Everything else held: the seven engine-21 presets and all four outside bets
+(Additive, Waveshaping, VA+VCF, Modal). Notably the outside bets all survived
+while the family purpose-built for FM did not, which was not the expected
+result.
+
+### What the bank became
+
+| | |
+|---|---|
+| **Twelve presets** | `synth/kick_presets.h`, grouped: 8 on engine 21, then the four outside bets |
+| **The kick's random pool** | `fill_drum_slot_from_pool(0)` draws a preset instead of rolling inside a DrumOpt range — a randomized kit now gets a kick that was *chosen*, and one that can be named |
+| **A loadable model** | the 12th position of P0+S35 on the kick pad, past the eleven engines: `KICK BANK` |
+| **S32 = kick select** | a 12-way quantizer once the bank is loaded |
+| **S33/S34/S37 = Tone / Punch / Body** | bounded windows, per preset |
+| **P0+P10/P11** | still the fast stepper, from Seq idle or from Rec |
+
+`kDrumKick` is gone. Its two entries were exactly the two sounds the audition
+rejected, and for reasons a parameter range cannot fix — so `kDrumPools[0]`
+is now a null entry and slot 0 is special-cased in the two places that read the
+table (`fill_drum_slot_from_pool`, `slot_engine_in_pool`). Curated points beat
+rolled ones for one instrument; the other six keep their ranges, where the
+variety is the point.
+
+**The three live knobs are semantic, not parametric.** Tone is always "dark to
+bright", Punch always "soft to hard", Body always "the weight of the drum" —
+but they land on the same three PadSlot fields (`timbre`, `harmonics`, `blend`)
+whatever engine is underneath, and those fields mean six different things
+across the six engines the bank uses. Each preset therefore carries a `KickAxes`
+window per knob, and the knob sweeps *inside* it. Two things fall out of that,
+both of which were the ask:
+
+- **Consistency.** One gesture means one thing across all twelve presets.
+- **You cannot turn a kick out of the instrument.** Full-travel harmonics on
+  engine 12 is a chord; full-travel resonance on engine 0 is a whistle. The
+  window is the part of each range that still answers to the word "kick".
+
+The authored value always lies inside its own window, so loading a preset and
+then catching a knob never moves the sound before you turn it. `mutate_drum_slot_soft()`
+re-clamps into the same windows, so "vary kit" — the path most likely to be
+used repeatedly — cannot walk a preset out of them either.
+
+One ordering bug this forced, worth recording because it was invisible until
+the kick had a blend worth keeping: `generate_drum_random()` reset
+blend/width/drive **after** filling the slots. That was harmless while every
+slot came from a DrumOpt table (those set none of those fields), but a preset
+carries blend, and blend is half of what a preset *means* on engine 21 — so the
+reset would have flattened every randomizer kick back to the same 0.5 the bank
+exists to escape. The reset now runs first.
+
+### Why the shipped kick sounded like two mediocre choices
+
+*The analysis that built the twenty candidates, kept as written — it is what
+decided where in each engine to aim, and the audition above is what decided
+which of those aims landed.*
+
+The complaint was "either a very synth sound or a rather low-energy kick
+model", i.e. the two entries of `kDrumKick`. Reading the engines rather than
+the knob names found that neither entry was reaching the good part of its own
+engine, and each for a different, findable reason.
+
+**1 — Engine 21 is two drums, and the kit pinned it halfway between them.**
+`bass_drum_engine.cc` renders the 808-style analog bass drum (resonator +
+overdrive) to OUT and the "inadvertently 909-ish" synthetic one to AUX. The
+Blend fader crossfades them, so 0.0 and 1.0 are two different instruments —
+but `generate_drum_random()` resets every slot's blend to 0.5, so every
+randomized kick has always been the same half-and-half compromise. That is the
+"very synth sound": the 909's click and pitch sweep smeared over the 808's
+body. Nothing was broken; the one control that separates them was never
+allowed to move.
+
+**2 — Engine 10 plays two octaves below its note.** `fm_engine.cc` opens with
+`note = parameters.note - 24`, and its AUX is a further octave down. The
+pool's 36–48 note range therefore put the FM kick's fundamental at **16–33 Hz**
+— below what most speakers reproduce — with `timbre` capped at 0.30, i.e. a
+modulation index of `2 * 0.30² = 0.18`, so barely any harmonics either. An
+inaudible fundamental and almost no sidebands is exactly "low energy". The
+presets put its notes at 56–72.
+
+**3 — Tails were being cut twice.** On engine 21 the tail is `decay` routed to
+morph, and S37 Tightness then multiplies it by `0.2 + tight*0.8`. At the
+centre detent that is ×0.6, so the pool's already-short 0.05–0.30 range
+sounded as an effective 0.03–0.18. The analog resonator's Q is
+`1500 * 2^(morph*80/12)`: 0.18 is a click, ~0.78 is a ~0.4 s ring at 39 Hz,
+0.90 is over a second. The long kicks were not missing — they were unreachable.
+
+**4 — `harmonics` on engine 21 is three controls in a row**, and the pool's
+0.20–0.55 range stopped just before the interesting half. Analog side:
+0.00–0.25 attack-FM depth, 0.25–0.50 self-FM, **0.50–1.00 overdrive**.
+Synthetic side: 0.00–0.50 pitch-sweep depth, **0.50–1.00 sweep length**. Both
+the grit and the long pitch drops live above 0.5.
+
+Two smaller ones, both fixed with the bank:
+
+- **Kick punch fought every deep preset.** `drum_params()` pushed slot 0's
+  timbre toward 1.0 in proportion to S30 Drive. On engine 21 timbre is the
+  tone lowpass *and* the synthetic click level, so turning drive up made deep
+  kicks bright and clicky — the opposite of what "more kick" should do. Punch
+  is now a per-preset share of Drive (0.15–0.35 on the deep ones, up to 0.8 on
+  the bright ones); a pool kick keeps the old flat 1.0.
+- **Note range.** The pool's 36–48 is 65–131 Hz. 48 is a tom, not a kick. The
+  808-family presets sit at 27–38 (33–92 Hz).
+
+### The bank, and the graveyard
+
+Grouped by engine so that stepping walks a family at a time — auditioning
+wants neighbours that compare.
+
+Numbers are the shipped ones; the ✗ rows were built, auditioned and cut, and
+are listed because "we tried engine 10 six ways" is worth not re-deriving.
+
+| K | Name | Engine | What it is for |
+|---|------|--------|----------------|
+| 1 | 808 DEEP | 21 analog | The plain deep 808: dark, ~0.4 s ring |
+| 2 | 808 SUB | 21 analog | The extreme end — 33 Hz, tail over a second |
+| 3 | 808 DRIVE | 21 analog | h 0.88: the engine's own overdrive + full self-FM |
+| 4 | 909 PUNCH | 21 synth | Classic 909, moderate sweep and click |
+| 5 | 909 SWEEP | 21 synth | h 0.80 = full-depth pitch drop that takes its time |
+| 6 | 909 CLICK | 21 synth | Bright and short — the one that cuts through |
+| 7 | HYBRID | 21 both | Analog body, 909 transient, weighted to the body |
+| 8 | 909+808 | 21 + 21 | Stacked kicks: 909 attack over an 808 sub (layered) |
+| 9 | FOLD SUB | 9 Waveshaping | A sub with fold harmonics instead of FM ones |
+| 10 | VCF BOOM | 0 VA+VCF | Resonant filter thump (no filter sweep — it held up anyway) |
+| 11 | MODAL KNOCK | 20 Modal | Woody knock, at real CPU cost (see below) |
+| ✗ | FM 1:1 · FM SUB 1:2 · FM AUX SUB · FM GRIT · FM SNAP · FM LONG | 10 | Ratio 1 / 0.5 / AUX sub / gritty feedback / high-index snap / long LPG. All six read as synth bass, not as drums |
+| ✗ | SUB+CLICK | 21 + 17 | Noise transient over a deep 808 — crackled |
+| ✗ | SUB+SNAP | 21 + 10 | FM snap over a deep 808 — sat too high |
+| ✗ | SINE PURE | 12 Additive | Cut in the second pass — it masked the kit *and* held a voice for 7.4 s. See "The LPG tail trap" below |
+
+FM ratios come from a quantizer LUT, not a linear map. Kept here even though
+the FM presets are gone, because it is the thing that has to be looked up again
+the moment anyone tries engine 10 for anything: h 0.00 = 0.5×, 0.24 = 1×,
+0.47 = 2×, 0.65 = 3×, 0.75 = 4×, 1.00 = 8×.
+
+### CPU and voice cost
+
+Not measured on hardware — this is what the sources say to expect, and the
+figures to check against. Everything is stated per sounding voice.
+
+- **Engine 21 costs the same whatever `blend` is.** Both drums render every
+  block regardless; blend is a mix applied afterwards. So the entire 808/909
+  axis, including HYBRID, is free — and eight of the twelve presets are on it.
+- **Engine 20 (MODAL KNOCK) is on `engine_is_heavy()`** — a bank of resonators,
+  and now the only expensive entry in the bank. It earned its place on
+  hardware; the cost is the reason to know which preset is loaded.
+- **909+808 costs one extra voice of the six** for the length of the layer's
+  own tail — and that tail is a deep 808 at morph 0.88, so roughly half a
+  second, not the few tens of milliseconds the cut noise/FM layers cost. It is
+  still the cheapest *kind* of layer: one engine, both of its drums, each with
+  its own pitch and tail, so a second engine's render cost is avoided
+  entirely. Since the randomizer can land on it, this is the one bank entry
+  that changes the kit's voice budget, and it is 1 in 11 — worth listening for
+  against a dense pattern (filed in `ROADMAP.md`).
+- The layer fires on **voice id 24**, outside the pad range (0–6) and the drum
+  range (16–22), so nothing NoteOffs it and it rings out as a one-shot.
+
+### The LPG tail trap — why SINE PURE was cut
+
+Reported after the starvation fix below: *"the kick that is still choking all
+the other drums seems to be K09 SINE PURE"*. It was, and for a reason that
+turns out to be a property of a whole class of preset rather than of that one.
+
+**Eight of the twelve presets never touch the LPG.** Engines 21 and 20 are
+`already_enveloped`, so Plaits bypasses the low-pass gate and the sound's
+length is the engine's own envelope — bounded, and audible right up to its
+end. The three "outside bet" engines (12, 9, 0) are not, so their tail is the
+LPG in ping mode, and that has two properties nothing else in the drum path
+has: **it ignores the gate entirely** (`ProcessPing` fires on the rising edge
+and runs its own schedule — our one-shot timer does nothing to it), and its
+fall is brutally non-linear in `patch.decay`. Simulated from
+`LowPassGate::ProcessLP`, time for the gain to reach the pool's silence
+threshold:
+
+| decay | to −40 dBFS | to −80 dBFS (= voice released) |
+|-------|-------------|-------------------------------|
+| 0.30 | 0.77 s | 1.34 s |
+| 0.35 | 0.94 s | 1.64 s |
+| 0.45 | 1.41 s | 2.46 s |
+| 0.60 | 2.55 s | 4.53 s |
+| 0.72 | 4.12 s | **7.37 s** |
+
+SINE PURE was authored at 0.72. So every kick masked the kit with four seconds
+of 55 Hz sine *and* held one of six voices for seven — on a pattern with a kick
+every beat, one voice was simply gone. Both halves of "choking" were literally
+true, and the sound half is why no threshold change could have saved it.
+
+**And the pool's own repair made it worse.** `find_free_or_steal()` had just
+learned to take a *sleeping* voice before any sounding one, which is right in
+general — but it meant the one voice that never slept was never reclaimed
+either. The rule protected the worst offender by accident.
+
+Three things came out of it:
+
+- **SINE PURE is cut.** A 4 s audible sine is not a kick, and there is no
+  parameter that makes engine 12 into one without making it into something
+  else.
+- **FOLD SUB and VCF BOOM are re-authored** from 0.60/0.45 down to 0.34/0.30.
+  They had the same fault, just slower — 4.5 s and 2.5 s of voice apiece. The
+  audible tail drops from ~2.5 s to ~0.9 s on FOLD SUB, which is still a long
+  kick and no longer a drone. **Any future LPG-engine preset belongs at or
+  below ~0.35**, and `synth/kick_presets.h` says so where the numbers are.
+- **Drum one-shots now sleep at −60 dBFS, not −80** (`kDrumSilenceThresh`).
+  A pitched voice is held by a finger and its release tail is something you are
+  listening to, so following it to the noise floor is right; a drum's last
+  20 dB is inaudible under a kit while the voice it holds is not. This is the
+  safety net, not the fix — the presets are authored around the problem now,
+  but the pool should not have depended on that.
+
+### Kick priority — and the starvation it caused first
+
+The second half of the roadmap's decision. `VoicePool::find_free_or_steal()`
+stole the oldest voice, and on a dense pattern the oldest voice is very often
+the kick — a long 808 tail is still allocated when the next bar's hats and
+percussion arrive. Losing the downbeat is the one truncation that is always
+audible. So kick voices (16 and its layer 24) are stolen **last**, not never:
+if every voice is a protected kick the plain oldest-first rule still applies,
+and the pool can never wedge. `ShedVoice()` gets the same preference.
+
+**The first version of this was wrong in a way worth recording**, because the
+mistake is one that looks like the obvious implementation. It keyed the
+protection on `awake[i]` — protect the kick for as long as it is still making
+sound. With the bank's presets that is 0.4–1.4 s, which on a four-on-the-floor
+is most of the bar, so one or two of six voices became effectively *reserved*
+and the other six drums thrashed what was left. It came back from hardware as
+"the general tightness of all drums except the kick is super short", which
+sounds like an S37 fault and is not one: `seq_tight_lk` was never touched.
+
+The tell was the second half of the report — **a freshly randomized kit
+sounded right for about a bar, then clamped down.** Nothing about a stuck knob
+does that. Voice contention does exactly that: for the first bar the oldest
+voices still belong to the *previous* kit and have already finished, so
+stealing them is inaudible; from the second bar on, every steal cuts a live
+tail. Two changes from this branch compounded — kicks that hold a voice for a
+second (intended) and a protection with no end (not).
+
+Two fixes, and the second is the bigger one:
+
+- **The window is now 150 ms from the strike** (`kProtectChunks`), fixed, not
+  the length of the sound. What the protection is for is the attack and body,
+  the part whose loss reads as a dropped downbeat; the ring-out is not worth a
+  hat. It also releases before the next kick at any usable tempo.
+- **A sleeping voice is stolen before any sounding one.** This is independent
+  of the kick and was a latent fault the whole time: drum voices never get a
+  NoteOff, so their `pad_slot` stays set forever and the free-slot scan can
+  never see them — the pool went straight to stealing the oldest *sounding*
+  voice while a finished one sat unused beside it. With six voices and seven
+  drum slots that happens constantly, and it is the single biggest cause of
+  drum tails being cut short. Now a live tail is only ever truncated when all
+  six voices are genuinely sounding.
+
+Related, found while chasing the same report: the P0 release edge re-armed
+S37's Rec pickup against the slot's **raw blend** rather than its position in
+the preset's Body window (`arm_rec_slot_pickups()` had already been taught the
+conversion; this second site had not). Since several presets sit at blend 0.0
+that also armed a *rail*, which catches on any 3% nudge — so Body jumped the
+moment S37 was touched after using P0 for anything, including the P0+P10/P11
+stepper. That one really was an S37 bug, just not the one that was audible.
+
+### Where the bank lives on the panel, and why
+
+The roadmap decision floated replacing Seq mode with a preset finder. That
+turned out to be unnecessary: **Recording mode already is the preset finder.**
+It auditions the edited slot on a 0.5 s pulse against a stopped seq (or
+force-fires it every other step against a running one), it has the whole
+per-slot knob layer live and pickup-protected, and it has per-slot pitch on
+P10/P11. What it lacked was a way to jump between known sounds instead of
+randomizing toward them — one gesture, not a mode.
+
+Three entry points, deliberately:
+
+- **P0+P10/P11**, from Seq idle or from Rec on the kick pad — the fast walk.
+  Chosen over the suggested P0+S31 because stepping a numbered bank wants
+  discrete presses with an immediate sound, and every free knob is behind
+  pickup protection, which is exactly the wrong behaviour for "play me the next
+  one". Genuinely unbound in both states: Seq has no pitched octave for
+  P0+P10/P11 to move, and Recording's drum-pitch branch already required P0 to
+  be *up*.
+- **P0+S35 → `KICK BANK`**, the 12th position of bank 0 on the kick pad, past
+  the eleven engines. Top of the throw because that is the one boundary a hand
+  finds without looking. Positions 0–10 keep their engines and only the
+  divisions between them narrow, and only on this one pad — the alternative, a
+  24th engine slot, would have made the same knob position mean different
+  things on different pads across both banks.
+- **S32**, once the bank is loaded — a 12-way quantizer. A `MoveCatch` rather
+  than a `KnobPickup`, because the target is a position in a quantizer and not
+  a stored float: there is nothing to cross, and requiring a deliberate ~3%
+  nudge is what stops entering Rec from jumping the kick to whatever preset the
+  pot happens to sit over. It re-arms the whole layer on each change (a new
+  preset is a new set of values under every pot) *except its own catch*, which
+  has to stay caught or one sweep would only ever advance one preset.
+
+Everything not listed keeps its job: S30 Drive, S31 Decay, S36 Volume, P0+S37
+Width, P10/P11 pitch. Nothing was taken away to make room — S37 in Rec was
+already the OUT↔AUX blend, which on engine 21 *is* the 808↔909 body control;
+the bank only gives it bounds and a better name.
+
+Two behaviours are deliberately different once a preset is loaded, both so
+that what the bank plays is what the bank was authored as:
+
+- **S37 Tightness does not scale a preset's tail.** A knob quietly rescaling
+  the thing under audition makes the audition meaningless (see finding 3
+  above). Per-slot decay (S31 in Recording) is the right way to shorten one
+  kick; tightness keeps its meaning on every other slot.
+- **Editing a preset's knobs does not clear the preset index.** "Preset 7 with
+  a shorter tail" is still preset 7 for the purpose of judging preset 7. The
+  index is cleared only by pointing the pad at something outside the bank —
+  hand-picking an engine in Rec, or copying another drum onto the kick pad.
+  Note the test for that is on the *selection*, not the engine: a preset on
+  engine 21 and a hand-picked engine 21 are the same number, and only the
+  second should lose the preset's punch, layer and Tightness exemption.
+
+### What to report back from an audition pass
+
+Preset numbers are on the OLED (the confirm flash, S32's own value row, and the
+Rec status row while the kick pad is being edited) and in the visualizer's
+action log. The values behind them are visible live: the KIT frame publishes
+each slot's engine / harmonics / timbre / morph / decay / note, and in
+Recording the pots *are* the slot values once picked up — though on the kick
+they are now window *positions*, so a Tone reading of 60% means 60% of that
+preset's tone window, not 0.60 timbre. What is most useful back here is **which
+numbers worked, and for the ones that nearly worked, which of Tone / Punch /
+Body you moved and roughly where it landed** — the windows in
+`synth/kick_presets.h` were derived from reading the engines, and the hardware
+is the only thing that can say whether each one is drawn in the right place.
 
 ---
 

@@ -18,6 +18,8 @@ Three playmodes, picked with the right toggle (**SW2**):
 - **Arp/Mel** (center) — an arpeggiator (with hold/latch) plus a layered 2-bar note recorder — the arp and the recorder each play their own independent sound.
 - **Seq** (up) — a 16-step generative drum sequencer loaded with drum/percussive models, with preloaded patterns per genre.
 
+Six of the seven drums are rolled from per-role pools of engines and parameter ranges. **The kick is not** — it draws from a bank of eleven fixed, numbered kicks, curated by ear rather than generated: the 808 and the 909 as two separate instruments, long pitch sweeps, the bass drum engine's own overdrive, a stacked 909-over-808, and a few from engines never meant to be drums. Step it with **P0 + P10/P11** while the pattern plays; the screen names each one (`K05 909 SWEEP`). See [The kick bank](MANUAL.md#the-kick-bank).
+
 All three can run at once — the drum sequencer and the melodic modes are independent and keep playing across mode switches. A fader (S37) mixes each sound's OUT/AUX outputs.
 
 **MIDI in/out** on USB and on TRS (USART1, D13/D14 — for hardware-modded boards): notes on ch1 (pitched, chromatic) and ch10 (GM drums, laid out as a 4×4 grid and carrying the pattern's own accents as velocity), CC20–31 for sound and sequencer functions plus CC85–88 for the reverb/delay sends, the pads/sequencer mirrored to MIDI out, and full clock sync on both MIDI and CV (S43 in / S40 out) — it follows an external clock (with start/stop) and sends its own when there isn't one.
@@ -37,11 +39,12 @@ Two toggles, eight knobs, twelve touch pads. **SW2** (right toggle) picks the pl
 
 1. **Start the drums.** Flick **SW2 Up** (Seq mode) — a fresh drum kit is generated and the 16-step sequencer starts playing. Turn **S31** for tempo, **S32** for shuffle, **S33** for density. Flick **SW1** left or right to switch genre (Techno / Electro / IDM); turn **S35** to step through that genre's patterns.
 2. **Play drums live.** Tap the musical pads **P3–P9** — kick, snare, closed hat, open hat, clap, tom, perc.
-3. **Add a synth on top.** Flick **SW2 Down** (Basic Pitch) — the drums keep playing. P3–P9 now play notes; **P10 / P11** shift the octave down / up, and SW1 picks the scale (minor / chromatic / major).
-4. **Shape the sound.** **S32** harmonics, **S33** timbre, **S34** morph, **S31** decay, **S30** drive, **S37** OUT↔AUX blend. Choose an engine by holding **P0** (bank 0) or **P2** (bank 1) while turning **S35**.
-5. **Let it play itself.** Flick **SW2 Center** (Arp/Mel) and hold a few pads — the arpeggiator plays them. **S32** sets the rate, **S35** the note order, **S34** thins the pattern out. Flick **SW1 left** (Hold) to latch the notes, **SW1 right** (Rec) to hear pads on their own sound without recording yet — hold **P2 then tap P10** to arm, then play to record into a 2-bar loop.
-6. **Fine-tune one drum.** In Seq mode, hold any musical pad for 2 s to enter **Recording** — the knobs now edit just that slot. Hold the same pad 1.2 s again to save.
-7. **Pause / resume the drums** from any mode: hold **P2**, then tap **P11**. Same for the arp and its loop: **P2**, then **P10**.
+3. **Pick a kick.** Hold **P0** and tap **P11** / **P10** to walk the eleven-strong kick bank while the pattern runs. Deep 808s, sweeping 909s, a stacked one, a woody knock — the screen names each.
+4. **Add a synth on top.** Flick **SW2 Down** (Basic Pitch) — the drums keep playing. P3–P9 now play notes; **P10 / P11** shift the octave down / up, and SW1 picks the scale (minor / chromatic / major).
+5. **Shape the sound.** **S32** harmonics, **S33** timbre, **S34** morph, **S31** decay, **S30** drive, **S37** OUT↔AUX blend. Choose an engine by holding **P0** (bank 0) or **P2** (bank 1) while turning **S35**.
+6. **Let it play itself.** Flick **SW2 Center** (Arp/Mel) and hold a few pads — the arpeggiator plays them. **S32** sets the rate, **S35** the note order, **S34** thins the pattern out. Flick **SW1 left** (Hold) to latch the notes, **SW1 right** (Rec) to hear pads on their own sound without recording yet — hold **P2 then tap P10** to arm, then play to record into a 2-bar loop.
+7. **Fine-tune one drum.** In Seq mode, hold any musical pad for 2 s to enter **Recording** — the knobs now edit just that slot. Hold the same pad 1.2 s again to save.
+8. **Pause / resume the drums** from any mode: hold **P2**, then tap **P11**. Same for the arp and its loop: **P2**, then **P10**.
 
 > **Tip:** connect the [visualizer](https://jonwaterschoot.github.io/TouchPlaited/visualizer/) over USB MIDI to see every control light up and name itself live while you play.
 
@@ -108,6 +111,7 @@ The build output is `build/TouchPlaited.bin`. See [thirdparty/README.md](thirdpa
 | [`TouchPlaited.cpp`](TouchPlaited.cpp) | Main firmware entry point — mode/state machine, wires the pieces below together |
 | [`synth/`](synth/) | The Plaits voice pool and engine integration, drum sequencer, arp + note recorder, reverb/delay FX, and the QSPI settings journal (auto-save/restore) |
 | [`synth/patterns/`](synth/patterns/) | Drum sequencer patterns as headers, one folder per genre (`techno/`, `electro/`, `idm/`) |
+| [`synth/kick_presets.h`](synth/kick_presets.h) | The eleven curated kicks, their tweak windows, and the notes on each engine that the numbers came from |
 | [`touch/`](touch/) | Drivers for the pads, knobs and toggle switches on the touch controller |
 | [`midi/`](midi/) | USB + TRS MIDI I/O (notes, CCs, clock/transport) and the SysEx telemetry the visualizer listens to |
 | [`display/`](display/) | On-panel SSD1306 OLED driver and UI (mirrors what the visualizer shows), plus the one-time power-on boot animation |
@@ -149,6 +153,8 @@ I built this editor because hand-writing 64-byte step/velocity arrays in a heade
 ## Settings memory
 
 The firmware remembers where you left it: power-cycle the Simple Touch and it comes back with the same engine, per-mode volumes/drives/blends, FX sends, seq settings and genre, octaves and root, the drum kit, the Basic Pitch randomize snapshots, and the arp's and Rec's independent sounds. There is no save button — a few seconds after you stop changing things, the state is written automatically. Not saved on purpose: whatever a physical switch dictates at boot (SW2 playmode, SW1 scale position), transport states, and the note recorder's loop content (that's a take, not a setting). Restored values follow the same pickup doctrine as everything else here: a pot doesn't take over until it crosses the value it's holding, so knobs sitting in arbitrary positions at power-on never stomp the restored sound.
+
+One thing to expect when updating: a firmware release that adds something to the saved state changes the record's layout, and old records are then discarded rather than misread — so the **first boot after such an update starts fresh**, exactly like a new device. It re-saves within seconds of you touching anything. (The kick bank did this, since a kick's preset identity is not something a slot's parameters can carry on their own.)
 
 How it works under the hood is worth a note, because the obvious approach doesn't work on this build. The Daisy Seed's persistent storage is its 8 MB QSPI NOR flash — but this firmware *executes* from that same chip (`APP_TYPE = BOOT_QSPI`; the binary outgrew the SRAM boot option long ago). Writing to the flash requires taking it out of memory-mapped mode, and from that instant the CPU can no longer fetch instructions from it — which is why libDaisy's `PersistentStorage` simply refuses to run from QSPI. The workaround ([synth/settings_journal.cpp](synth/settings_journal.cpp)) is a small register-level program/erase routine placed in a `.data` section: it gets copied to SRAM at startup like any initialized data, runs entirely from there with interrupts masked, talks straight to the QUADSPI peripheral (including releasing and re-entering the flash's continuous-read XIP latch), and restores memory-mapped mode before returning — a window of about a millisecond that the audio interrupt simply waits out, well inside its 4 ms block budget, so playback, MIDI and clock stay in sync.
 

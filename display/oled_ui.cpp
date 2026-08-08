@@ -12,6 +12,7 @@
 
 #include "oled_ui.h"
 #include "../synth/patterns_gen.h"
+#include "../synth/kick_presets.h"
 #include <cstring>
 #include <algorithm>
 
@@ -322,6 +323,21 @@ void note_name(FixedCapStr<N>& out, int n) {
     out.AppendInt(n / 12 - 1);
 }
 
+// Kick lab preset as "K07 909 SWEEP" from the 1-based number the firmware
+// publishes (0 = no preset, which no caller here should be passing). Worst
+// case is 4 + 12 = 16 chars, inside the Font_6x8 budget.
+template <size_t N>
+void kick_preset_text(FixedCapStr<N>& out, int n) {
+    out.Clear();
+    out.Append("K");
+    if (n < 10) out.Append("0");
+    out.AppendInt(n);
+    if (n >= 1 && n <= kNumKickPresets) {
+        out.Append(" ");
+        out.Append(kKickPresets[n - 1].name);
+    }
+}
+
 // The root as a bare pitch class ("D#"), no octave — root_semitone is
 // octave-less by design (the octave lives in active_octave()).
 const char* root_name(int root) {
@@ -504,16 +520,42 @@ void describe_control(int i, const TelemetryState& t,
 
     bool dead         = false;
     int  value_engine = -1; // set only when i is 1..4 and an engine table applies
+    bool kick_name    = false; // value row is a kick preset name, not a number
 
     bool handled = false;
 
-    if (rec_active) {
+    // Recording the kick pad on a bank preset: four pots have kick-specific
+    // meanings, and they are named for what they do to a *kick* rather than
+    // for the engine parameter underneath — which is the whole point of the
+    // windows (S33 is "tone" on all twelve presets; the field it writes means
+    // six different things across the six engines they use).
+    const bool kick_bank = rec_active && t.rec_slot == 0 && t.kick_preset != 0;
+    if (kick_bank && !p0 && !p1 && !p2) {
+        switch (i) {
+            case 2: set_label(label, "S32", "Kick select");
+                    kick_name = true;  handled = true; break;
+            case 3: set_label(label, "S33", "Kick tone");   handled = true; break;
+            case 4: set_label(label, "S34", "Kick punch");  handled = true; break;
+            case 7: set_label(label, "S37", "Kick body");   handled = true; break;
+            default: break;
+        }
+    }
+
+    if (!handled && rec_active) {
         if (p1 && meta.fx) {
             set_label(label, (i == 0) ? "P1+S30" : "P1+S35",
                       (i == 0) ? "Slot reverb send" : "Slot delay send");
             handled = true;
         } else if (i == 5 && p0) {
             set_label(label, "P0+S35", "Slot model bank0");
+            // On the kick pad bank 0 has a 12th position — the bank itself.
+            // Say so while the knob is over it, rather than leaving the row
+            // on a percentage that looks like the engine list ran out.
+            if (t.rec_slot == 0 && v >= 11.f / 11.5f) {
+                value.Clear();
+                value.Append("KICK BANK");
+                return;
+            }
             handled = true;
         } else if (i == 5 && p2) {
             set_label(label, "P2+S35", "Slot model bank1");
@@ -621,6 +663,13 @@ void describe_control(int i, const TelemetryState& t,
     if (dead) {
         value.Clear();
         value.Append("no effect");
+        return;
+    }
+    // S32 as the kick selector reads out what it selected, not where the pot
+    // is: the pot position is meaningless once quantized to twelve, and the
+    // number is what gets reported back after an audition pass.
+    if (kick_name) {
+        kick_preset_text(value, t.kick_preset);
         return;
     }
     if (value_engine != -1 && i >= 1 && i <= 4) {
@@ -737,6 +786,14 @@ void describe_pad(int i, const TelemetryState& t,
                     fn.Append(root_name(t.root));
                     set_label(label, up ? "P0+P11" : "P0+P10", fn);
                     scale_notes(value, latched_scale(t), t.root);
+                } else if (t.rec_slot == 0x7F || t.rec_slot == 0) {
+                    // Seq: the kick lab stepper, either from idle or while
+                    // recording the kick pad itself. On any other rec slot the
+                    // combo is unbound and the old "Pitch mode only" applies.
+                    set_label(label, up ? "P0+P11" : "P0+P10",
+                              up ? "Kick preset +" : "Kick preset -");
+                    if (t.kick_preset) kick_preset_text(value, t.kick_preset);
+                    else               value.Append("Kit random");
                 } else {
                     // "Root (Pitch only)" ran to 24 chars with the combo in
                     // front and truncated to `P0+P10 ROOT (PITCH ON`, which
@@ -791,9 +848,15 @@ const char* melodic_state(int mode, int arp_sub, bool running, bool armed) {
 constexpr int kMaxComboRows = 6;
 
 // Every row <= 21 chars (Font_6x8 budget). Longest here is 20.
-const char* const kP0Seq[]      = { "S37 drum width", "+P2 hold: vary kit" };
+const char* const kP0Seq[]      = { "S37 drum width", "P10/P11 kick preset",
+                                    "+P2 hold: vary kit" };
 const char* const kP0SeqRec[]   = { "S35 slot model b0", "S37 slot width",
                                     "+P2 hold: vary pad" };
+// Recording the kick pad specifically: P10/P11 lose their drum-pitch meaning
+// under P0 and step the kick bank instead (kick lab).
+const char* const kP0SeqRecKick[] = { "S35 slot model b0", "S37 slot width",
+                                      "P10/P11 kick preset",
+                                      "+P2 hold: vary pad" };
 const char* const kP0Pitch[]    = { "S35 model bank 0", "S37 stereo width",
                                     "P10/P11 root -/+", "+P2 hold: randomize" };
 // Arp and Arp Rec share one P0 list: since undo moved to P1 (2026-08-05) the
@@ -831,6 +894,7 @@ int combo_rows(const TelemetryState& t, int mod, const char* const** rows) {
     const bool arp_rec = (t.mode == 1) && ((t.arp_flags & 0x03) == 2);
     switch (mod) {
         case 0:
+            if (seq_rec && t.rec_slot == 0) return pick_rows(kP0SeqRecKick, rows);
             if (seq_rec)      return pick_rows(kP0SeqRec, rows);
             if (t.mode == 0)  return pick_rows(kP0Seq,    rows);
             if (t.mode == 1)  return pick_rows(kP0Arp,    rows);
@@ -892,7 +956,12 @@ void status_row(const TelemetryState& t, uint32_t now_ms,
                 value.Append("+pad copies");
                 break;
             default:
-                value.Append(model_name(t.kit[slot][0]));
+                // On the kick pad with a preset loaded, the preset is the more
+                // useful name of the two: the engine is already implied by it,
+                // and this is the row you read while deciding whether K12 beat
+                // K11. Without one, the engine name as everywhere else.
+                if (slot == 0 && t.kick_preset) kick_preset_text(value, t.kick_preset);
+                else                            value.Append(model_name(t.kit[slot][0]));
                 break;
         }
         return;
@@ -961,6 +1030,9 @@ void hold_label(FixedCapStr<N>& out, const TelemetryState& t) {
         case 4: set_label(out, "Rec", "Copy layer");     return;
         case 6: set_label(out, "Rec", "Exit");           return;
         case 7: set_label(out, "P0+P1", "Sound edit");   return;
+        // Confirm-only, like kind 6: the kick lab has no build-up to draw a
+        // bar for, so this label is only ever seen over the confirm flash.
+        case 9: set_label(out, "P0+P10/11", "Kick bank"); return;
         // Same combo as kind 1, deliberately named for its scope instead:
         // in Rec it changes the one pad you are editing, not the kit.
         case 8:
@@ -1036,7 +1108,11 @@ void confirm_text(FixedCapStr<N>& out, const TelemetryState& t) {
         // usable here — the flash is latched, so by the time it draws the
         // flag has already flipped.
         case 7: out.Append(outcome == 2 ? "Arp knobs" : "Sound edit"); return;
-        case 8: out.Append(stage >= 2 ? "New sound" : "Pad varied"); return;
+        // Kick lab: `stage` is the 1-based preset number, so the flash can
+        // name what just loaded — "K07 909 SWEEP". The number is the half that
+        // matters for reporting back which ones worked; the name is what makes
+        // the number mean something while you are still listening.
+        case 9: kick_preset_text(out, stage); return;
         default: out.Append("OK"); return;
     }
 }
