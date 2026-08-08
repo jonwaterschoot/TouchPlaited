@@ -215,6 +215,8 @@ P3–P9 map to slots 0–6. In Seq mode these are fixed drum roles:
 
 **Unified Decay.** One Decay control, always on **S31** — Basic Pitch, Arp/Mel, Arp/Mel sound edit and per-slot in Recording: for most engines it sets the LPG envelope decay; for the engines whose real decay lives on their MORPH parameter it drives that instead. Those are Six-Op A/B/C (2–4, MORPH is the DX7 envelope time — their LPG is bypassed entirely), String and Modal (19–20, damping) and the drum engines (21–23, tail length). Morph has no effect on those eight engines — the Decay knob owns it. LPG Colour was retired to make room (fixed at its neutral midpoint).
 
+One thing to know about the top of that knob **on the LPG half**: its fall is steeply non-linear, so the last quarter of the travel is much longer than it looks. Around the centre a note is done in about a second; at three-quarters it takes four; at the top, seven. That is the model's own character rather than a setting, but it is why a high Decay can feel like a note that won't let go — and on the morph-decay engines, which have their own envelopes, the same knob position behaves nothing like it.
+
 ### Basic Pitch (SW2 Down)
 
 All knobs apply globally and in real time to every voice.
@@ -376,9 +378,9 @@ All six timbral knobs are per-slot and require pickup before changing the slot.
 |------|----------|
 | S30 | Per-slot drive — a ratio (0–100%) of the overall S30 drive, which stays frozen at its entry value while recording |
 | S31 | Per-slot decay — for engines 19–23 this controls the model's own tail length |
-| S32 | Per-slot harmonics |
-| S33 | Per-slot timbre |
-| S34 | Per-slot morph (no effect on engines 19–23) |
+| S32 | Per-slot harmonics — **kick select** on the kick pad with a preset loaded (see *The kick bank*) |
+| S33 | Per-slot timbre — **kick tone** on a kick preset |
+| S34 | Per-slot morph (no effect on engines 19–23) — **kick punch** on a kick preset |
 | S35 | Per-slot model select — hold P0 (bank 0) or P2 (bank 1), turn S35. On the kick pad bank 0 has a 12th position at the top: **KICK BANK** (see *The kick bank*) |
 | S36 | Per-slot volume — this slot's level in the mix; audible live in the audition |
 | S37 | Per-slot model mix — OUT↔AUX blend for this slot. Hold P0: per-slot stereo width — fader fully down = mono; a mono'd slot stays dead center regardless of group width. Blend/width reset to defaults when the kit is regenerated (P0+P2 stage 2) |
@@ -455,7 +457,7 @@ Three knobs are renamed for what they do to a *kick*, rather than for the engine
 | S34 | **Punch** — soft ↔ hard (on the 808s the attack and overdrive; on the 909s the pitch sweep) |
 | S37 | **Body** — the weight of the drum (on engine 21, how far it sits between the 808 and the 909) |
 
-Everything else keeps its normal recording job: S30 per-slot drive, S31 decay, S36 volume, P0+S37 width, P10/P11 pitch. Each knob re-arms against the new preset's own values when one loads, so nothing jumps.
+Everything else keeps its normal recording job: S30 per-slot drive, S31 decay, S36 volume, P0+S37 width, P10/P11 pitch. Each knob re-arms against the new preset's own values when one loads, so nothing jumps. The one thing you give up is the raw **morph** knob — S34 is Punch here, and morph is part of the preset (it does nothing at all on eight of the eleven, which are morph-decay engines).
 
 The screen names what loaded — `K05 909 SWEEP` — on the flash, on S32's own readout, and in the status row while you are recording the kick pad. The visualizer logs each change by name. The P0+P10/P11 stepper rails rather than wraps: at either end the LED gives the usual limit blink.
 
@@ -466,7 +468,7 @@ The screen names what loaded — `K05 909 SWEEP` — on the flash, on S32's own 
 
 Editing a preset keeps you on it (it is still "K05, shorter"), and varying the pad or the kit nudges it without leaving the bank. You leave by pointing the pad somewhere else: picking a plain engine with P0/P2 + S35, or copying another drum onto the kick pad.
 
-**Voice cost:** K8 909+808 is two voices for the length of its second tail, a few tens of milliseconds by design; K11 MODAL KNOCK is the one expensive engine in the bank. The kick is also **protected from being cut for 150 ms after each hit** — long enough to cover the attack and body of every preset, which is the part whose loss reads as a dropped downbeat. Its ring-out is not protected: with only six voices, reserving a one-second kick tail would come straight out of everything else's decay.
+**Voice cost:** K8 909+808 genuinely uses two of the six voices — its second half is a deep 808 with its own long tail, so it holds that voice for around half a second, not for a transient. It is the one preset that changes the kit's voice budget, and the randomizer can land on it. K11 MODAL KNOCK is the one expensive engine in the bank. The kick is also **protected from being cut for 150 ms after each hit** — long enough to cover the attack and body of every preset, which is the part whose loss reads as a dropped downbeat. Its ring-out is not protected: with only six voices, reserving a one-second kick tail would come straight out of everything else's decay.
 
 ---
 
@@ -745,8 +747,8 @@ TouchPlaited always puts a clock on its outputs, and follows one when you give i
 | 2 blinks | Mode / scale / arp-state position 2 (SW2 Center or SW1 center); also: transport paused (P2+P10/P11), sound edit left, Rec punched out but still looping |
 | 3 blinks | Mode / scale / arp-state position 3 (SW2 Up or SW1 left flick); also: Seq resumed |
 | N blinks | Numbered feedback — arp octave range (1–4 = range 0–3), Rec layer cleared (its number) |
-| 3 rapid blinks | Confirm — recording saved, copy completed, Seq entered/re-randomized, transport started, sound edit entered, Rec cleared |
-| 3 fast triple | At a limit — root, base octave (±3), arp octave range, Rec layers/notes full, nothing to undo/clear |
+| 3 rapid blinks | Confirm — recording saved, copy completed, Seq entered/re-randomized, transport started, sound edit entered, Rec cleared, kick preset loaded |
+| 3 fast triple | At a limit — root, base octave (±3), arp octave range, Rec layers/notes full, nothing to undo/clear, either end of the kick bank |
 | Accelerating blink | Hold in progress — any of them: the P0+P2 stages, recording entry (2 s), copy / layer clear / save (1.2 s), sound edit (1 s); speeds up as the threshold nears. The long build-ups (P0+P2, recording entry) open with three slow pulses first — see *Re-randomize gestures* |
 | Short rapid burst | Recording entered (the 2 s hold landed) |
 | Fast double blink | Recording mode active — one double blink per audible hit of the slot being edited, in sync with the audio (unlike the single beat flash) |
@@ -790,13 +792,13 @@ While recording the **kick pad**, bank 0 has one more position past Grain: **KIC
 | 18 | Particle | Dust noise through resonators |
 | 19 | String * | Inharmonic plucked-string model |
 | 20 | Modal * | Modal (struck bar / membrane) resonator |
-| 21 | Bass drum * | Analog kick model |
+| 21 | Bass drum * | **Two kick models at once** — an 808-style analog drum on OUT, a 909-ish synthetic one on AUX, so the S37 blend fader crossfades between two different instruments rather than two mixes |
 | 22 | Snare drum * | Analog snare model |
 | 23 | Hi-hat * | Analog hi-hat model |
 
 \* Starred engines (Six-Op 2–4, and 19–23) are the **morph-decay engines**: their real decay lives on the model's MORPH parameter — the DX7 envelope time for Six-Op, damping/tail for 19–23 — so S31 Decay drives it and S34 Morph has no effect (see *Unified Decay*). In Seq mode, S37 Tightness compresses the tails of 19–23. Six-Op additionally renders identical OUT and AUX signals, so the S37 blend fader and P0+S37 stereo width do nothing on 2–4.
 
-The random drum kits draw from a curated subset of these: kicks from 21 and 10 (an FM kick), snares/claps from 22 and 17, closed hats from 23 and 17, open hat from 23 alone, toms from 21 and 20, perc from 20/22/23. Particle (18) is deliberately excluded — its sporadic crackle reads as a hardware fault in a kit.
+The random drum kits draw from a curated subset of these: snares/claps from 22 and 17, closed hats from 23 and 17, open hat from 23 alone, toms from 21 and 20, perc from 20/22/23. **The kick is the exception** — it draws a named preset from *The kick bank* rather than rolling an engine and a range, so it reaches 21, 20, 9 and 0 in combinations chosen by ear. Particle (18) is deliberately excluded from every pool — its sporadic crackle reads as a hardware fault in a kit.
 
 ---
 

@@ -1030,3 +1030,215 @@ element rects, not against how the screenshots looked.
   existing entry is feature-detected and simply doesn't appear there. So on
   iPhone the wake lock is the only lever, and only from iOS 16.4; below that
   the entry reads *n/a* and says so in its tooltip rather than pretending.
+
+---
+
+# The kick-lab round — closed (moved from `ROADMAP.md` 2026-08-08)
+
+Everything below shipped on branch `kick-lab` over 2026-08-08. The design
+analysis it produced — the four findings about why the shipped kick was two
+mediocre choices, the LPG tail trap, the voice-starvation regression and the
+knob-window scheme — stays live in `notes.md` → *Kick lab*, because it is what
+anyone editing `synth/kick_presets.h` needs to read first. This is the roadmap
+item's own history.
+
+## `kDrumKick` is two engines wide — done
+
+Twenty candidates built, **eleven kept** over two hardware listens, and the
+bank became the kick pad's random pool rather than a probe alongside it.
+
+**The original question — existing engines or purpose-written ones? — answered
+(a):** nothing had to be written into `thirdparty/plaits`. What was missing was
+reachable parameter space, in four findable places. Engine 21 renders the 808
+to OUT and the 909-ish synthetic drum to AUX, and the kit randomizer pinned
+blend at 0.5, so every random kick was the same half-and-half compromise ("the
+very synth sound"). Engine 10 plays two octaves below its note, so the pool's
+36–48 range put the FM kick's fundamental at 16–33 Hz with a modulation index
+of 0.18 ("the low energy model"). Tails were cut twice, by a short pool range
+and then again by Tightness. And `harmonics` on engine 21 is three controls in
+a row, with the overdrive and the long pitch sweeps both above 0.5, where the
+pool range stopped.
+
+**The first audition cut a family and a technique, not a scatter of numbers.**
+All six 2-op FM presets read as "regular synth" rather than as drums — one
+verdict about engine 10, whose only envelope is the LPG in ping mode, so an FM
+kick has no pitch drop of its own and lands as a bass note with a fast decay.
+Two of the three layered presets failed (a noise transient crackled, an FM snap
+sat too high) while the one that layers engine 21 with *itself* survived: a
+layer has to be the same instrument twice, or it reads as a fault or as a
+second sound. All four "outside bet" engines held up, which was not the
+expected result.
+
+**`kDrumKick` is deleted.** Its two entries were exactly the two rejected
+sounds, so the kick's pool is the bank: `fill_drum_slot_from_pool(0)` draws a
+preset, and a randomized kit gets a kick that can be named. Reachable as a
+model too — the 12th position of P0+S35 on the kick pad — after which S32
+selects within the bank and S33/S34/S37 become **Tone / Punch / Body**,
+semantic knobs that land on the same three PadSlot fields whatever engine is
+underneath and sweep inside a per-preset window, so one gesture means one thing
+across the bank and none of them can be turned out of kick territory.
+
+Also on the branch: per-preset punch, because Drive pushing timbre toward 1.0
+made every deep kick bright; and a preset's tail is exempt from Tightness, so
+the bank plays as authored.
+
+## Kick as a priority voice — done, after one regression
+
+The second half of the same decision. **Kick voices are stolen and shed last**
+(`find_free_or_steal()`, `ShedVoice()`) rather than never, so nothing can wedge
+the pool.
+
+**The first version reserved rather than prioritised.** Protecting the kick for
+as long as it was *sounding* held one to two of six voices for most of the bar,
+and the other six drums thrashed what was left — reported as "everything except
+the kick is super short". Protection is now a fixed 150 ms window from the
+strike; separately the pool learned to steal a *sleeping* voice before any
+sounding one, which was a latent fault all along (drum voices never get a
+NoteOff, so the free-slot scan could never see a finished one).
+
+**A second choker behind it, and the better finding:** the presets on non-drum
+engines are the only ones whose tail is Plaits' LPG rather than the engine's
+own envelope, and the LPG in ping mode ignores our one-shot gate and falls
+brutally slowly — decay 0.72 holds a voice for 7.4 s. SINE PURE was authored
+there, so it masked the kit *and* permanently cost a voice; it was cut, FOLD
+SUB and VCF BOOM were re-authored down to 0.34 / 0.30, and drum one-shots now
+sleep at -60 dBFS instead of -80 as the net under it.
+
+Both write-ups in full: `notes.md` → *Kick priority — and the starvation it
+caused first*, and → *The LPG tail trap*.
+
+> The decision this item was built from, kept verbatim:
+>
+> - of all the drum sounds Kick is to me the most important one, hence i'd like more variations, atm the variation is an either very synth sound or the rather low energy kick model.
+> - another improvement would be that we could make kick be a priority voice, avoiding that it gets choked out too quickly
+> - suggestion to research make a branch that focuses on a test round, build kick presets from the existing models, number them to the display for easy auditioning and judging
+> - in this audiotion mode we could use some of the buttons to tune parameters per preset, which could then be reported by me as what ranges are efficient
+
+---
+
+# Roadmap sweep 2026-08-08 — items closed with no code
+
+Three items that finished by being decided rather than by being built, plus the
+two "next up" steps that completed and the one screen item that shipped.
+
+## F1 — the base octave hits its rail silently (fixed 2026-08-06)
+
+Confirmed on hardware the same day. Plain P10/P11 clamped at ±3 with a bare
+`std::max`/`std::min` (`TouchPlaited.cpp`, the pad-down handler) and no
+`LedEvent::LIMIT`, while root, arp octave range, the layer stack and undo all
+blink at their limits. Consistency won: both branches now step only when there
+is room and blink LIMIT when there isn't, so every rail on the panel answers
+the same way. The manual's LED table dropped the exception it had just gained
+and lists the base octave with the other limits.
+
+## F2 — Seq Recording swallows both transport combos (closed, won't change)
+
+While editing a drum slot, P10/P11 stay on drum pitch regardless of P2, so the
+P2+P11 branch (drum play/pause) and the P2+P10 branch (melodic transport) are
+both unreachable — you have to save or cancel out of the slot first. Same class
+of fault C12 fixed for Arp/Mel Rec, and found the same way. The difference that
+decided it: in Rec the missing state was *stopping what you were making*,
+whereas here it is pausing the drums while tweaking one of them, which the
+audition pulse covers.
+
+> Decision: We do not need access to the transport combo in this mode
+
+*(Still true after the kick lab, which gave P0+P10/P11 a job on the kick pad —
+that combo needs P0, so it does not collide with the bare-P10/P11 drum pitch
+this item is about.)*
+
+## A2 leftover — the bar sits full while P0+P2 stays held (closed, won't change)
+
+In Basic Pitch `p0p2_all_done` pins `progress = 127` while the pads stay held,
+so after the 3 s stage the full bar sits there until release. A1's hold-end
+redraw doesn't cover it — `hold_kind` is still 1.
+
+> Decision: No change needed. keep current message until released
+
+## Next up 1 — read MANUAL and README end-to-end (done 2026-08-06)
+
+Checked against the source rather than against the notes. Seven doc bugs fixed
+in place; the two findings that were about **behaviour** rather than wording
+were filed as F1/F2 above.
+
+What was wrong, for the record: MIDI out still claimed *every* outgoing note
+leaves at velocity 100, which the ch10 accent work had made false in the same
+document; README called the synth 7-voice (`kVoices` is 6 — 7 is the
+parking-lot item, not the shipped build) and said all 24 engines are selectable
+without mentioning that Chiptune is skipped; the LED table credited a limit
+blink to the base octave, which clamped silently, and listed only two of the
+six accelerating build-ups; the open-hat pool was described as two engines when
+it has one; one section cross-reference pointed at a heading that does not
+exist; and value-row screen strings were quoted in capitals throughout (only
+the label and note rows are drawn uppercase — the manual now says so once and
+quotes the rest as drawn). README also gained the OLED in its feature list,
+which it had never mentioned outside the source-tree table. One stale code
+comment fixed while here: `arp_oct_range` still cited `P1+P10/P11` after the
+2026-08-05 swap.
+
+## Next up 2 — a round of visualizer tweaks (done 2026-08-07)
+
+All six items (V1–V6) shipped; write-up above under *V. Visualizer round*. Two
+of the six were real bugs rather than taste (the mini screen stopped tracking
+the drawing at small sizes; `100vh` put the bottom of the drawing under a
+phone's browser chrome), and measuring for V5 turned up a third that wasn't
+filed. The two open questions the filing carried were both answered on the way:
+the A−/A+ pairs stay separate but step alike, and Fullscreen buys nothing
+towards keeping a phone awake.
+
+## E3 — Arp/Hold: show the pool with the held notes marked (done 2026-08-06)
+
+Confirmed on hardware the same day — the 9 px marker and the 18 px columns read
+fine on the real panel, so the geometry stands as shipped. `Arp::PoolMask()`
+(7 bits over `notes_[]`) goes out as STATE payload byte 38 (fw v11);
+`OledScreen::ShowPool` draws the label row, then seven 18-px columns carrying
+each pad's note name with a filled (in pool) or hollow (not) marker under it.
+Both implementation notes held up: the markers are drawn like `StatusIcons`,
+and label + notes + markers fit the 32 px with the spare row spent as the gaps
+that keep the two rows apart.
+
+**One thing the filing didn't see, and it changed the design:** a pad-down
+callout would have been *unreachable* in Hold, because pressing a pad there is
+what takes a note out of the pool — you cannot look without changing what you
+are looking at. So the pool is also the idle home screen while it has notes in
+it (in place of the model name), which is what actually answers "fingers off,
+four notes latched". It yields to `Arp stopped`, which is the more urgent thing
+to say.
+
+The row names pitch classes, which is what the pool stores — the octave is
+applied at fire time, so P10/P11 move the whole thing and the row stays true.
+The one way to make it lie is to leave Arp/Mel with Hold latched, shift the
+root in Basic Pitch, and come back; root and scale are Basic Pitch-only, so
+nothing reachable from inside the mode can. The visualizer decodes the byte,
+mirrors both screens and logs pool moves by name (`Arp pool +D#`) — in Hold
+that log line is the only report of which way a press went.
+
+*Two follow-ups this raised on hardware are still open — see `ROADMAP.md` →
+"Screens": the pool row not redrawing on pad touch/release, and showing touched
+notes in Basic Pitch.*
+
+---
+
+# Closing comment, OLED-bus round (2026-08-07)
+
+*Moved out of `ROADMAP.md`'s tail 2026-08-08 — kept for the conclusion rather
+than for the branch bookkeeping that came with it.*
+
+The question was "will a dedicated OLED bus give me a smoother progress bar
+without costing audio?" The answer turned out to be no on both counts — it
+couldn't cost audio because the display never ran in the audio path, and it
+couldn't help smoothness because frame latency is set by main-loop starvation,
+not bus speed. Building it anyway was what produced the instrumentation, and
+the instrumentation is what caught the two things that actually mattered: the
+output stage was saturating every voice from zero, and four held Six-Op notes
+sat above the shed threshold with the safety net structurally unable to fire.
+
+Both of those were audible problems described as separate mysteries. Neither
+was on the original plan.
+
+One thing surfaced by that cleanup and deliberately left alone:
+`libdaisy-sync-ssd1306-fix` still exists locally and on origin. It carries the
+SSD1306 driver fixes pinned in the submodule at 62ab175 and filed upstream as
+`electro-smith/libDaisy#634`, open since 2025-08-13. It tracks an upstream PR
+rather than our own work, so it is the one branch that legitimately outlives
+the short-lived-branch convention.

@@ -716,10 +716,13 @@ figures to check against. Everything is stated per sounding voice.
   and now the only expensive entry in the bank. It earned its place on
   hardware; the cost is the reason to know which preset is loaded.
 - **909+808 costs one extra voice of the six** for the length of the layer's
-  own tail. It is also the cheapest possible layer: one engine, both of its
-  drums, each with its own pitch and tail — a second engine's render cost
-  avoided entirely. Since the randomizer can now land on it, this is the one
-  bank entry that changes the kit's voice budget, and it is 1 in 12.
+  own tail — and that tail is a deep 808 at morph 0.88, so roughly half a
+  second, not the few tens of milliseconds the cut noise/FM layers cost. It is
+  still the cheapest *kind* of layer: one engine, both of its drums, each with
+  its own pitch and tail, so a second engine's render cost is avoided
+  entirely. Since the randomizer can land on it, this is the one bank entry
+  that changes the kit's voice budget, and it is 1 in 11 — worth listening for
+  against a dense pattern (filed in `ROADMAP.md`).
 - The layer fires on **voice id 24**, outside the pad range (0–6) and the drum
   range (16–22), so nothing NoteOffs it and it rings out as a one-shot.
 
