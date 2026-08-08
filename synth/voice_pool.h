@@ -392,7 +392,11 @@ public:
                 if (a > peak) peak = a;
                 if (b > peak) peak = b;
             }
-            if (!gate_held[i] && peak < kSilenceThresh) {
+            // Drum one-shots go to sleep at an *audibility* threshold rather
+            // than at the noise floor — see kDrumSilenceThresh.
+            const float thresh = voice_group[i] == VoiceGroup::kDrum
+                                     ? kDrumSilenceThresh : kSilenceThresh;
+            if (!gate_held[i] && peak < thresh) {
                 if (++quiet_chunks[i] >= kQuietChunks) awake[i] = false;
             } else {
                 quiet_chunks[i] = 0;
@@ -461,6 +465,23 @@ private:
     // 32ms of sustained silence below -80dBFS before a voice stops rendering.
     static constexpr float    kSilenceThresh = 1e-4f;
     static constexpr uint32_t kQuietChunks   = 64;
+
+    // Drum one-shots sleep at -60 dBFS instead. A pitched voice is held for as
+    // long as a finger is down and its release tail is something you are
+    // listening to, so it is worth following to the noise floor. A drum is
+    // not: nothing is holding it, and the last 20 dB of a one-shot is
+    // inaudible under a kit — while the *voice* it occupies is not, on a pool
+    // of six shared by seven drums.
+    //
+    // This is the safety net under the LPG problem documented in
+    // synth/kick_presets.h. An engine whose tail is Plaits' own LPG has no
+    // gate and no bound: a kick at decay 0.72 held a voice for 7.4 s, and
+    // find_free_or_steal()'s "take a sleeping voice first" rule then protected
+    // it by accident, because it was the one voice that never slept. The
+    // presets are authored around it now, but the pool should not depend on
+    // that. Measured on the raw engine output, before voice and group volume,
+    // so the margin only ever grows on the way to the output.
+    static constexpr float kDrumSilenceThresh = 1e-3f;
 
     int      pad_slot[kVoices];
     uint8_t  voice_engine[kVoices];  // engine 0..23, for cap_bp_voices()

@@ -101,7 +101,7 @@ static constexpr KickLayer kNoLayer = { -1, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f };
 
 // Grouped by engine so stepping walks a family at a time rather than
 // alternating characters — auditioning wants neighbours that compare. Eight
-// on the bass drum engine, then the four outside bets that held up.
+// on the bass drum engine, then the three outside bets that held up.
 static const KickPreset kKickPresets[] = {
     // ── 21 Bass Drum, analog side (blend low) — the 808 lineage ────────────
     // Body windows stay analog-dominant: these presets are the 808, and
@@ -141,19 +141,33 @@ static const KickPreset kKickPresets[] = {
     // ── Outside bets: engines that reach kick territory but weren't written
     //    for it. Their windows are the tightest in the bank, because the part
     //    of each engine that is a kick is a small corner of it.
-    // 12 Additive with almost no harmonics is the cleanest sine kick the
-    // device can make — the reference point the others are judged against.
-    { "SINE PURE",   12, 0.02f, 0.00f, 0.25f, 0.72f, 33.f, 0.15f, 0.f, 1.00f, 0.20f,
-      { 0.00f,0.25f, 0.00f,0.15f, 0.00f,0.40f }, kNoLayer },
+    //
+    // **These three are the only presets whose tail comes from the LPG**
+    // rather than from the engine's own envelope (engines 21 and 20 are
+    // `already_enveloped`, so Plaits bypasses the LPG on them). That matters
+    // far more than it looks, and cost this bank a preset:
+    //
+    // The LPG in ping mode has no gate — it ignores our one-shot timer
+    // entirely — and its fall is brutally non-linear in `decay`. Measured off
+    // `LowPassGate::ProcessLP`: decay 0.35 takes 1.6 s to reach the pool's
+    // silence threshold, 0.45 takes 2.5 s, 0.60 takes 4.5 s and 0.72 takes
+    // **7.4 s**. A voice is held for the whole of that, silent or not, which
+    // on a six-voice pool means a kick that permanently costs a voice. That is
+    // what "SINE PURE chokes all the other drums" turned out to be — 4 s of
+    // audible 55 Hz sine masking the kit, and 7 s of voice on top of it.
+    // SINE PURE was cut for it (2026-08-08); these two are re-authored to
+    // decays whose tails are still long for a kick but bounded like one.
+    // **Keep any LPG-engine preset at or below ~0.35.**
+    //
     // 9 Waveshaping: harmonics is waveshape amount (0.5 = neutral), timbre is
     // the wavefolder. A sub with fold harmonics instead of FM ones.
-    { "FOLD SUB",     9, 0.62f, 0.40f, 0.55f, 0.60f, 32.f, 0.20f, 0.f, 0.90f, 0.30f,
+    { "FOLD SUB",     9, 0.62f, 0.40f, 0.55f, 0.34f, 32.f, 0.20f, 0.f, 0.90f, 0.30f,
       { 0.15f,0.65f, 0.45f,0.80f, 0.00f,0.45f }, kNoLayer },
     // 0 VA+VCF: harmonics is resonance (not cutoff — the notes.md table had
     // these two swapped, fixed with this branch), timbre is cutoff. The filter
     // is not swept, so this is a resonant thump; below ~0.8 resonance it stops
     // being one, which is where the punch window starts.
-    { "VCF BOOM",     0, 0.92f, 0.30f, 0.35f, 0.45f, 34.f, 0.00f, 0.f, 0.85f, 0.35f,
+    { "VCF BOOM",     0, 0.92f, 0.30f, 0.35f, 0.30f, 34.f, 0.00f, 0.f, 0.85f, 0.35f,
       { 0.18f,0.42f, 0.80f,1.00f, 0.00f,0.30f }, kNoLayer },
     // 20 Modal is on VoicePool::engine_is_heavy() — a woody knock, at real
     // cost. Kept because it earned it on hardware, not because it is free.

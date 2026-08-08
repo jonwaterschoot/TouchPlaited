@@ -80,7 +80,7 @@ SW1 picks the sub-state — **Hold** (left) · **Arp** (center) · **Rec** (righ
 | P1 + S30 | Reverb (drum group) — center = off; room ◄ · ► hall | — |
 | P1 + S35 | Delay (drum group) — center = off; slapback ◄ · ► dotted 1/8 | — |
 | P3–P9 | Play drums: kick / snare / cl. hat / op. hat / clap / tom / perc | notes in/out, ch 10 (GM) |
-| P0 + P10 / P11 | Previous / next kick preset — the twelve-strong *kick bank* | — |
+| P0 + P10 / P11 | Previous / next kick preset — the eleven-strong *kick bank* | — |
 | Hold P3–P9 for 2 s | Enter Recording for that drum | — |
 | P0 + P2 hold 2 s / 4 s | Vary current kit / generate new kit | — |
 | P2 (hold) + P11 | Play / pause | Start/Continue/Stop |
@@ -109,7 +109,7 @@ SW1 picks the sub-state — **Hold** (left) · **Arp** (center) · **Rec** (righ
 | Control | Function |
 |---------|----------|
 | P0 + S35, full right | **KICK BANK** — a 12th model position past the eleven engines |
-| S32 | Kick select — the twelve presets |
+| S32 | Kick select — the eleven presets |
 | S33 / S34 / S37 | Kick **tone** / **punch** / **body**, each bounded to that preset's usable range |
 | P0 + P10 / P11 | Previous / next preset |
 
@@ -423,16 +423,16 @@ every knob against the slot's new values, so nothing jumps afterwards. See
 
 *Seq mode (SW2 Up), and inside Recording on the kick pad.*
 
-The kick is the one drum whose sounds are **chosen rather than rolled**. Instead of a pool of engines and parameter ranges, the kick pad has a bank of **twelve fixed, numbered kicks** — the 808 and the 909 as two separate instruments rather than a mix of both, long pitch sweeps, the bass drum's own overdrive, a stacked 909-over-808, a pure sine kick, and three from engines that were never meant to be drums but get there. The randomizer draws from this bank too, so a randomized kit always has a kick you can name.
+The kick is the one drum whose sounds are **chosen rather than rolled**. Instead of a pool of engines and parameter ranges, the kick pad has a bank of **eleven fixed, numbered kicks** — the 808 and the 909 as two separate instruments rather than a mix of both, long pitch sweeps, the bass drum's own overdrive, a stacked 909-over-808, and three from engines that were never meant to be drums but get there. The randomizer draws from this bank too, so a randomized kit always has a kick you can name.
 
 | K | Name | | K | Name |
 |---|------|-|---|------|
 | 1 | 808 DEEP | | 7 | HYBRID |
 | 2 | 808 SUB | | 8 | 909+808 |
-| 3 | 808 DRIVE | | 9 | SINE PURE |
-| 4 | 909 PUNCH | | 10 | FOLD SUB |
-| 5 | 909 SWEEP | | 11 | VCF BOOM |
-| 6 | 909 CLICK | | 12 | MODAL KNOCK |
+| 3 | 808 DRIVE | | 9 | FOLD SUB |
+| 4 | 909 PUNCH | | 10 | VCF BOOM |
+| 5 | 909 SWEEP | | 11 | MODAL KNOCK |
+| 6 | 909 CLICK | | | |
 
 **Three ways in:**
 
@@ -446,11 +446,11 @@ The first is the fast walk: step through the bank in Seq while the pattern plays
 
 **The knobs while a preset is loaded**
 
-Three knobs are renamed for what they do to a *kick*, rather than for the engine parameter underneath — so the same gesture means the same thing on all twelve, whichever engine each one is built from. Each stays inside a range chosen for that preset, so a knob cannot be turned out of kick territory:
+Three knobs are renamed for what they do to a *kick*, rather than for the engine parameter underneath — so the same gesture means the same thing on all eleven, whichever engine each one is built from. Each stays inside a range chosen for that preset, so a knob cannot be turned out of kick territory:
 
 | Knob | Function |
 |------|----------|
-| S32 | **Kick select** — the bank, 12 positions |
+| S32 | **Kick select** — the bank, 11 positions |
 | S33 | **Tone** — dark ↔ bright |
 | S34 | **Punch** — soft ↔ hard (on the 808s the attack and overdrive; on the 909s the pitch sweep) |
 | S37 | **Body** — the weight of the drum (on engine 21, how far it sits between the 808 and the 909) |
@@ -466,7 +466,7 @@ The screen names what loaded — `K05 909 SWEEP` — on the flash, on S32's own 
 
 Editing a preset keeps you on it (it is still "K05, shorter"), and varying the pad or the kit nudges it without leaving the bank. You leave by pointing the pad somewhere else: picking a plain engine with P0/P2 + S35, or copying another drum onto the kick pad.
 
-**Voice cost:** K8 909+808 is two voices for the length of its second tail, a few tens of milliseconds by design; K12 MODAL KNOCK is the one expensive engine in the bank. The kick is also **protected from being cut for 150 ms after each hit** — long enough to cover the attack and body of every preset, which is the part whose loss reads as a dropped downbeat. Its ring-out is not protected: with only six voices, reserving a one-second kick tail would come straight out of everything else's decay.
+**Voice cost:** K8 909+808 is two voices for the length of its second tail, a few tens of milliseconds by design; K11 MODAL KNOCK is the one expensive engine in the bank. The kick is also **protected from being cut for 150 ms after each hit** — long enough to cover the attack and body of every preset, which is the part whose loss reads as a dropped downbeat. Its ring-out is not protected: with only six voices, reserving a one-second kick tail would come straight out of everything else's decay.
 
 ---
 
@@ -575,7 +575,7 @@ into its pool rather than jittering the off-role sound, which is what used to
 make "vary kit" unable to bring a hand-picked pad back to a kick.
 
 **The kick is the exception, and deliberately so.** The other six slots roll an
-engine and a set of parameter ranges; the kick draws one of the twelve
+engine and a set of parameter ranges; the kick draws one of the eleven
 *kick bank* presets — a sound somebody chose, with a name. Varying it (either
 stage 1) nudges it inside the same bounds its knobs use, so a varied kick is
 still a kick, and the screen still says which preset it started from.
@@ -775,7 +775,7 @@ The 24 Plaits models are spread over the two shift pads: hold **P0** and turn S3
 | 10 | FM 2-op | Two-operator phase modulation |
 | 11 | Grain | Granular formant oscillator |
 
-While recording the **kick pad**, bank 0 has one more position past Grain: **KICK BANK**, the twelve curated kicks (see *The kick bank*). It is the only place on the panel where a knob position means something different on one pad than on the others.
+While recording the **kick pad**, bank 0 has one more position past Grain: **KICK BANK**, the eleven curated kicks (see *The kick bank*). It is the only place on the panel where a knob position means something different on one pad than on the others.
 
 ### Bank 1 — P2 + S35 (engines 12–23)
 

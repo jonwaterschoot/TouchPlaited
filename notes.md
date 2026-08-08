@@ -691,13 +691,13 @@ are listed because "we tried engine 10 six ways" is worth not re-deriving.
 | 6 | 909 CLICK | 21 synth | Bright and short — the one that cuts through |
 | 7 | HYBRID | 21 both | Analog body, 909 transient, weighted to the body |
 | 8 | 909+808 | 21 + 21 | Stacked kicks: 909 attack over an 808 sub (layered) |
-| 9 | SINE PURE | 12 Additive | The reference sine kick everything else is judged against |
-| 10 | FOLD SUB | 9 Waveshaping | A sub with fold harmonics instead of FM ones |
-| 11 | VCF BOOM | 0 VA+VCF | Resonant filter thump (no filter sweep — it held up anyway) |
-| 12 | MODAL KNOCK | 20 Modal | Woody knock, at real CPU cost (see below) |
+| 9 | FOLD SUB | 9 Waveshaping | A sub with fold harmonics instead of FM ones |
+| 10 | VCF BOOM | 0 VA+VCF | Resonant filter thump (no filter sweep — it held up anyway) |
+| 11 | MODAL KNOCK | 20 Modal | Woody knock, at real CPU cost (see below) |
 | ✗ | FM 1:1 · FM SUB 1:2 · FM AUX SUB · FM GRIT · FM SNAP · FM LONG | 10 | Ratio 1 / 0.5 / AUX sub / gritty feedback / high-index snap / long LPG. All six read as synth bass, not as drums |
 | ✗ | SUB+CLICK | 21 + 17 | Noise transient over a deep 808 — crackled |
 | ✗ | SUB+SNAP | 21 + 10 | FM snap over a deep 808 — sat too high |
+| ✗ | SINE PURE | 12 Additive | Cut in the second pass — it masked the kit *and* held a voice for 7.4 s. See "The LPG tail trap" below |
 
 FM ratios come from a quantizer LUT, not a linear map. Kept here even though
 the FM presets are gone, because it is the thing that has to be looked up again
@@ -722,6 +722,58 @@ figures to check against. Everything is stated per sounding voice.
   bank entry that changes the kit's voice budget, and it is 1 in 12.
 - The layer fires on **voice id 24**, outside the pad range (0–6) and the drum
   range (16–22), so nothing NoteOffs it and it rings out as a one-shot.
+
+### The LPG tail trap — why SINE PURE was cut
+
+Reported after the starvation fix below: *"the kick that is still choking all
+the other drums seems to be K09 SINE PURE"*. It was, and for a reason that
+turns out to be a property of a whole class of preset rather than of that one.
+
+**Eight of the twelve presets never touch the LPG.** Engines 21 and 20 are
+`already_enveloped`, so Plaits bypasses the low-pass gate and the sound's
+length is the engine's own envelope — bounded, and audible right up to its
+end. The three "outside bet" engines (12, 9, 0) are not, so their tail is the
+LPG in ping mode, and that has two properties nothing else in the drum path
+has: **it ignores the gate entirely** (`ProcessPing` fires on the rising edge
+and runs its own schedule — our one-shot timer does nothing to it), and its
+fall is brutally non-linear in `patch.decay`. Simulated from
+`LowPassGate::ProcessLP`, time for the gain to reach the pool's silence
+threshold:
+
+| decay | to −40 dBFS | to −80 dBFS (= voice released) |
+|-------|-------------|-------------------------------|
+| 0.30 | 0.77 s | 1.34 s |
+| 0.35 | 0.94 s | 1.64 s |
+| 0.45 | 1.41 s | 2.46 s |
+| 0.60 | 2.55 s | 4.53 s |
+| 0.72 | 4.12 s | **7.37 s** |
+
+SINE PURE was authored at 0.72. So every kick masked the kit with four seconds
+of 55 Hz sine *and* held one of six voices for seven — on a pattern with a kick
+every beat, one voice was simply gone. Both halves of "choking" were literally
+true, and the sound half is why no threshold change could have saved it.
+
+**And the pool's own repair made it worse.** `find_free_or_steal()` had just
+learned to take a *sleeping* voice before any sounding one, which is right in
+general — but it meant the one voice that never slept was never reclaimed
+either. The rule protected the worst offender by accident.
+
+Three things came out of it:
+
+- **SINE PURE is cut.** A 4 s audible sine is not a kick, and there is no
+  parameter that makes engine 12 into one without making it into something
+  else.
+- **FOLD SUB and VCF BOOM are re-authored** from 0.60/0.45 down to 0.34/0.30.
+  They had the same fault, just slower — 4.5 s and 2.5 s of voice apiece. The
+  audible tail drops from ~2.5 s to ~0.9 s on FOLD SUB, which is still a long
+  kick and no longer a drone. **Any future LPG-engine preset belongs at or
+  below ~0.35**, and `synth/kick_presets.h` says so where the numbers are.
+- **Drum one-shots now sleep at −60 dBFS, not −80** (`kDrumSilenceThresh`).
+  A pitched voice is held by a finger and its release tail is something you are
+  listening to, so following it to the noise floor is right; a drum's last
+  20 dB is inaudible under a kit while the voice it holds is not. This is the
+  safety net, not the fix — the presets are authored around the problem now,
+  but the pool should not have depended on that.
 
 ### Kick priority — and the starvation it caused first
 

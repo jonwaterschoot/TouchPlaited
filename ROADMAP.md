@@ -272,10 +272,10 @@ rather than bolted onto the branch that raised them. E2 is what's left.
 
 
 - [~] **`kDrumKick` is two engines wide** — *built and auditioned on branch
-      `kick-lab`, 2026-08-08. Twenty candidates, **twelve kept**, and the bank
-      is now the kick pad's pool rather than a probe alongside it. What is left
-      is a second listen at the new knob layer.* Write-up: `notes.md` →
-      *Kick lab*.
+      `kick-lab`, 2026-08-08. Twenty candidates, **eleven kept** over two
+      listens, and the bank is now the kick pad's pool rather than a probe
+      alongside it. What is left is a third pass at the knob windows.*
+      Write-up: `notes.md` → *Kick lab*.
       **The audition cut a family and a technique, not a scatter of numbers.**
       All six 2-op FM presets read as "regular synth" rather than as drums —
       one verdict about engine 10, whose only envelope is the LPG in ping mode,
@@ -324,6 +324,14 @@ rather than bolted onto the branch that raised them. E2 is what's left.
       sounding one, which was a latent fault all along (drum voices never get a
       NoteOff, so the free-slot scan could never see a finished one).
       `notes.md` → *Kick priority — and the starvation it caused first*.
+      **A second choker behind it, and a better finding:** the three presets on
+      non-drum engines are the only ones whose tail is Plaits' LPG rather than
+      the engine's own envelope, and the LPG in ping mode ignores our one-shot
+      gate and falls brutally slowly — decay 0.72 holds a voice for **7.4 s**.
+      SINE PURE was authored there, so it masked the kit *and* permanently cost
+      a voice; it is cut, FOLD SUB and VCF BOOM are re-authored down to 0.34 /
+      0.30, and drum one-shots now sleep at −60 dBFS instead of −80 as the net
+      under it. `notes.md` → *The LPG tail trap*.
 
       > Decision: 
       > - of all the drum sounds Kick is to me the most important one, hence i'd like more variations, atm the variation is an either very synth sound or the rather low energy kick model. 
