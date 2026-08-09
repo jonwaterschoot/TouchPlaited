@@ -270,8 +270,9 @@ Maintainer (`stephenhensley`) has explicitly welcomed further PRs.
       the 64×48 aliases should get `0x12` by the offset rule (unreported,
       probably unused — deliberately not changed on a guess).
 
-- [ ] **#708 — `HAL_UART_ErrorCallback` null deref.** Needs the **TRS MIDI
-      unit**, which is why it's still open. The maintainer gave a merge path
+- [ ] **#708 — `HAL_UART_ErrorCallback` freezes the main loop.** Filed as a
+      null deref; that framing is wrong, see below. The maintainer gave a
+      merge path
       — *"if that works for you, please update... then I can give this a
       quick regression test and we can merge it"* — and two non-equivalent
       variants. Push **v1** (null guard, `DmaTransferFinished` always runs);
@@ -282,18 +283,48 @@ Maintainer (`stephenhensley`) has explicitly welcomed further PRs.
       information for him. Note his v2 snippet dereferences `handle`
       unguarded, i.e. the very bug being fixed; he flags that himself.
 
-      **Both variants are written, 2026-08-09.** In `lib/libDaisy`, as local
-      branches off the PR's own base (`c02245d2`), so either can replace
-      `73083e80` with a force-push and leave the PR a one-file diff:
-      `fix/uart-error-callback-null-deref-v1` (`d80daae5`) and
-      `...-v2` (`0a3f1ea7`). Both compile clean at `-O3 -Wall` and are
-      clang-format-10 clean. Not pushed on purpose — pushing *is* the "that
-      works for me" answer to his question, so it waits on the hardware.
-      **To test:** point the submodule at v1, flash the TRS MIDI build, leave
-      the MIDI input floating to generate framing errors, and watch the
-      symptoms from the original report — touch pads dead, USB enumeration
-      failing, and the OLED frozen if that unit is wired with one. Restore the
-      pin afterwards with `git submodule update --checkout lib/libDaisy`.
+      **The real mechanism, traced 2026-08-09.** `DmaListenStart()` sets
+      `listener_mode_` *and* arms the IDLE interrupt (`uart.cpp:501`, `:522`);
+      `DmaListenStop()` undoes both (`:535-537`). `UART_IRQHandler`
+      acknowledges IDLE only inside its `listener_mode_` branch (`:1035`), and
+      ST's HAL never touches the flag in `HAL_UART_RECEPTION_STANDARD` mode.
+      So the disputed lines clear the flag while leaving IDLE armed: the flag
+      sets, nobody clears it, and the UART interrupt re-asserts forever. The
+      recovery libDaisy intends — `MidiHandler::Listen()` (`hid/midi.h:194`),
+      which `midi/midi_io.cpp:72` calls every pass — lives in the **main
+      loop**, and the storm is exactly what starves the main loop. Deadlock.
+      Audio survives because it outranks the UART IRQ. Not a null deref at
+      all; the null check is worth keeping but fixes nothing here.
+
+      **Which unit reproduces: the OLED one, not the TRS MIDI one.** Backwards
+      from the obvious guess. The TRS unit's input optocoupler drives USART1
+      RX to a defined idle, so the line is clean and no framing errors occur —
+      verified 2026-08-09, it runs fine on the unpatched library. The OLED
+      unit has no MIDI hardware, so D14 floats and picks up noise, while the
+      firmware starts the listener either way. A floating RX pin is the whole
+      trigger, which also gives upstream a trivial repro: bare Seed, listener
+      started, nothing wired to D14.
+
+      **Three variants written, 2026-08-09**, in `lib/libDaisy`. PR-ready, off
+      the PR's own base (`c02245d2`), so any one replaces `73083e80` with a
+      force-push and leaves the PR a one-file diff:
+      `fix/uart-error-callback-null-deref-v1` (`d80daae5`), `-v2` (`0a3f1ea7`),
+      `-v3` (`9df11f14`). v3 is the one the mechanism predicts: clear the flag
+      **and** `__HAL_UART_DISABLE_IT(huart, UART_IT_IDLE)`, mirroring
+      `DmaListenStop()`. It satisfies the maintainer's `IsListening()`
+      requirement and lets `Listen()` re-arm on the next pass. All three
+      compile clean at `-O3 -Wall` and are clang-format-10 clean. Not pushed
+      on purpose — pushing *is* the "that works for me" answer.
+
+      **To test**, on the OLED unit: `test/uart-v1` (`2b6f2fc1`), `-v2`
+      (`c2126370`), `-v3` (`e5eb8497`) are the same three patches off fork
+      master `d64ae436`, so every build differs *only* in the callback and
+      keeps the fork's `mpr121.h`/`usbd_desc.c`. Baseline `d64ae436` (bug,
+      reproduces), control `79d048bf` (the pin — the PR's removal). Note the
+      app `.elf` has no dependency on `libdaisy.a` (`core/Makefile:295`), so
+      delete `build/TouchPlaited.elf` between variants or you flash a stale
+      binary. Restore afterwards with
+      `git submodule update --checkout lib/libDaisy`.
 
 - [ ] **Fork sync — after #707 merges, not before.** `origin/master`
       (Synthux-Academy) currently carries the superseded flat `0x10`, and
