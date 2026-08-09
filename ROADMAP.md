@@ -348,10 +348,16 @@ Maintainer (`stephenhensley`) has explicitly welcomed further PRs.
       **and** `__HAL_UART_DISABLE_IT(huart, UART_IT_IDLE)`, mirroring
       `DmaListenStop()`. It satisfies the maintainer's `IsListening()`
       requirement and lets `Listen()` re-arm on the next pass. All three
-      compile clean at `-O3 -Wall` and are clang-format-10 clean. Not pushed
-      on purpose — pushing *is* the "that works for me" answer.
+      compile clean at `-O3 -Wall` and are clang-format-10 clean.
 
-      **To test**, on the OLED unit: `test/uart-v1` (`2b6f2fc1`), `-v2`
+      **v3 force-pushed 2026-08-09** (`73083e80` → `9df11f14`), PR retitled to
+      *"Fix HAL_UART_ErrorCallback wedging the system when the Rx listener
+      errors"*, and the write-up posted. **Waiting on:** review. `-v1`/`-v2`
+      stay around unpushed in case the maintainer prefers their own second
+      snippet — the offer to switch is in the comment.
+
+      **To re-test** (keep these until #708 merges), on the OLED unit:
+      `test/uart-v1` (`2b6f2fc1`), `-v2`
       (`c2126370`), `-v3` (`e5eb8497`) are the same three patches off fork
       master `d64ae436`, so every build differs *only* in the callback and
       keeps the fork's `mpr121.h`/`usbd_desc.c`. Baseline `d64ae436` (bug,
