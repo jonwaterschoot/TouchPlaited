@@ -275,13 +275,39 @@ Maintainer (`stephenhensley`) has explicitly welcomed further PRs.
       merge path
       — *"if that works for you, please update... then I can give this a
       quick regression test and we can merge it"* — and two non-equivalent
-      variants. Push **v1** (null guard, `DmaTransferFinished` always runs);
-      it keeps existing behaviour and only adds the guard. If the freeze
-      survives it, **v2** (skip `DmaTransferFinished` while in listener mode)
-      is the likely answer — and that difference lands exactly on the TRS
-      MIDI listening path this firmware uses, so whichever holds is real
-      information for him. Note his v2 snippet dereferences `handle`
-      unguarded, i.e. the very bug being fixed; he flags that himself.
+      variants. Note his v2 snippet dereferences `handle` unguarded, i.e. the
+      very bug being fixed; he flags that himself.
+
+      **Hardware results, 2026-08-09, OLED unit, five builds off `d64ae436`
+      differing only in the callback:**
+
+      | Build | Callback | Result |
+      |---|---|---|
+      | `d64ae436` | clear flag + `DmaTransferFinished` | **fail** |
+      | `79d048bf` | `DmaTransferFinished` only (the PR) | pass |
+      | `test/uart-v1` | + null guard | **fail** |
+      | `test/uart-v2` | clear flag, skip `DmaTransferFinished` | pass |
+      | `test/uart-v3` | clear flag + disarm IDLE + `DmaTransferFinished` | pass |
+
+      **So the answer to his question is no — v1 does not fix it**, with a
+      working control either side. Two clean single-variable comparisons fall
+      out: v1→v3 differ only by the IDLE disarm, v1→v2 only by whether
+      `DmaTransferFinished` runs, and *both* flip fail to pass. The fault
+      therefore needs both ingredients — an un-acknowledged IDLE interrupt
+      re-entering the ISR, and `DmaTransferFinished` making each entry
+      expensive (`HAL_UART_Init` under a `ScopedIrqBlocker`, ending in a
+      polled `UART_CheckIdleState`). Cheap-and-frequent survives;
+      expensive-and-rare survives; frequent *and* expensive starves I2C, USB
+      and the main loop while SAI-DMA audio keeps running. Symptom mix drifted
+      between baseline and v1 on a one-line difference that cannot change
+      control flow — consistent with starvation, not a deterministic fault.
+
+      **Send v3.** v2 works but fixes it by never reporting the error while
+      listening — `next_end_callback_` stops receiving `Result::ERR`, a
+      behaviour change beyond the bug. v3 keeps the error propagating and
+      keeps `IsListening()` meaningful, so `MidiHandler::Listen()` restarts on
+      the next pass, and kills the re-entry at source the way
+      `DmaListenStop()` already does.
 
       **The real mechanism, traced 2026-08-09.** `DmaListenStart()` sets
       `listener_mode_` *and* arms the IDLE interrupt (`uart.cpp:501`, `:522`);
@@ -289,12 +315,17 @@ Maintainer (`stephenhensley`) has explicitly welcomed further PRs.
       acknowledges IDLE only inside its `listener_mode_` branch (`:1035`), and
       ST's HAL never touches the flag in `HAL_UART_RECEPTION_STANDARD` mode.
       So the disputed lines clear the flag while leaving IDLE armed: the flag
-      sets, nobody clears it, and the UART interrupt re-asserts forever. The
+      sets, nobody clears it, and the UART interrupt keeps re-entering. The
       recovery libDaisy intends — `MidiHandler::Listen()` (`hid/midi.h:194`),
       which `midi/midi_io.cpp:72` calls every pass — lives in the **main
-      loop**, and the storm is exactly what starves the main loop. Deadlock.
-      Audio survives because it outranks the UART IRQ. Not a null deref at
-      all; the null check is worth keeping but fixes nothing here.
+      loop**, which is exactly what gets starved. Audio survives because it
+      outranks the UART IRQ. Not a null deref at all; the null check is worth
+      keeping but fixes nothing here — v1 proved that on hardware.
+
+      Re-entry alone is *not* sufficient, though: v2 leaves IDLE armed and
+      still passes. It is re-entry **plus** the cost of `DmaTransferFinished`
+      per entry that tips it over. Predicting v2 would fail was the one thing
+      the code reading got wrong; the hardware corrected it.
 
       **Which unit reproduces: the OLED one, not the TRS MIDI one.** Backwards
       from the obvious guess. The TRS unit's input optocoupler drives USART1
