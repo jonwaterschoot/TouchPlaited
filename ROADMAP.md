@@ -289,6 +289,10 @@ Maintainer (`stephenhensley`) has explicitly welcomed further PRs.
       | `test/uart-v2` | clear flag, skip `DmaTransferFinished` | pass |
       | `test/uart-v3` | clear flag + disarm IDLE + `DmaTransferFinished` | pass |
 
+      v1's failure was reproduced a second time, and v3 was then run on the
+      **TRS MIDI unit** with a keyboard attached: real MIDI in works, so
+      clearing the flag does not strand the listener — `Listen()` re-arms it.
+
       **So the answer to his question is no — v1 does not fix it**, with a
       working control either side. Two clean single-variable comparisons fall
       out: v1→v3 differ only by the IDLE disarm, v1→v2 only by whether
