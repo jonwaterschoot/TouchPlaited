@@ -342,7 +342,8 @@ before crediting a change with a CPU win.**
   measurement builds never exercised. Same 20816 B / 31.76% footprint as the
   measured binary, so the relocation lands identically — but note the CPU
   figures above were read off the measurement build, and cannot be re-read on
-  a `USB_MIDI` build, which owns the port the meter prints to.
+  a `USB_MIDI` build, which owns the port the meter prints to. To re-read
+  them: `make clean && make MEASURE=1`.
 
 - **ITCM, remaining 43 KB** — `fx.o` (3332 B) and the audio callback out of
   `TouchPlaited.o` are the next candidates, and would cut veneer crossings as

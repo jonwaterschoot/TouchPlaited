@@ -8,11 +8,27 @@ APP_TYPE = BOOT_QSPI
 # prebuilt and unaffected). Flash is abundant (QSPI 7.9 MB); CPU is not.
 OPT = -O3
 
-# USB port owner: defined = USB device MIDI; commented out = measurement
-# build (USB serial logging + CPU meter prints return, USB MIDI disabled).
-# TRS MIDI (USART1, D13/D14) is always built either way. Comment this out to
-# read the CPU / OLED frame numbers over serial.
+# Build config. `make` ships; `make MEASURE=1` is the measurement build.
+#
+# The two flags always move together, so they are one switch rather than two
+# edits. There is one USB port and one owner: shipping gives it to MIDI, and
+# measuring gives it to serial, which is where the CPU / OLED frame numbers
+# print. NO_PERSIST rides along because a measurement build is exactly the
+# run you do not want writing to the settings journal — a relocation that
+# lands wrong misbehaves rather than crashing, and on 2026-08-10 that class
+# of run wrote CRC-valid garbage into it. See notes.md → "The stale
+# libdaisy.a", guardrail 3.
+#
+# TRS MIDI (USART1, D13/D14) is built either way.
+#
+# Run `make clean` when switching: objects do not depend on these flags, so
+# make will happily link a mix of both. Same failure shape as the stale
+# libdaisy.a evening, and just as quiet.
+ifdef MEASURE
+C_DEFS += -DNO_PERSIST
+else
 C_DEFS += -DUSB_MIDI
+endif
 
 # Sources: main entry + touch hardware layer + display + MIDI I/O + Plaits voice wrapper
 CPP_SOURCES = TouchPlaited.cpp \
