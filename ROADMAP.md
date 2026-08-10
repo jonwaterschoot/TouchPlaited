@@ -43,6 +43,11 @@ Design decisions, budget analyses, and implementation write-ups live in
   `notes.md` → *The stale `libdaisy.a`* before picking up anything below; it
   voids one previous conclusion and adds a build rule
   (**move the submodule pin → `make -C lib/libDaisy`**).
+- **Plaits' tables in DTCM — measured 2026-08-10, ~1%, not merged.** A
+  deliberate negative result: it rules data fetch out and leaves ITCM as the
+  only remaining lever. It also re-baselined Six-Op's cost, which had drifted
+  14 points since 08-07 without anyone noticing. `notes.md` → "Plaits' tables
+  in DTCM". Any CPU claim below that predates this wants re-checking.
 
 ---
 
@@ -280,9 +285,14 @@ Maintainer (`stephenhensley`) has explicitly welcomed further PRs.
 
 ## Parking lot — performance
 
-Re-measured 2026-08-07 on hardware (Six-Op C, one group). Raw captures and
-the analysis are in `notes.md` → "Six-Op crackle". The numbers changed what
-is worth doing here, so read them before picking anything up.
+Re-measured 2026-08-10 on hardware (Six-Op C, one group, no FX): **idle 15%,
+then 36 / 50 / 64 / 78% for one to four held notes** — ~14% per added voice.
+These supersede the 08-07 figures (16 / 41 / 58 / 75 / 92, ~17% per voice)
+that the rest of this file was written against; fourteen points of headroom
+at four voices appeared between the two dates and the cause is not known. See
+`notes.md` → "Plaits' tables in DTCM". Raw captures and the per-voice analysis
+are in `notes.md` → "Six-Op crackle". **Always measure a same-day control
+before crediting a change with a CPU win.**
 
 - **480MHz boost (`hw.Init(true)`) — verdict VOID, needs a clean retest.**
   Worth ~20% of the audio budget for one character, and libDaisy's default is
@@ -298,32 +308,41 @@ is worth doing here, so read them before picking anything up.
   for that dummy count. Retest on a clean build, and **build it with
   `-DNO_PERSIST`** so a bad run cannot poison the settings journal again.
 
-- **Plaits lookup tables in DTCM — built, verified at the linker level, never
-  measured.** Branch `cpu-boost`, commit `4b92ca4`. `resources.o` is ~75KB and
-  entirely `.rodata`, so every wavetable read in the audio ISR is a QSPI access
-  through a 16KB D-cache already contending with ~100KB of voice scratch;
-  DTCM was 100% unused. Own copy of the linker script in `linker/`
-  (`LDSCRIPT` is `?=` in libDaisy's core Makefile, so setting it before the
-  include wins), `.text` excludes `resources.o`'s `.rodata` via `EXCLUDE_FILE`,
-  `.dtcmram_data` runs in DTCM and loads from QSPI, a priority-101 constructor
-  copies it ahead of every static ctor, and a link-time `ASSERT` guards the
-  stack (down to 56KB from 128KB). Measure against **Six-Op C, one group,
-  1→4 held = 16 / 41 / 58 / 75 / 92%**. Near-zero would itself be informative:
-  it would say instruction fetch, not data fetch, is the bottleneck — and
-  point straight at ITCM below.
+- **Plaits lookup tables in DTCM — MEASURED, ~1% flat. Do not merge.**
+  Branch `cpu-boost`, commit `c81a510`. A same-day A/B on one device gave
+  15 / 35 / 49 / 63 / 77% against the control's 15 / 36 / 50 / 64 / 78 —
+  a one-point offset with the **per-voice slope completely unchanged** at 14%.
+  The tables were never the bottleneck; the D-cache was already absorbing
+  them. Not worth a 324-line linker script and 75KB of DTCM that cuts the
+  stack guard from 128KB to 56KB. Full write-up, including why the negative
+  result is useful, in `notes.md` → "Plaits' tables in DTCM".
 
-- **ITCM placement** — move the hottest Plaits render paths into ITCMRAM
-  (64 KB, 0% used); code currently executes from QSPI. Still the only lever
-  that changes the arithmetic rather than working around it, and now the
-  clear first choice: Six-Op costs **~17% of a block per voice** (idle 16%,
-  then 41 / 58 / 75 / 92% for one to four held), so everything else is
-  rationing.
+  **Keep the infrastructure, drop the placement.** `LDSCRIPT` set before
+  libDaisy's core Makefile include (it declares `LDSCRIPT` with `?=`, so
+  setting it first wins), the `EXCLUDE_FILE` mechanics, the priority-101
+  constructor that copies ahead of every static ctor, and the link-time
+  `ASSERT` — ITCM needs all of it.
+
+- **ITCM placement — now the only lever left, and the one the DTCM result
+  points at.** Move the hottest Plaits render paths into ITCMRAM (64 KB, 0%
+  used); code currently executes from QSPI. Since data fetch has been ruled
+  out by measurement, instruction fetch is what remains, and Six-Op costs
+  **~14% of a block per voice** (idle 15%, then 36 / 50 / 64 / 78% for one to
+  four held) — so everything else on this list is rationing. Budget: the
+  Six-Op path is ~22.7 KB of `.text` before `--gc-sections`
+  (`six_op_engine.o` 14064 B, `voice.o` 4200, `algorithms.o` 2808,
+  `plaits_voice.o` 1672; `dx_units.o` and `units.o` are 0 — fully inlined
+  into their callers), comfortably inside 64 KB. Note that ITCM sits at
+  `0x00000000` and QSPI at `0x90040000`, far outside `bl` range, so the link
+  depends on long-branch veneers.
 - **Expand voice pool to 7** — *reframed.* The pool size was never the
-  binding constraint; concurrent **expensive** voices are. Four held Six-Op
-  voices already sit at 92-95% against a 90% shed threshold, and the shed
-  guard cannot fire on held voices at all, which is what the per-engine cap
-  now handles. A 7th voice buys nothing on these engines until ITCM (or a
-  cheaper engine mix) moves the per-voice cost. Still fine for cheap engines,
+  binding constraint; concurrent **expensive** voices are. This was written
+  when four held Six-Op voices sat at 92-95% against a 90% shed threshold; on
+  2026-08-10 the same test measures **78%**, so the premise is weaker than it
+  was and the per-engine cap of 3 may now be leaving headroom on the table.
+  Re-derive the cap from current numbers before extending the pool. The shed
+  guard still cannot fire on held voices at all, which is what the cap
+  handles. Still fine for cheap engines,
   where the pool does run out first — and the drum side got most of that
   benefit for free in the kick lab, by learning to reuse *sleeping* voices
   before stealing sounding ones (`notes.md` → "Kick priority").

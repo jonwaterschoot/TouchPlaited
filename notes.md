@@ -143,6 +143,125 @@ error — exactly the failure mode a prebuilt library is able to hide.
 
 ---
 
+## Plaits' tables in DTCM bought ~1% — a negative result worth keeping (2026-08-10)
+
+**In plain words:** the theory was that the audio interrupt spends real time
+waiting on Plaits' wavetables, which live in serial flash and are read through
+a small data cache that ~100KB of voice scratch is already fighting over. Move
+those 75KB of tables into DTCM — 128KB of zero-wait-state RAM sitting entirely
+unused — and the waiting should stop. It was built, and it works exactly as
+designed at the linker level. It bought **one percentage point, flat**. The
+tables were never the problem.
+
+### The measurement
+
+Same device, same session, two binaries differing in exactly one thing: the
+linker script. Everything else — including the comment-only commits on branch
+`cpu-boost` — is byte-for-byte the same source. Both built with `-DNO_PERSIST`
+so neither run could write to the settings journal, which also means both
+started from identical restored state. Six-Op C, one group, no FX, idle then
+one to four held notes.
+
+| held  | A — tables in QSPI | B — tables in DTCM | Δ  |
+|-------|--------------------|--------------------|----|
+| idle  | 15%                | 15%                | 0  |
+| 1     | 36%                | 35%                | −1 |
+| 2     | 50%                | 49%                | −1 |
+| 3     | 64%                | 63%                | −1 |
+| 4     | 78%                | 77%                | −1 |
+
+The marginal cost of each added voice is the number that matters, and it did
+not move:
+
+| build | 1st voice | 2nd | 3rd | 4th |
+|-------|-----------|-----|-----|-----|
+| A     | +21       | +14 | +14 | +14 |
+| B     | +20       | +14 | +14 | +14 |
+
+A flat offset with an unchanged slope is the signature of one *fixed* cost
+getting slightly cheaper while the thing actually being paid for — the
+per-voice render — is untouched. One point is barely off the noise floor: A's
+own `max` wandered 79→81 between adjacent windows.
+
+### What it means
+
+**Data fetch is not the bottleneck.** The D-cache was already absorbing the
+table reads well enough that removing them from QSPI entirely changes nothing
+measurable. By elimination that points at **instruction** fetch — the code
+executing from QSPI, not the data it reads. ITCMRAM (64KB, 0% used) stops
+being the follow-up experiment and becomes the only one left.
+
+This was pre-registered: the roadmap said before the measurement that
+"near-zero would itself be informative — it would say instruction fetch, not
+data fetch, is the bottleneck." Worth noting that the prediction was written
+down first, because it is the reason a 1% result is useful rather than
+disappointing.
+
+### Do not merge the relocation — keep the vehicle
+
+The `.rodata`→DTCM placement costs a 324-line linker script to maintain and
+spends 75KB of DTCM, which cut the link-time stack guard from 128KB to 56KB.
+That is a real risk surface bought for one point.
+
+What *is* worth keeping is the infrastructure around it, because ITCM needs
+all of it: `LDSCRIPT` set before libDaisy's core Makefile include (it declares
+`LDSCRIPT` with `?=`, so setting it first wins), the `EXCLUDE_FILE` mechanics
+for pulling specific objects out of the default output section, the
+priority-101 constructor that copies before every static ctor runs, and the
+link-time `ASSERT` guarding what is left. ITCM's 64KB is genuinely unused and
+does not compete with the stack.
+
+### A second finding, unrelated and larger
+
+The control build was necessary because the roadmap's target numbers had gone
+stale, and the gap was not small:
+
+| held | 2026-08-07 | 2026-08-10 control | Δ   |
+|------|------------|--------------------|-----|
+| idle | 16%        | 15%                | −1  |
+| 1    | 41%        | 36%                | −5  |
+| 2    | 58%        | 50%                | −8  |
+| 3    | 75%        | 64%                | −11 |
+| 4    | 92%        | 78%                | −14 |
+
+Marginal cost per voice fell from ~17% to ~14%. **Fourteen points of headroom
+at four voices appeared between 08-07 and 08-10 and nobody knows why** — the
+candidates are the kick-lab merge, the voice-pool fixes and the per-engine
+caps, all of which landed on 08-08. Worth bisecting when there is a reason to.
+
+Had B been compared against the 08-07 numbers instead of a same-day control,
+DTCM would have been credited with a 14-point win it had nothing to do with,
+and the project would have merged a linker script on the strength of it. That
+is the same failure shape as the stale `libdaisy.a` above: an old artifact
+silently standing in for a current one. **Measure the control on the same day,
+on the same device, from the same tree.**
+
+### Worst case — suggestive, not established
+
+Both builds were also run against the drum sequencer with four Six-Op C notes
+held on top. Same method both times, but a different kit loaded and not
+identical playing, so this pair is not controlled and nothing should be
+concluded from it:
+
+| build | avg    | max      | shed |
+|-------|--------|----------|------|
+| A     | 44–72% | 138–173% | 7–33 |
+| B     | 59–74% | 102–148% | 2–35 |
+
+B's peaks are lower across the board, which is where cache pressure would show
+up if it showed up anywhere. If the worst case ever matters, it needs its own
+controlled pair.
+
+Two things do stand out regardless. `shed` reaching the mid-30s with `sv 0`
+and the result still sounding fine is the shed guard doing exactly its job on
+triggered drum voices. And `pg max` — the OLED redraw stretch — scales with
+load: 19ms idle, 48ms at four held voices, and once **96ms** under sequencer
+plus polyphony. Screen latency degrades with CPU load because the redraw is
+being preempted by the audio ISR. That is a known consequence of the deferred
+redraw design, but 96ms is larger than anything in the 08-06 capture.
+
+---
+
 ## OLED redraw cost — the I2C4 experiment and what it actually found (2026-08-06)
 
 Question was whether the display deserves its own I2C bus, at the cost of TRS
