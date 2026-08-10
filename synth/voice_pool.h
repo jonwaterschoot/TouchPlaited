@@ -626,9 +626,38 @@ private:
         // there unused. That is the single biggest cause of drum tails being
         // cut, and it is independent of the kick.
         int victim = oldest_where([&](int i) { return !awake[i]; });
-        // Then the oldest voice that is not a kick inside its protection
-        // window (below). Only if every voice is a protected kick does the
-        // plain oldest-first rule take over, so the pool can never wedge.
+        // Then the oldest voice that is neither gate-held nor a kick inside
+        // its protection window (below).
+        //
+        // The gate_held test is the important one, and it was missing until
+        // 2026-08-10. A note you are holding is by definition the *oldest*
+        // voice in the pool, so plain oldest-first handed it to the very next
+        // drum trigger — while the shed guard (see the gate_held skip in the
+        // shed pass above) treats held voices as untouchable. The two paths
+        // disagreed about what a held note is worth, and the steal path won:
+        // hold a note with the sequencer running and it died after a handful
+        // of hits, with neither sustain nor release, because it was not
+        // released at all — it was retriggered out from under you.
+        //
+        // This hid for a long time behind CPU load. Shedding only ever
+        // silences drum voices (it skips held ones), which returns them to
+        // the pool asleep and keeps the pass above satisfied. So on a build
+        // with no headroom the bug was invisible, and the ITCM measurement
+        // that freed 13 points at four voices is what exposed it: A (78%)
+        // held indefinitely, B (77%) held 1-6s, C (65%) died in ~4 hits.
+        // Voice priority was being decided by how busy the CPU happened to
+        // be. Now it is decided here.
+        //
+        // Held beats the kick protection window on purpose: that window is
+        // 150ms of anti-stutter for the downbeat, whereas a held note is the
+        // player's hand on the instrument. The two only ever compete when
+        // every other voice is already held or a protected kick.
+        if (victim < 0) victim = oldest_where([&](int i) {
+            return !gate_held[i] && !(is_kick_voice(pad_slot[i]) && protect_chunks[i]);
+        });
+        if (victim < 0) victim = oldest_where([&](int i) { return !gate_held[i]; });
+        // Only if every voice is a protected kick, or held, does the plain
+        // oldest-first rule take over, so the pool can never wedge.
         if (victim < 0) victim = oldest_where([&](int i) {
             return !(is_kick_voice(pad_slot[i]) && protect_chunks[i]);
         });
