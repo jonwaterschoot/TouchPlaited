@@ -3754,6 +3754,43 @@ static void persist_tick(uint32_t now_ms) {
 #endif
 }
 
+// The Six-Op render path links into ITCM but loads from QSPI (linker/
+// TouchPlaited_qspi.lds → .itcmram_text). Nothing initialises it for us:
+// startup.c only knows how to copy .data, so this does the equivalent job for
+// .itcmram_text. Until it runs, ITCM holds whatever reset left there, and
+// calling into it executes garbage — so the ordering matters a great deal
+// more than the four lines of code suggest.
+//
+// constructor(101) rather than a call at the top of main(): the linker script
+// matches KEEP(*(SORT(.init_array.*))) before KEEP(*(.init_array*)), so a
+// prioritised constructor lands ahead of every _GLOBAL__sub_I_* entry. That
+// covers the static constructors too — plaits::Voice instances are built by
+// static ctors and their constructors live in voice.o, which is one of the
+// objects being relocated. Priority 101 is the lowest the toolchain allows
+// user code.
+//
+// This function must not itself live in ITCM, and neither may anything it
+// calls. It is in TouchPlaited.o, which stays in QSPI.
+//
+// DSB then ISB after the copy: the stores go out through the write buffer,
+// and the processor may already have prefetched from the ITCM addresses it is
+// about to branch to. TCM is not cached on the M7 — no cache maintenance is
+// needed — but the pipeline still has to be told that memory it may have
+// fetched from has changed underneath it.
+extern "C" {
+extern uint32_t _sitcmram_text_load;   // load address, in QSPI
+extern uint32_t _sitcmram_text;        // run address, in ITCM
+extern uint32_t _eitcmram_text;
+}
+
+__attribute__((constructor(101))) static void copy_itcm_text() {
+    const uint32_t* src = &_sitcmram_text_load;
+    uint32_t*       dst = &_sitcmram_text;
+    while (dst < &_eitcmram_text) *dst++ = *src++;
+    __DSB();
+    __ISB();
+}
+
 // ─── Main ─────────────────────────────────────────────────────────────────────
 int main() {
     hw.Init();

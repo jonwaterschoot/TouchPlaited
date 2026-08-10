@@ -12,7 +12,14 @@ OPT = -O3
 # build (USB serial logging + CPU meter prints return, USB MIDI disabled).
 # TRS MIDI (USART1, D13/D14) is always built either way. Comment this out to
 # read the CPU / OLED frame numbers over serial.
-C_DEFS += -DUSB_MIDI
+# C_DEFS += -DUSB_MIDI
+
+# Experiment branch: restore settings on boot, never write them back. This
+# branch relocates the Six-Op render path into ITCM, and a relocation that
+# lands wrong misbehaves rather than crashing — exactly the class of run that
+# wrote CRC-valid garbage into the journal on 2026-08-10. See notes.md → "The
+# stale libdaisy.a", guardrail 3. Remove before merging anything to main.
+C_DEFS += -DNO_PERSIST
 
 # Sources: main entry + touch hardware layer + display + MIDI I/O + Plaits voice wrapper
 CPP_SOURCES = TouchPlaited.cpp \
@@ -41,6 +48,12 @@ CC_SOURCES = $(wildcard thirdparty/plaits/dsp/*.cc) \
 # thirdparty/ is the include root so #include "plaits/dsp/voice.h" and
 # #include "stmlib/utils/buffer_allocator.h" resolve correctly
 C_INCLUDES += -Ithirdparty
+
+# Linker script: our own copy of libDaisy's QSPI script, which additionally
+# runs the Six-Op render path from ITCM instead of QSPI. Must be set before
+# the core Makefile is included — it declares LDSCRIPT with ?= and would
+# otherwise win. See linker/TouchPlaited_qspi.lds for what changed and why.
+LDSCRIPT = linker/TouchPlaited_qspi.lds
 
 # Library Locations — libDaisy only (DaisySP not needed for Plaits DSP)
 LIBDAISY_DIR = lib/libDaisy/
