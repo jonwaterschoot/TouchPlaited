@@ -43,6 +43,13 @@ Design decisions, budget analyses, and implementation write-ups live in
   `notes.md` → *The stale `libdaisy.a`* before picking up anything below; it
   voids one previous conclusion and adds a build rule
   (**move the submodule pin → `make -C lib/libDaisy`**).
+- **Held notes were being stolen by drum triggers — fixed, branch
+  `held-note-steal` (`4d94c58`), hardware-verified, not yet merged.**
+  Independent of the ITCM work, which only exposed it. `notes.md` → "Held
+  notes were being stolen".
+- **Open bugs now live in `notes.md` → "Bugs".** Currently one entry: the
+  OLED and user LED froze together while audio, pads and pots kept running.
+  One-off, unreproduced, main-loop stall suspected.
 - **Plaits' tables in DTCM — measured 2026-08-10, ~1%, not merged.** A
   deliberate negative result: it rules data fetch out and leaves ITCM as the
   only remaining lever. It also re-baselined Six-Op's cost, which had drifted
@@ -323,18 +330,29 @@ before crediting a change with a CPU win.**
   constructor that copies ahead of every static ctor, and the link-time
   `ASSERT` — ITCM needs all of it.
 
-- **ITCM placement — now the only lever left, and the one the DTCM result
-  points at.** Move the hottest Plaits render paths into ITCMRAM (64 KB, 0%
-  used); code currently executes from QSPI. Since data fetch has been ruled
-  out by measurement, instruction fetch is what remains, and Six-Op costs
-  **~14% of a block per voice** (idle 15%, then 36 / 50 / 64 / 78% for one to
-  four held) — so everything else on this list is rationing. Budget: the
-  Six-Op path is ~22.7 KB of `.text` before `--gc-sections`
-  (`six_op_engine.o` 14064 B, `voice.o` 4200, `algorithms.o` 2808,
-  `plaits_voice.o` 1672; `dx_units.o` and `units.o` are 0 — fully inlined
-  into their callers), comfortably inside 64 KB. Note that ITCM sits at
-  `0x00000000` and QSPI at `0x90040000`, far outside `bl` range, so the link
-  depends on long-branch veneers.
+- **ITCM placement — BUILT AND MEASURED, ~19% off Six-Op. Branch `itcm`,
+  commit `0fd370a`; hardware-verified.** Six-Op C, one group, no FX:
+  **14 / 28 / 41 / 53 / 65%** against the control's 15 / 36 / 50 / 64 / 78.
+  Marginal cost per voice **14% → ~12%**, first-voice overhead +21 → +14.
+  Unlike DTCM the slope moved, so this is a real per-voice win. 20816 B in
+  ITCM (31.76%), 17 long-branch veneers. Full write-up in `notes.md` → "ITCM
+  was the bottleneck all along".
+
+  Open before it merges: `-DNO_PERSIST` and the `USB_MIDI` comment-out are
+  committed on the branch for reproducibility and must come out; the branch
+  also carries a cherry-pick of `held-note-steal` that belongs to `main`
+  independently.
+
+- **ITCM, remaining 43 KB** — `fx.o` (3332 B) and the audio callback out of
+  `TouchPlaited.o` are the next candidates, and would cut veneer crossings as
+  well as fetch cost. Measure against **14 / 28 / 41 / 53 / 65%**, same
+  protocol, same-day control.
+
+- **Re-derive the per-engine held cap.** `kBPMaxHeldHeavy` caps held Basic
+  Pitch notes at 3 on Six-Op and friends. That number was set when four held
+  voices cost 92%; on the ITCM build they cost 65%, and the projection at
+  ~12%/voice is 5 held ≈ 77%, 6 ≈ 89% against a 90% shed threshold. The cap
+  is now leaving headroom on the table.
 - **Expand voice pool to 7** — *reframed.* The pool size was never the
   binding constraint; concurrent **expensive** voices are. This was written
   when four held Six-Op voices sat at 92-95% against a 90% shed threshold; on

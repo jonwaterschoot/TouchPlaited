@@ -143,6 +143,199 @@ error — exactly the failure mode a prebuilt library is able to hide.
 
 ---
 
+## Bugs — open, unverified, and one-off
+
+Things seen on hardware that are not explained yet. A one-off with no repro is
+still worth writing down: the stale `libdaisy.a` evening cost as much as it did
+partly because early symptoms were dismissed as flukes.
+
+### The screen and LED froze while everything else kept running (2026-08-10)
+
+**Status: one-off, unreproduced.** Seen once on branch `itcm`
+(`D-itcm-heldfix.bin`), after the unit had sat idle for a while and playing
+resumed. The OLED stopped updating and the user LED stopped blinking. **Audio,
+pads and pots all kept working normally.** A reboot fixed it, and it has not
+happened since.
+
+That symptom split is the useful part, because it maps exactly onto the two
+execution contexts:
+
+- `touch.Process()` — pads *and* pots — runs inside `AudioCallback`
+  (`TouchPlaited.cpp`), i.e. in the audio ISR.
+- `set_led()` and the OLED redraw run in the main loop.
+
+Everything still alive was ISR-driven; everything dead was main-loop. So the
+main loop stalled while the audio interrupt carried on. That rules out a great
+deal — it is not a hard fault, not a clock problem, and not the ITCM
+relocation, whose code only ever executes from the ISR.
+
+Prime suspect is the I2C1 bus the OLED shares with the MPR121: a blocking HAL
+transaction that never completed would hang the main loop exactly this way.
+`i2c1_lock.h` is the interlock between them, and the OLED already holds that
+lock against pad polling — `TouchPlaited.cpp` documents that `pg max` is
+literally how long the pads went unpolled. Worth noting this appeared in the
+same session where `pg max` reached **116 ms**, by a wide margin the worst
+redraw stretch ever recorded here.
+
+**If it happens again, capture:** whether audio is still running (confirms the
+main-loop diagnosis), whether the sequencer keeps time, and whether MIDI still
+responds. A watchdog on the main loop, or a timeout on the OLED transaction,
+would turn this from a mystery into a logged event — but nothing should be
+built until it is reproduced.
+
+---
+
+## ITCM was the bottleneck all along — Six-Op down ~19% (2026-08-10)
+
+**In plain words:** everything on this part executes from serial flash. The
+previous experiment proved the audio interrupt was not waiting on *data*, which
+left it waiting on its own *instructions*. Moving the Six-Op render path into
+ITCM — 64KB of zero-wait-state memory that had never been used for anything —
+cut the cost of every voice. Unlike the DTCM attempt, this moved the slope, not
+just an offset.
+
+### The measurement
+
+Same device, same session, same protocol as the DTCM A/B, all with
+`-DNO_PERSIST`. Six-Op C, one group, no FX. Build C is branch `itcm`,
+commit `0fd370a`; build A is the control from `main`.
+
+| held  | A — all in QSPI | C — Six-Op in ITCM | Δ   |
+|-------|-----------------|--------------------|-----|
+| idle  | 15%             | 14%                | −1  |
+| 1     | 36%             | 28%                | −8  |
+| 2     | 50%             | 41%                | −9  |
+| 3     | 64%             | 53%                | −11 |
+| 4     | 78%             | 65%                | −13 |
+
+| build | 1st voice | 2nd | 3rd | 4th |
+|-------|-----------|-----|-----|-----|
+| A     | +21       | +14 | +14 | +14 |
+| C     | +14       | +13 | +12 | +12 |
+
+Marginal cost per voice **14% → ~12%**, and the first voice's fixed overhead
+**+21 → +14**. Total synthesis cost at four voices — load above idle — fell
+from 63 points to 51, a **19% reduction**. The gap widens with each added
+voice, which is what distinguishes a real per-voice win from DTCM's flat
+one-point offset.
+
+**Instruction fetch was the bottleneck. That is now measured, not inferred.**
+
+### What is in ITCM, and what it cost
+
+20816 bytes, 31.76% of the region. Four objects: `six_op_engine.o`,
+`algorithms.o`, `voice.o`, `plaits_voice.o`. The functions that matter:
+
+| symbol                          | size   |
+|---------------------------------|--------|
+| `plaits::fm::Voice<6>::Render`  | 5494 B |
+| `plaits::Voice::Render`         | 3314 B |
+| `plaits::SixOpEngine::Render`   | 3124 B |
+| `synthux::PlaitsVoice::Render`  | 1050 B |
+
+ITCM sits at `0x00000000` and QSPI at `0x90040000`, far outside the ±16MB
+reach of a Thumb `bl`, so every call across the boundary goes through a
+long-branch veneer — ld inserted 17 of them. That cost is *inside* the numbers
+above, not something to subtract, and it is why whole objects move together
+rather than individually chosen hot functions. libDaisy's MPU config programs
+regions at `0x30000000`, `0xC0000000` and `0x38800000` only, so ITCM keeps its
+default executable attributes and needs no setup.
+
+**Object patterns must be exact, not globs.** The first build used
+`*voice.o`, which also matches `string_voice.o` and `modal_voice.o` — two
+unrelated engines quietly relocated, and any future `*_voice.cc` would have
+joined them. The linker script now names exact `build/` paths and carries a
+size `ASSERT`, because exactness introduces the opposite failure: a pattern
+that stops matching leaves the code in QSPI silently, and the build still
+succeeds. Same shape as the stale `libdaisy.a` — everything runs, the number
+is just wrong.
+
+### What this changes downstream
+
+At ~12% per voice the projection is 5 held ≈ 77%, 6 ≈ 89% against a 90% shed
+threshold. **The per-engine cap of 3 held Six-Op notes was set when four
+voices cost 92%**, and wants re-deriving. "Expand the voice pool to 7" stops
+being pointless for expensive engines.
+
+43KB of ITCM is still free. The obvious next candidates are `fx.o` (3332 B)
+and the audio callback itself out of `TouchPlaited.o`, which would also reduce
+veneer crossings.
+
+### Worst case, and a trap in reading it
+
+Fast drum sequencer with four Six-Op C voices held, on `D-itcm-heldfix.bin`:
+avg 70–82%, **max 85–92%**, shed mostly 0 with one window at 29.
+
+Compared against A's earlier drums-plus-four-notes capture (avg 44–72%, max
+138–173%, shed 7–33) the average looks *worse* and the peaks dramatically
+better. The average is the misleading half: **on A the held notes were being
+stolen**, so that build was never actually rendering four held voices. It was
+cheaper because it was doing less work. C renders all four and still halves
+the peak. Any comparison of averages across those two builds is meaningless
+until the voice-stealing difference is accounted for.
+
+`pg max` reached 72 ms here, and 116 ms in an earlier stress run. Since that
+figure is also how long the pads went unpolled, screen latency and touch
+latency degrade together under load. Nothing audible, but it is the worst
+recorded and it wants watching — see the Bugs list above.
+
+---
+
+## Held notes were being stolen by drum triggers, and CPU load hid it (2026-08-10)
+
+**In plain words:** hold a note while the drum sequencer runs and it would die
+after a few hits — no sustain, no release, because it was never released. A
+drum trigger was taking its voice. How long it survived depended on how busy
+the CPU was, which is why it looked like an ITCM regression at first and was
+not one.
+
+`find_free_or_steal()` in `synth/voice_pool.h` picked its victim as: a
+sleeping voice, then the oldest voice that is not a kick inside its protection
+window, then the plain oldest. **Nothing in that chain knew what a held voice
+was.** A held note is by definition the oldest voice in the pool, so
+oldest-first handed it over first, every time. Meanwhile the shed guard in the
+same file has always skipped `gate_held` voices. Two paths, opposite opinions
+about what a held note is worth, and the steal path won.
+
+### Why it stayed hidden, and why a CPU win exposed it
+
+Shedding only ever silences drum voices — it skips held ones — which returns
+them to the pool asleep and keeps the "take a sleeping voice" pass satisfied.
+On a build with no headroom the pool almost never reached the oldest-first
+fallback. **The shed guard was doing voice-priority work by accident.**
+
+Three builds of differing cost, same test, same device:
+
+| build          | 4-voice load | seq-test peaks | held note survived  |
+|----------------|--------------|----------------|---------------------|
+| A — control    | 78%          | max 138–173%   | indefinitely        |
+| B — DTCM       | 77%          | max 102–148%   | 1–6 seconds         |
+| C — ITCM       | 65%          | max 103–122%   | ~4 drum hits        |
+
+Survival tracks headroom inversely. **Voice priority was being decided by how
+busy the CPU happened to be.** That is the finding worth keeping — more than
+the fix itself, which is short.
+
+### The fix
+
+Branch `held-note-steal` off `main`, commit `4d94c58` — deliberately separate
+from the ITCM work, which only exposed it. Two predicates inserted into the
+victim chain: prefer a voice that is neither held nor a protected kick, then
+any non-held voice, then the original rules unchanged so the pool still cannot
+wedge.
+
+Held beats the kick protection window on purpose: that window is 150 ms of
+anti-stutter for the downbeat, whereas a held note is the player's hand on the
+instrument. They only compete when every other voice is already held or a
+protected kick. Confirmed on hardware — sequencer running, notes held in Basic
+Pitch, kick still solid.
+
+Costs ~4.3KB of QSPI: `oldest_where` is a template over a lambda and
+`find_free_or_steal()` has four call sites, so the extra predicates inline
+four times over. It is a per-note path, not per-sample.
+
+---
+
 ## Plaits' tables in DTCM bought ~1% — a negative result worth keeping (2026-08-10)
 
 **In plain words:** the theory was that the audio interrupt spends real time
