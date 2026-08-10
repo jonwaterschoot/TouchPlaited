@@ -37,6 +37,12 @@ Design decisions, budget analyses, and implementation write-ups live in
 - **Roadmap sweep 2026-08-08.** F1, F2, the A2 leftover, E3 and the two
   completed "next up" steps moved out.
   `notesarchive/notes_archive_2026-08.md` → "Roadmap sweep 2026-08-08".
+- **The stale `libdaisy.a` evening — 2026-08-10, resolved.** Both units back
+  to normal. An out-of-date prebuilt library linked against newer submodule
+  headers, presenting as pads firing by themselves. Read
+  `notes.md` → *The stale `libdaisy.a`* before picking up anything below; it
+  voids one previous conclusion and adds a build rule
+  (**move the submodule pin → `make -C lib/libDaisy`**).
 
 ---
 
@@ -277,6 +283,34 @@ Maintainer (`stephenhensley`) has explicitly welcomed further PRs.
 Re-measured 2026-08-07 on hardware (Six-Op C, one group). Raw captures and
 the analysis are in `notes.md` → "Six-Op crackle". The numbers changed what
 is worth doing here, so read them before picking anything up.
+
+- **480MHz boost (`hw.Init(true)`) — verdict VOID, needs a clean retest.**
+  Worth ~20% of the audio budget for one character, and libDaisy's default is
+  400MHz. It was tried on 2026-08-10 and blamed for the evening's chaos, but
+  that test ran against the stale `libdaisy.a`, so **the result means
+  nothing** and the write-up on branch `cpu-boost` states its conclusion far
+  too confidently. What was actually established: boost changes the core clock
+  and D1HCLK only — SAI (audio rate), ADC and I2C4 run from PLL3, FMC/SDRAM
+  and SDMMC from PLL2, all from constants independent of `cpu_freq`, and both
+  the old and new libDaisy carry the 120MHz PCLK1 I2C timing branch. The one
+  unproven mechanism left is QSPI XIP: the flash clock goes 100 → 120MHz while
+  the memory-mapped read keeps 6 dummy cycles, past the IS25LP064A's rating
+  for that dummy count. Retest on a clean build, and **build it with
+  `-DNO_PERSIST`** so a bad run cannot poison the settings journal again.
+
+- **Plaits lookup tables in DTCM — built, verified at the linker level, never
+  measured.** Branch `cpu-boost`, commit `4b92ca4`. `resources.o` is ~75KB and
+  entirely `.rodata`, so every wavetable read in the audio ISR is a QSPI access
+  through a 16KB D-cache already contending with ~100KB of voice scratch;
+  DTCM was 100% unused. Own copy of the linker script in `linker/`
+  (`LDSCRIPT` is `?=` in libDaisy's core Makefile, so setting it before the
+  include wins), `.text` excludes `resources.o`'s `.rodata` via `EXCLUDE_FILE`,
+  `.dtcmram_data` runs in DTCM and loads from QSPI, a priority-101 constructor
+  copies it ahead of every static ctor, and a link-time `ASSERT` guards the
+  stack (down to 56KB from 128KB). Measure against **Six-Op C, one group,
+  1→4 held = 16 / 41 / 58 / 75 / 92%**. Near-zero would itself be informative:
+  it would say instruction fetch, not data fetch, is the bottleneck — and
+  point straight at ITCM below.
 
 - **ITCM placement** — move the hottest Plaits render paths into ITCMRAM
   (64 KB, 0% used); code currently executes from QSPI. Still the only lever

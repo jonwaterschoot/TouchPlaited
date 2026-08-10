@@ -3735,10 +3735,23 @@ static void apply_state(const PersistState& st) {
 // Main-loop hook: capture → journal. The journal rate-limits internally
 // (250 ms compare cadence, 3 s settle, one flash page per pass, skipped
 // while the audio ISR is near its block budget).
+// Build with -DNO_PERSIST to restore settings but never write them. The point
+// is experiments: the journal saves whenever it detects a change and cannot
+// tell a knob turn from a corrupted read, so a misbehaving build writes
+// records whose CRC is perfectly valid over garbage — and every later boot
+// restores them faithfully, long after the build that caused it is gone.
+// That happened in Aug 2026 and outlived several reverts before anyone
+// realised the damage had moved from the binary into flash
+// (notes.md → "The stale libdaisy.a"). Any experiment that could corrupt
+// running state wants this on.
 static void persist_tick(uint32_t now_ms) {
+#ifndef NO_PERSIST
     static PersistState snap;
     capture_state(snap);
     settings_journal.Tick(&snap, now_ms, last_block_load);
+#else
+    (void)now_ms;
+#endif
 }
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
@@ -4103,13 +4116,17 @@ int main() {
             // preemption rather than bus time; it is also exactly how long the
             // pads went unpolled (see i2c1_lock.h), so at 4ms/block it
             // converts straight to blocks of touch latency.
-            HW::hw().print("CPU avg %d%% max %d%% shed %d sv %d%s%s | oled %d fr %d pg max %dus",
+            // "PADS ERR" = the MPR121 never started (touch/pads.cpp). If pads
+            // are firing by themselves, look here first — that is the whole
+            // reason this field exists.
+            HW::hw().print("CPU avg %d%% max %d%% shed %d sv %d%s%s%s | oled %d fr %d pg max %dus",
                            static_cast<int>(cpu_meter.GetAvgCpuLoad() * 100.f),
                            static_cast<int>(cpu_meter.GetMaxCpuLoad() * 100.f),
                            static_cast<int>(shed_count),
                            static_cast<int>(settings_journal.save_count()),
                            settings_journal.saving_disabled() ? " FULL" : "",
                            settings_journal.write_error() ? " WERR" : "",
+                           touch.pads().Ready() ? "" : " PADS ERR",
                            static_cast<int>(OledScreen::FrameCount()),
                            static_cast<int>(OledScreen::PageCount()),
                            static_cast<int>(OledScreen::MaxFrameUs()));

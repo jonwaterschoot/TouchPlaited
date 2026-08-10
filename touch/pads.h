@@ -18,6 +18,13 @@ public:
     void Init(daisy::DaisySeed& hw);
     void Process();
 
+    // Did the MPR121 come up? False means Init bailed out partway and the
+    // chip is NOT running — see the comment in pads.cpp. Worth surfacing at
+    // boot: a silent failure here reads as random notes playing themselves,
+    // which looks like anything except a dead touch controller
+    // (notes.md → "The stale libdaisy.a").
+    bool Ready() const { return _ready; }
+
     void SetOnTouch(std::function<void(uint16_t)> on_touch) {
         _on_touch = on_touch;
     }
@@ -32,6 +39,7 @@ private:
     NOCOPY(Pads)
 
     uint16_t _state;
+    bool     _ready = false;
     daisy::Mpr121I2C _mpr;
 
     std::function<void(uint16_t pad)> _on_touch;

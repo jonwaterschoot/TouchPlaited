@@ -44,6 +44,105 @@ out on D25 (S40). Both documented for users in `MANUAL.md` → *Hardware mods*.
 
 ---
 
+## The stale `libdaisy.a` — a whole evening of phantom bugs (2026-08-10)
+
+**In plain words:** the pre-built libDaisy library file sitting on this machine
+was six weeks older than the libDaisy *source* it was being linked against.
+Every build compiled the new headers and then linked the old library. The
+touch chip's register reads ended up calling into code that no longer matched,
+came back as garbage, and the synth played notes nobody was touching. Nothing
+was wrong with TouchPlaited, nothing was wrong with libDaisy, and nothing was
+wrong with the hardware. The fix is one command: `make -C lib/libDaisy`.
+
+**Rule that follows: whenever the `lib/libDaisy` submodule pin moves, rebuild
+`libdaisy.a`.** `make clean` at the project level does *not* do this — it only
+removes the app's objects. The library is built separately and then trusted
+forever, and nothing in the build warns you when it has gone stale.
+
+### What it looked like
+
+Pads firing `PLAY NOTE` for pads nobody was touching, real touches doing
+nothing, garbled sequencer timing, distorted audio with a high-pitched layer
+under it, an OLED flicking between screens — and, tellingly, **pots that
+worked perfectly throughout**. It never crashed. It never hard-faulted.
+
+### Why it took so long
+
+Every symptom pointed somewhere plausible and wrong, and each false trail
+cost a flash:
+
+- *480MHz boost* looked guilty because the symptoms appeared on that build.
+  Boost was flipped on in the same sitting as the measurement build, so there
+  were two variables from the start — and the underlying stale library was a
+  third that nobody knew about.
+- *The settings journal* looked guilty because reverting boost changed
+  nothing. It was a real contaminant — the misbehaving build saved records
+  whose CRC was valid over corrupted values, so every boot faithfully restored
+  them — but it was a *consequence*, not the cause. Two version bumps (v3,
+  v4) were spent clearing it. See `kPersistVersion`.
+- *The I2C1 OLED/touch interlock* (`i2c1_lock.h`) looked guilty because the
+  MPR121 and the display share a bus and the symptom was torn touch reads.
+  Killed by flashing the same binary to the **second Simple Touch, which has
+  no OLED** — it glitched identically.
+- *The MPR121 driver change* (libDaisy #688, which rewrote register reads to
+  use `ReadDataAtAddress` and re-enabled a `CONFIG2` sanity check its own
+  author had commented out as unreliable) looked guilty, and reverting
+  `mpr121.h` genuinely fixed it. That was the trap: reverting the header to
+  the old call shape made it stop using the mismatched library function, so
+  the *symptom* went away while the *cause* stayed.
+
+### What actually settled it
+
+Flashing the **v1.9.0 release `.bin`** — which worked. `v1.9.0..main` is two
+files, `ROADMAP.md` and `notes.md`. The firmware is functionally identical, so
+identical source producing different behaviour can only mean the build
+environment differs. From there:
+
+```
+libdaisy.a   Jun 28 13:40      <- built before the submodule bump
+i2c.cpp/.h   Aug  9 22:43      <- when the pin moved to 79d048b
+```
+
+The v1.9.0 release binary was built when the two matched. Local builds since
+had not been.
+
+The MPR121 path is where a header/library mismatch bites hardest, which is why
+touch was the loudest symptom: `mpr121.h` is a **header-only template**, so it
+compiles into the *app* from submodule source, while the `I2CHandle` methods
+it calls live inside `libdaisy.a`. New header, old implementation, no link
+error — exactly the failure mode a prebuilt library is able to hide.
+
+### Consequences for what was believed
+
+- **The two open libDaisy PRs (#707, #708) are unrelated to this.** They are
+  real fixes to real bugs in the SSD1306 and UART drivers. This was never a
+  libDaisy bug — no upstream report is owed, and the Synthux fork is fine. See
+  *Upstream libDaisy* below.
+- **The 480MHz boost verdict is void and needs re-testing.** Its comment block
+  in `TouchPlaited.cpp` (QSPI running past the IS25LP064A's dummy-cycle rating
+  at 120MHz) is a plausible mechanism that was never actually proven — the
+  test ran on a broken build, so the result means nothing. Both the old and
+  new libDaisy have the 120MHz PCLK1 I2C timing branch, so that particular
+  worry is not it. Retest on a clean build before believing anything about it.
+
+### Guardrails worth adding
+
+1. **`Pads::Init` discards `Mpr121::Init`'s return value** (`touch/pads.cpp`).
+   A silent hardware-init failure became an evening of chasing voice
+   stealing, CPU load and flash timing. One `if (... != Result::OK)` blinking
+   the LED would have pointed at the touch chip in the first minute.
+2. **Read what a submodule bump actually contains, not what its message
+   says.** Commit `3d3fbc1` is titled "SSD1306 128x32 fix + UART error
+   callback fix" — accurate about the *motivation*, silent about the fact that
+   it also merged `electro-smith:master` and swept in ~4,900 lines across 91
+   files, including the MPR121 rewrite nobody had a reason to look at.
+3. **A misbehaving build can poison persistent state.** The journal saves
+   whenever it detects a change and cannot tell a knob turn from a corrupted
+   read. If an experiment can corrupt running state, build it with
+   `-DNO_PERSIST` (see `persist_tick`).
+
+---
+
 ## OLED redraw cost — the I2C4 experiment and what it actually found (2026-08-06)
 
 Question was whether the display deserves its own I2C bus, at the cost of TRS
