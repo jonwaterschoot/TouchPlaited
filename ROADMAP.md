@@ -43,10 +43,9 @@ Design decisions, budget analyses, and implementation write-ups live in
   `notes.md` → *The stale `libdaisy.a`* before picking up anything below; it
   voids one previous conclusion and adds a build rule
   (**move the submodule pin → `make -C lib/libDaisy`**).
-- **Held notes were being stolen by drum triggers — fixed, branch
-  `held-note-steal` (`4d94c58`), hardware-verified, not yet merged.**
-  Independent of the ITCM work, which only exposed it. `notes.md` → "Held
-  notes were being stolen".
+- **Held notes were being stolen by drum triggers — fixed, merged to main
+  (`10d365f`).** Independent of the ITCM work, which only exposed it.
+  `notes.md` → "Held notes were being stolen".
 - **Open bugs now live in `notes.md` → "Bugs".** Currently one entry: the
   OLED and user LED froze together while audio, pads and pots kept running.
   One-off, unreproduced, main-loop stall suspected.
@@ -330,18 +329,20 @@ before crediting a change with a CPU win.**
   constructor that copies ahead of every static ctor, and the link-time
   `ASSERT` — ITCM needs all of it.
 
-- **ITCM placement — BUILT AND MEASURED, ~19% off Six-Op. Branch `itcm`,
-  commit `0fd370a`; hardware-verified.** Six-Op C, one group, no FX:
-  **14 / 28 / 41 / 53 / 65%** against the control's 15 / 36 / 50 / 64 / 78.
-  Marginal cost per voice **14% → ~12%**, first-voice overhead +21 → +14.
-  Unlike DTCM the slope moved, so this is a real per-voice win. 20816 B in
-  ITCM (31.76%), 17 long-branch veneers. Full write-up in `notes.md` → "ITCM
-  was the bottleneck all along".
+- **ITCM placement — MERGED to `main` 2026-08-10 (`f9a052d`), ~19% off
+  Six-Op.** Six-Op C, one group, no FX: **14 / 28 / 41 / 53 / 65%** against
+  the control's 15 / 36 / 50 / 64 / 78. Marginal cost per voice **14% →
+  ~12%**, first-voice overhead +21 → +14. Unlike DTCM the slope moved, so
+  this is a real per-voice win. 20816 B in ITCM (31.76%), 17 long-branch
+  veneers. Full write-up in `notes.md` → "ITCM was the bottleneck all along".
 
-  Open before it merges: `-DNO_PERSIST` and the `USB_MIDI` comment-out are
-  committed on the branch for reproducibility and must come out; the branch
-  also carries a cherry-pick of `held-note-steal` that belongs to `main`
-  independently.
+  Merged with the default build config restored (`USB_MIDI` on, persistence
+  writes on) and retested on hardware: settings save and restore correctly
+  across a power cycle. That was the one subsystem the `-DNO_PERSIST`
+  measurement builds never exercised. Same 20816 B / 31.76% footprint as the
+  measured binary, so the relocation lands identically — but note the CPU
+  figures above were read off the measurement build, and cannot be re-read on
+  a `USB_MIDI` build, which owns the port the meter prints to.
 
 - **ITCM, remaining 43 KB** — `fx.o` (3332 B) and the audio callback out of
   `TouchPlaited.o` are the next candidates, and would cut veneer crossings as
@@ -383,3 +384,13 @@ before crediting a change with a CPU win.**
 - **Phase 8F retry** — controls out of ISR; needs `__disable_irq()` /
   `__enable_irq()` wrapping all `generate_*()` calls. Only if crackle returns
   at kBlockSize=192.
+
+
+// Random notes / to be organized:
+
+## MIDI external clock and play / stop
+when using an external midi controller, we should be able to turn of the internal sequencers response to play the drums on a stop/play midi command.
+  - Maybe separate fror mel en seq: a long press on the play commands?
+    - P2 + P11 short presses, toggle play /pauze, long press toggles listening to midi play/stop 
+      - keep clock synced: BPM in SEQ should give this info n/a when receiving clock 
+    
