@@ -187,6 +187,11 @@ built until it is reproduced.
 
 ## ITCM was the bottleneck all along — Six-Op down ~19% (2026-08-10)
 
+**Status: merged to `main` 2026-08-10 (`f9a052d`).** The measurements below
+were taken on branch `itcm` before merge, with `-DNO_PERSIST` and USB MIDI
+off; both came back out for the merge and the result was retested on
+hardware. Branch names below are the trail, not the current location.
+
 **In plain words:** everything on this part executes from serial flash. The
 previous experiment proved the audio interrupt was not waiting on *data*, which
 left it waiting on its own *instructions*. Moving the Six-Op render path into
