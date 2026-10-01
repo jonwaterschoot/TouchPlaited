@@ -2,10 +2,11 @@
 // is grouped rather than flat — it had grown into one list where "Demo",
 // "Fullscreen", "Expanded display: On" and a row of site links all looked like
 // the same kind of thing, and the links that navigate away from the app read
-// as buttons. Three sections now, each captioned:
+// as buttons. Four sections now, each captioned:
 //
 //   Connect   the transports, with the connection status under them
 //   Display   everything that changes what you see, incl. fullscreen/wake lock
+//   Settings  label mode, text sizes and the reset (ui/settings-menu.ts)
 //   Elsewhere the other pages of the site — rows with a → , not buttons
 //
 // New entries slot in via addMenuItem(el, section) / addAction(). Hidden
@@ -16,7 +17,7 @@ import type { Transport } from '../transport/transport';
 import { MidiTransport } from '../transport/midi';
 import { MockTransport } from '../transport/mock';
 
-export type MenuSection = 'connect' | 'view';
+export type MenuSection = 'connect' | 'view' | 'settings';
 
 const WAKE_KEY = 'tp-wake-lock';
 
@@ -50,6 +51,7 @@ export class Toolbar {
     this.sections = {
       connect: this.section('Connect'),
       view: this.section('Display'),
+      settings: this.section('Settings'),
     };
     this.sections.connect.append(
       this.item('Connect MIDI', () => this.start(new MidiTransport(store))),
@@ -94,7 +96,7 @@ export class Toolbar {
       links.appendChild(a);
     }
 
-    this.menu.append(this.sections.connect, this.sections.view, links);
+    this.menu.append(this.sections.connect, this.sections.view, this.sections.settings, links);
     this.el.append(burger, this.menu);
     parent.appendChild(this.el);
 
@@ -118,6 +120,11 @@ export class Toolbar {
     const b = this.item(label, onClick);
     this.addMenuItem(b, section);
     return b;
+  }
+
+  /** The Settings section, for SettingsMenu to fill. */
+  settingsSection(): HTMLDivElement {
+    return this.sections.settings;
   }
 
   openMenu() {

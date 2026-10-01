@@ -24,7 +24,7 @@ npm run dev        # http://localhost:5173
 | `?demo` | autostart the scripted demo |
 | `?midi` | autoconnect Web MIDI |
 | `?transparent` | transparent background — for OBS browser-source overlays |
-| `?bare` | hide the toolbar and the settings bar |
+| `?bare` | hide the ☰ menu |
 | `?view=pads` / `?view=panel` | crop to the pad field / the knob panel |
 | `?zoom=1.5` | scale everything |
 | `?drawer` | open the MIDI drawer (CC faders + piano) on load |
@@ -67,7 +67,7 @@ hint without spamming the action log. It stops short of the board's right end
 so the **user LED stays visible** — that LED carries the limit and state
 blinks, and they read nowhere else on the drawing.
 
-**Label overlays** — the first button in the settings bar cycles three modes: `dyn`
+**Label overlays** — the *Labels* button in ☰ → *Settings* cycles three modes: `dyn`
 (default, no static labels — glow + screen only), `S#` (permanent designators
 S30…S37 / P0…P11 / SW1-2 on the panel), and `Aa` (permanent full labels of
 the current mode and model in a condensed faceplate font — pads show their

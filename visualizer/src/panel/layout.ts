@@ -7,12 +7,12 @@
 // viewBox, so the CSS transform is picked up automatically.
 //
 // The A−/A+ text-size buttons and the reset that used to ride along with the
-// grip now live in the one settings bar (ui/settings-bar.ts); the grip stays
+// grip now live in the ☰ menu's Settings section (ui/settings-menu.ts); the grip stays
 // here because it drags this drawing and has to sit on it.
 
 import type { Panel } from './panel';
 import { svgToOverlay, labelScale, setLabelScale } from './overlay-utils';
-import { SettingsBar, SETTINGS_TOGGLE_EVENT } from '../ui/settings-bar';
+import { SettingsMenu } from '../ui/settings-menu';
 
 const KEY = 'tp-panel-layout';
 const MIN_SCALE = 0.4;
@@ -24,7 +24,7 @@ const MAX_SCALE = 3;
  * drawing somewhere you then have to pinch to find. */
 const isPortrait = () => window.innerHeight > window.innerWidth;
 
-export function enablePanelLayout(panel: Panel, overlay: HTMLElement, settings: SettingsBar) {
+export function enablePanelLayout(panel: Panel, overlay: HTMLElement, settings: SettingsMenu) {
   const svg = panel.svg;
   let dx = 0, dy = 0, scale = 1;
   // Orientation the current transform belongs to.
@@ -120,7 +120,7 @@ export function enablePanelLayout(panel: Panel, overlay: HTMLElement, settings: 
     { passive: false },
   );
 
-  // --- drag grip, and this drawing's entries in the settings bar ----------
+  // --- drag grip, and this drawing's entries in the settings menu ---------
 
   const cluster = document.createElement('div');
   cluster.className = 'info-controls panel-handle';
@@ -137,9 +137,9 @@ export function enablePanelLayout(panel: Panel, overlay: HTMLElement, settings: 
   settings.addGroup(
     'Panel',
     20,
-    SettingsBar.button('A−', 'Smaller faceplate label & screen text',
+    SettingsMenu.button('A−', 'Smaller faceplate label & screen text',
                        () => setLabelScale(labelScale() - 0.15)),
-    SettingsBar.button('A+', 'Larger faceplate label & screen text',
+    SettingsMenu.button('A+', 'Larger faceplate label & screen text',
                        () => setLabelScale(labelScale() + 0.15)),
   );
   settings.onReset(() => {
@@ -157,22 +157,12 @@ export function enablePanelLayout(panel: Panel, overlay: HTMLElement, settings: 
     const p = svgToOverlay(svg, overlay, 2, 2);
     const o = overlay.getBoundingClientRect();
     const x = Math.min(Math.max(4, p.x), o.width - cluster.offsetWidth - 4);
-    let y = Math.min(Math.max(4, p.y), o.height - cluster.offsetHeight - 4);
-    // The settings bar is pinned to the same corner of the stage, and on a
-    // near-square viewport the drawing's own corner lands right under it —
-    // drop below the bar rather than hiding beneath it.
-    const bar = settings.bounds(); // zero-sized when hidden by ?bare
-    const overlaps = bar.width > 0
-      && x < bar.right - o.left + 4 && x + cluster.offsetWidth + 4 > bar.left - o.left
-      && y < bar.bottom - o.top + 4 && y + cluster.offsetHeight + 4 > bar.top - o.top;
-    if (overlaps)
-      y = Math.min(bar.bottom - o.top + 4, o.height - cluster.offsetHeight - 4);
+    const y = Math.min(Math.max(4, p.y), o.height - cluster.offsetHeight - 4);
     cluster.style.left = `${x.toFixed(1)}px`;
     cluster.style.top = `${y.toFixed(1)}px`;
   };
   place();
   window.addEventListener('resize', place);
-  window.addEventListener(SETTINGS_TOGGLE_EVENT, place);
   let raf = 0;
   window.addEventListener('tp-panel-layout', () => {
     if (raf) return;

@@ -6,7 +6,7 @@ import { Labels } from './panel/labels';
 import { enablePadInteraction } from './panel/interact';
 import { enablePanelLayout } from './panel/layout';
 import { Toolbar } from './ui/toolbar';
-import { SettingsBar } from './ui/settings-bar';
+import { SettingsMenu } from './ui/settings-menu';
 import { CcPanel } from './ui/ccpanel';
 import { MockTransport } from './transport/mock';
 import { MidiTransport } from './transport/midi';
@@ -26,17 +26,15 @@ const store = new DeviceStore();
 const panelWrap = document.getElementById('panel-wrap')!;
 const overlay = document.getElementById('overlay')!;
 const topbar = document.getElementById('topbar')!;
-const stage = document.getElementById('stage')!;
 
 const panel = new Panel(panelWrap);
 new PanelBindings(panel, store);
 enablePadInteraction(panel, store);
-// One bar for every display setting; the drawing and the info panel keep only
-// their drag grips. It's attached to the stage, not the overlay, because it's
-// chrome — it doesn't ride the device drawing's transform.
-const settings = new SettingsBar(stage);
-const layout = enablePanelLayout(panel, overlay, settings);
+// Every display setting lives in the ☰ menu's Settings section; the drawing
+// and the info panel keep only their drag grips.
 const toolbar = new Toolbar(topbar, store);
+const settings = new SettingsMenu(toolbar.settingsSection());
+const layout = enablePanelLayout(panel, overlay, settings);
 new Labels(overlay, panel, store, settings, (el, section) => toolbar.addMenuItem(el, section));
 const ccPanel = new CcPanel((el) => toolbar.addMenuItem(el));
 toolbar.addAction('Fit to screen', () => layout.fit());
@@ -44,10 +42,7 @@ if (params.has('drawer')) ccPanel.open();
 if (params.has('menu')) toolbar.openMenu();
 
 if (params.has('transparent')) document.body.classList.add('transparent');
-if (params.has('bare')) {
-  topbar.style.display = 'none';
-  settings.hide();
-}
+if (params.has('bare')) topbar.style.display = 'none';
 
 // Mobile browsers change the *visual* viewport when the URL bar slides away
 // without firing a window resize, so the overlays would sit against a stage

@@ -13,7 +13,7 @@ import {
   splitLabelValue, stripTags,
 } from './overlay-utils';
 import type { DeviceStore, StateEvent, DeviceState } from '../core/state';
-import { SettingsBar } from '../ui/settings-bar';
+import { SettingsMenu } from '../ui/settings-menu';
 import type { MenuSection } from '../ui/toolbar';
 import {
   CONTROLS, PADS, SW1_POSITIONS, SW2_POSITIONS, MODE_NAMES, modelName,
@@ -405,7 +405,7 @@ export class Labels {
     private overlay: HTMLElement,
     private panel: Panel,
     private store: DeviceStore,
-    settings: SettingsBar,
+    settings: SettingsMenu,
     addToMenu?: (el: HTMLElement, section?: MenuSection) => void,
   ) {
     // Static label layer sits under the info panel and the OLED screens.
@@ -438,8 +438,8 @@ export class Labels {
     // Always-visible title bar: a drag handle, and nothing else. The
     // hover-revealed resize grip doesn't work on touch, so grabbing the panel
     // needs a permanent target — but the overlay-mode / font-size / reset
-    // buttons that grew here have moved to the one settings bar
-    // (ui/settings-bar.ts), which is where you'd look for them.
+    // buttons that grew here have moved to the ☰ menu's Settings section
+    // (ui/settings-menu.ts), which is where you'd look for them.
     const handle = document.createElement('div');
     handle.className = 'info-handle';
     const dragIcon = document.createElement('span');
@@ -489,7 +489,7 @@ export class Labels {
     // Label-overlay mode cycle: dynamic → designators → full labels.
     const storedMode = localStorage.getItem(OVERLAY_MODE_KEY) as OverlayMode | null;
     if (storedMode && OVERLAY_MODES.includes(storedMode)) this.overlayMode = storedMode;
-    const ovBtn = SettingsBar.button(
+    const ovBtn = SettingsMenu.button(
       OVERLAY_MODE_LABEL[this.overlayMode],
       'Label overlay: screen only / designators / full labels',
       () => {
@@ -504,9 +504,9 @@ export class Labels {
     settings.addGroup('Labels', 10, ovBtn);
     // Font size is its own control — the grip resizes the box only, so a
     // bigger box means more text fits, not bigger text. Same 0.15 step and
-    // 0.6–2.2 range as the faceplate pair next to it in the bar.
+    // 0.6–2.2 range as the faceplate pair next to it in the menu.
     const mkFont = (txt: string, title: string, d: number) =>
-      SettingsBar.button(txt, title, () => {
+      SettingsMenu.button(txt, title, () => {
         this.applyInfoScale(this.infoScale + d);
         localStorage.setItem(INFO_SCALE_KEY, String(this.infoScale));
       });
@@ -1384,7 +1384,7 @@ export class Labels {
 
   private applyInfoScale(scale: number) {
     // Same 0.6–2.2 clamp as labelScale() in overlay-utils — the two A−/A+
-    // pairs sit next to each other in the settings bar, so they step and stop
+    // pairs sit next to each other in the settings menu, so they step and stop
     // alike (this one used to run to 3×).
     this.infoScale = Math.min(2.2, Math.max(0.6, Number.isFinite(scale) ? scale : 1));
     this.infoPanel.style.fontSize = `${(14 * this.infoScale).toFixed(1)}px`;

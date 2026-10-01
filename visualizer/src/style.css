@@ -372,8 +372,7 @@ body.transparent {
   display: flex;
   gap: 2px;
 }
-.info-controls button,
-.settings-bar button {
+.info-controls button {
   background: transparent;
   border: 1px solid var(--accent);
   color: var(--accent);
@@ -384,57 +383,41 @@ body.transparent {
   cursor: pointer;
 }
 
-/* --- settings bar: the one home for the display settings ----------------- */
-/* Pinned to the stage's top-left (the ☰ menu owns the top-right). Holds the
-   label-overlay mode, both text-size pairs and the single reset; ⚙ collapses
-   it to one icon so it stays out of a video shot. What is NOT here: the two
-   ⠿ drag grips, which have to sit on the things they drag. */
-.settings-bar {
-  position: absolute;
-  top: 8px;
-  left: 12px;
-  z-index: 25;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-.settings-bar .settings-gear {
-  background: var(--surface);
-  font-size: 13px;
-  padding: 5px 7px;
-}
-.settings-bar .settings-gear:hover {
-  background: var(--line);
-}
-.settings-body {
-  display: none;
-}
-.settings-bar.open .settings-body {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  background: var(--overlay);
-  border: 1px solid var(--line);
-  padding: 3px 6px;
-}
+/* --- settings: a section of the ☰ menu (ui/settings-menu.ts) ------------ */
+/* One row per setting: caption left, its buttons right. They used to be a
+   bar of their own in the top-left, which on a phone ran into the ☰ button. */
 .settings-groups {
   display: flex;
-  align-items: center;
-  gap: 10px;
+  flex-direction: column;
+  gap: 4px;
 }
 .settings-group {
   display: flex;
   align-items: center;
-  gap: 2px;
+  justify-content: space-between;
+  gap: 10px;
 }
-/* Which text a pair resizes — the two pairs are identical otherwise, and
-   without the word above them they were guesswork. */
 .settings-cap {
-  color: var(--dim);
-  font-size: 9px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  margin-right: 3px;
+  color: var(--text);
+  font-size: 12px;
+}
+.settings-btns {
+  display: flex;
+  gap: 4px;
+}
+.settings-btns button {
+  background: transparent;
+  border: 1px solid var(--accent);
+  color: var(--accent);
+  font: inherit;
+  font-size: 12px;
+  line-height: 1;
+  min-width: 36px;
+  padding: 7px 8px;
+  cursor: pointer;
+}
+.settings-btns button:hover {
+  background: var(--line);
 }
 
 /* Device drag grip: pinned to the drawing's top-left corner (layout.ts clamps
@@ -669,6 +652,8 @@ body.transparent {
   flex-direction: column;
   gap: 4px;
   min-width: 210px;
+  max-height: calc(100dvh - 70px);
+  overflow-y: auto;
   background: var(--overlay);
   border: 1px solid var(--line);
   padding: 8px;
