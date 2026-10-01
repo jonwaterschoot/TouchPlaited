@@ -26,6 +26,15 @@ body {
 body.transparent {
   background: transparent;
 }
+/* A chroma-key background (☰ → Settings → Background) shows through every
+   see-through surface, and the key then eats those surfaces half away with a
+   green cast. Make them solid while one is set. */
+body.keyed {
+  --overlay: rgb(18, 17, 15);
+}
+body.keyed .info-panel {
+  background: rgb(18, 17, 15);
+}
 
 /* The stage owns the whole viewport; the topbar (just the ☰ button) floats
    above it so a dragged-up device isn't clipped by a layout row.

@@ -93,6 +93,7 @@ function enableBackgroundSetting() {
   const apply = () => {
     const [name, colour] = BGS[i];
     document.body.style.background = colour;
+    document.body.classList.toggle('keyed', !!colour);
     btn.innerHTML = colour
       ? `<span class="bg-swatch" style="background:${colour}"></span>${name}`
       : name;
