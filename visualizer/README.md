@@ -23,15 +23,28 @@ npm run dev        # http://localhost:5173
 |------|--------|
 | `?demo` | autostart the scripted demo |
 | `?midi` | autoconnect Web MIDI |
-| `?transparent` | transparent background — for OBS browser-source overlays |
+| `?transparent` | transparent background, for an OBS Browser Source |
+| `?bg=green` / `blue` / `magenta` | solid background to chroma-key out (also under ☰ → *Settings* → *Background*) |
 | `?bare` | hide the ☰ menu |
 | `?view=pads` / `?view=panel` | crop to the pad field / the knob panel |
 | `?zoom=1.5` | scale everything |
 | `?drawer` | open the MIDI drawer (CC faders + piano) on load |
 
-**OBS setup**: add a Browser Source pointing at
-`http://localhost:5173/?midi&transparent&bare` — the panel floats over your
-footage with no visible browser window.
+**OBS setup.** OBS's built-in browser doesn't get Web MIDI, so a Browser
+Source can't follow the device. There are two setups:
+
+- **With the device: capture Chrome and key out the background.** Open the
+  page in Chrome with *Connect MIDI*, and set ☰ → *Settings* → *Background*
+  to *Green* (or open it with `?midi&bg=green&bare`). In OBS, add a Window
+  Capture of that Chrome window and put a **Chroma Key** filter on it with the
+  same key colour. Crop the browser's own UI with Alt-drag or a Crop filter.
+  Use *Blue* or *Magenta* if green clashes with something in your shot.
+- **Without the device (demo or hands-on): Browser Source.** Point it at
+  `https://jonwaterschoot.github.io/TouchPlaited/visualizer/?transparent&bare`
+  (add `&demo` for the scripted demo). The background is truly transparent,
+  so no keying is needed. Settings are stored per browser, so set them inside
+  OBS: leave out `&bare` for a moment, right-click the source → *Interact*,
+  and use ☰ → *Settings*.
 
 The live-info panel (model / mode / step, a collapsible **knob map** showing
 what every pot/fader does right now with engine-aware values, the drum kit in

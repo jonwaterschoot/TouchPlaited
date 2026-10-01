@@ -13,6 +13,7 @@ import { MidiTransport } from './transport/midi';
 
 // URL flags (all combinable):
 //   ?transparent   transparent page background (OBS browser-source overlay)
+//   ?bg=green|blue|magenta   solid key colour, for chroma-keying a window capture
 //   ?bare          hide the toolbar
 //   ?view=pads|panel   crop to the pad field / the knob panel
 //   ?zoom=1.5      scale everything
@@ -42,6 +43,7 @@ if (params.has('drawer')) ccPanel.open();
 if (params.has('menu')) toolbar.openMenu();
 
 if (params.has('transparent')) document.body.classList.add('transparent');
+else enableBackgroundSetting();
 if (params.has('bare')) topbar.style.display = 'none';
 
 // Mobile browsers change the *visual* viewport when the URL bar slides away
@@ -66,6 +68,37 @@ const zoom = parseFloat(params.get('zoom') ?? '');
 if (!Number.isNaN(zoom) && zoom > 0) {
   panelWrap.style.transform = `scale(${zoom})`;
   panelWrap.style.transformOrigin = 'center center';
+}
+
+/** Page background, chosen under ☰ → Settings. OBS's own browser can't reach
+ * Web MIDI, so following the device on stream means capturing Chrome and
+ * chroma-keying a solid colour away; ?transparent covers the Browser Source
+ * case and hides this row. ?bg= picks one for this load without storing it. */
+function enableBackgroundSetting() {
+  const KEY = 'tp-bg';
+  const BGS = [
+    ['Default', ''],
+    ['Green', '#00ff00'],
+    ['Blue', '#0000ff'],
+    ['Magenta', '#ff00ff'],
+  ] as const;
+  const find = (name: string | null) =>
+    Math.max(0, BGS.findIndex(([n]) => n.toLowerCase() === name?.toLowerCase()));
+  let i = find(params.get('bg') ?? localStorage.getItem(KEY));
+  const btn = SettingsMenu.button('', 'Page background: a solid colour to chroma-key out in OBS', () => {
+    i = (i + 1) % BGS.length;
+    localStorage.setItem(KEY, BGS[i][0].toLowerCase());
+    apply();
+  });
+  const apply = () => {
+    const [name, colour] = BGS[i];
+    document.body.style.background = colour;
+    btn.innerHTML = colour
+      ? `<span class="bg-swatch" style="background:${colour}"></span>${name}`
+      : name;
+  };
+  apply();
+  settings.addGroup('Background', 40, btn);
 }
 
 if (params.has('demo')) toolbar.start(new MockTransport(store));

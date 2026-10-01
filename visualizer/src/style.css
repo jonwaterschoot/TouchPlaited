@@ -419,6 +419,16 @@ body.transparent {
 .settings-btns button:hover {
   background: var(--line);
 }
+/* Colour chip on the Background button, so the key colour is visible even
+   when the menu covers most of the page. */
+.bg-swatch {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  margin-right: 5px;
+  vertical-align: -1px;
+  border: 1px solid var(--line-hi);
+}
 
 /* Device drag grip: pinned to the drawing's top-left corner (layout.ts clamps
    it into the stage), and the only thing left of what used to be a control
