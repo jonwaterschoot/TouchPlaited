@@ -16,9 +16,9 @@ on:
 
 jobs:
   browser:
-    # v1.1: the first version that builds .cc sources (Plaits, stmlib)
-    uses: jonwaterschoot/simple-touch-web/.github/workflows/build-firmware.yml@v1.1
+    # v1.1 builds .cc sources (Plaits, stmlib); v1.2 shows LED blinks made inside a loop pass
+    uses: jonwaterschoot/simple-touch-web/.github/workflows/build-firmware.yml@v1.2
     with:
-      simple-touch-web-ref: v1.1
+      simple-touch-web-ref: v1.2
     permissions:
       contents: write
