@@ -4,4 +4,5 @@ Builds of this firmware for the browser, made with [simple-touch-web](https://gi
 
 | Build | Built (UTC) | From | Test bench |
 | --- | --- | --- | --- |
+| [TouchPlaited-8acf93d464ec.wasm](TouchPlaited-8acf93d464ec.wasm) | 2026-10-28 19:34 | 11f5bc4 | [play](https://jonwaterschoot.github.io/simple-touch-web/demo/?wasm=https://raw.githubusercontent.com/jonwaterschoot/TouchPlaited/simple-touch-web/TouchPlaited-8acf93d464ec.wasm) |
 | [TouchPlaited-00503220fe68.wasm](TouchPlaited-00503220fe68.wasm) | 2026-10-28 18:49 | 85a9ca2 | [play](https://jonwaterschoot.github.io/simple-touch-web/demo/?wasm=https://raw.githubusercontent.com/jonwaterschoot/TouchPlaited/simple-touch-web/TouchPlaited-00503220fe68.wasm) |
