@@ -3777,6 +3777,7 @@ static void persist_tick(uint32_t now_ms) {
 // about to branch to. TCM is not cached on the M7 — no cache maintenance is
 // needed — but the pipeline still has to be told that memory it may have
 // fetched from has changed underneath it.
+#ifndef SIMPLE_TOUCH_WEB   // the browser build has no ITCM: the code runs where it is
 extern "C" {
 extern uint32_t _sitcmram_text_load;   // load address, in QSPI
 extern uint32_t _sitcmram_text;        // run address, in ITCM
@@ -3790,9 +3791,10 @@ __attribute__((constructor(101))) static void copy_itcm_text() {
     __DSB();
     __ISB();
 }
+#endif
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
-int main() {
+static void Setup() {
     hw.Init();
     // DaisySeed::Init skips led.Init() when the Daisy bootloader reports
     // < v6.0 (no version stamp in backup SRAM) and the app runs from QSPI —
@@ -4133,75 +4135,113 @@ int main() {
     });
 
     hw.StartAudio(AudioCallback);
+}
 
-    uint32_t last_cpu_print = 0;
-    while (true) {
-        // MIDI in/out — every iteration; the LED paths below service it too.
-        service_midi();
+// One pass of the main loop. The branches that own the LED end the pass
+// early with `return`; the next pass starts from the top.
+static uint32_t last_cpu_print = 0;
 
-        // CPU load report every 2s (percent, integer). Cheap; serial only.
-        // Max is windowed: reset after each print, so it reflects the worst
-        // block within the last 2s, not since boot.
-        uint32_t now_ms = System::GetNow();
-        if (now_ms - last_cpu_print >= 2000) {
-            last_cpu_print = now_ms;
+static void Loop() {
+    // MIDI in/out — every iteration; the LED paths below service it too.
+    service_midi();
+
+    // CPU load report every 2s (percent, integer). Cheap; serial only.
+    // Max is windowed: reset after each print, so it reflects the worst
+    // block within the last 2s, not since boot.
+    uint32_t now_ms = System::GetNow();
+    if (now_ms - last_cpu_print >= 2000) {
+        last_cpu_print = now_ms;
 #ifndef USB_MIDI
-            // oled: frames drawn in the window, pages actually transmitted
-            // across them, and the worst single transfer. Pages/frames is the
-            // dirty-page hit rate — 4.0 means nothing is being skipped. The
-            // max is wall clock, so under load it is mostly audio-ISR
-            // preemption rather than bus time; it is also exactly how long the
-            // pads went unpolled (see i2c1_lock.h), so at 4ms/block it
-            // converts straight to blocks of touch latency.
-            // "PADS ERR" = the MPR121 never started (touch/pads.cpp). If pads
-            // are firing by themselves, look here first — that is the whole
-            // reason this field exists.
-            HW::hw().print("CPU avg %d%% max %d%% shed %d sv %d%s%s%s | oled %d fr %d pg max %dus",
-                           static_cast<int>(cpu_meter.GetAvgCpuLoad() * 100.f),
-                           static_cast<int>(cpu_meter.GetMaxCpuLoad() * 100.f),
-                           static_cast<int>(shed_count),
-                           static_cast<int>(settings_journal.save_count()),
-                           settings_journal.saving_disabled() ? " FULL" : "",
-                           settings_journal.write_error() ? " WERR" : "",
-                           touch.pads().Ready() ? "" : " PADS ERR",
-                           static_cast<int>(OledScreen::FrameCount()),
-                           static_cast<int>(OledScreen::PageCount()),
-                           static_cast<int>(OledScreen::MaxFrameUs()));
+        // oled: frames drawn in the window, pages actually transmitted
+        // across them, and the worst single transfer. Pages/frames is the
+        // dirty-page hit rate — 4.0 means nothing is being skipped. The
+        // max is wall clock, so under load it is mostly audio-ISR
+        // preemption rather than bus time; it is also exactly how long the
+        // pads went unpolled (see i2c1_lock.h), so at 4ms/block it
+        // converts straight to blocks of touch latency.
+        // "PADS ERR" = the MPR121 never started (touch/pads.cpp). If pads
+        // are firing by themselves, look here first — that is the whole
+        // reason this field exists.
+        HW::hw().print("CPU avg %d%% max %d%% shed %d sv %d%s%s%s | oled %d fr %d pg max %dus",
+                       static_cast<int>(cpu_meter.GetAvgCpuLoad() * 100.f),
+                       static_cast<int>(cpu_meter.GetMaxCpuLoad() * 100.f),
+                       static_cast<int>(shed_count),
+                       static_cast<int>(settings_journal.save_count()),
+                       settings_journal.saving_disabled() ? " FULL" : "",
+                       settings_journal.write_error() ? " WERR" : "",
+                       touch.pads().Ready() ? "" : " PADS ERR",
+                       static_cast<int>(OledScreen::FrameCount()),
+                       static_cast<int>(OledScreen::PageCount()),
+                       static_cast<int>(OledScreen::MaxFrameUs()));
 #endif
-            cpu_meter.Reset();
-            OledScreen::ResetFrameStats();
-            shed_count = 0;
+        cpu_meter.Reset();
+        OledScreen::ResetFrameStats();
+        shed_count = 0;
+    }
+
+    // Debounced settings auto-save (runs every pass — before the LED
+    // branches below, which `return` past the rest of the pass).
+    persist_tick(now_ms);
+
+    uint32_t hold  = p0p2_hold_count;
+    bool     done  = p0p2_all_done;
+    uint32_t stage = p0p2_stage_fired;
+
+    // P0+P2 hold animation — runs in every playmode (highest priority —
+    // swallows the loop iteration).
+    if ((hold > 0 || done) && rec_mode == RecMode::IDLE) {
+        if (stage > 0) {
+            set_led(true);
+            uint32_t t0 = System::GetNow();
+            while (System::GetNow() - t0 < 500) {
+                delay_serviced(5);
+                if (p0p2_hold_count == 0 && !p0p2_all_done) break;
+            }
+            set_led(false);
+            p0p2_stage_fired = 0;
+        } else if (done) {
+            delay_serviced(10);
+        } else {
+            // Same two-phase shape the screen draws (see the hold-pacing
+            // block): slow pulses through the announce window — three of
+            // them, the "a stage is coming" cue a unit with no screen
+            // otherwise has no way to give — then the familiar
+            // accelerating blink as the bar fills.
+            const uint32_t off = hold % kStageBlocks;
+            if (off < kStageAnnounceBlocks) {
+                set_led(true);  delay_serviced(130);
+                set_led(false); delay_serviced(70);
+            } else {
+                const uint32_t t        = off - kStageAnnounceBlocks;
+                const uint32_t interval = 150u - t * 110u / kStageFillBlocks;
+                set_led(true);  delay_serviced(interval);
+                set_led(false); delay_serviced(interval);
+            }
         }
+        return;
+    }
 
-        // Debounced settings auto-save (runs every pass — before the LED
-        // branches below, which `continue` past the rest of the loop).
-        persist_tick(now_ms);
-
-        uint32_t hold  = p0p2_hold_count;
-        bool     done  = p0p2_all_done;
-        uint32_t stage = p0p2_stage_fired;
-
-        // P0+P2 hold animation — runs in every playmode (highest priority —
-        // swallows the loop iteration).
-        if ((hold > 0 || done) && rec_mode == RecMode::IDLE) {
-            if (stage > 0) {
+    // The same countdown for Rec's per-pad randomize (P0+P2 while
+    // editing a slot) — identical two-phase shape, since to the hand it
+    // is the same gesture; only its scope differs.
+    {
+        uint32_t rhold  = rec_p0p2_hold_count;
+        bool     rdone  = rec_p0p2_all_done;
+        uint32_t rstage = rec_p0p2_stage_fired;
+        if ((rhold > 0 || rdone) && rec_mode == RecMode::RECORDING) {
+            if (rstage > 0) {
                 set_led(true);
                 uint32_t t0 = System::GetNow();
                 while (System::GetNow() - t0 < 500) {
                     delay_serviced(5);
-                    if (p0p2_hold_count == 0 && !p0p2_all_done) break;
+                    if (rec_p0p2_hold_count == 0 && !rec_p0p2_all_done) break;
                 }
                 set_led(false);
-                p0p2_stage_fired = 0;
-            } else if (done) {
+                rec_p0p2_stage_fired = 0;
+            } else if (rdone) {
                 delay_serviced(10);
             } else {
-                // Same two-phase shape the screen draws (see the hold-pacing
-                // block): slow pulses through the announce window — three of
-                // them, the "a stage is coming" cue a unit with no screen
-                // otherwise has no way to give — then the familiar
-                // accelerating blink as the bar fills.
-                const uint32_t off = hold % kStageBlocks;
+                const uint32_t off = rhold % kStageBlocks;
                 if (off < kStageAnnounceBlocks) {
                     set_led(true);  delay_serviced(130);
                     set_led(false); delay_serviced(70);
@@ -4212,181 +4252,158 @@ int main() {
                     set_led(false); delay_serviced(interval);
                 }
             }
-            continue;
+            return;
         }
+    }
 
-        // The same countdown for Rec's per-pad randomize (P0+P2 while
-        // editing a slot) — identical two-phase shape, since to the hand it
-        // is the same gesture; only its scope differs.
-        {
-            uint32_t rhold  = rec_p0p2_hold_count;
-            bool     rdone  = rec_p0p2_all_done;
-            uint32_t rstage = rec_p0p2_stage_fired;
-            if ((rhold > 0 || rdone) && rec_mode == RecMode::RECORDING) {
-                if (rstage > 0) {
-                    set_led(true);
-                    uint32_t t0 = System::GetNow();
-                    while (System::GetNow() - t0 < 500) {
-                        delay_serviced(5);
-                        if (rec_p0p2_hold_count == 0 && !rec_p0p2_all_done) break;
-                    }
-                    set_led(false);
-                    rec_p0p2_stage_fired = 0;
-                } else if (rdone) {
-                    delay_serviced(10);
-                } else {
-                    const uint32_t off = rhold % kStageBlocks;
-                    if (off < kStageAnnounceBlocks) {
-                        set_led(true);  delay_serviced(130);
-                        set_led(false); delay_serviced(70);
-                    } else {
-                        const uint32_t t        = off - kStageAnnounceBlocks;
-                        const uint32_t interval = 150u - t * 110u / kStageFillBlocks;
-                        set_led(true);  delay_serviced(interval);
-                        set_led(false); delay_serviced(interval);
-                    }
-                }
-                continue;
-            }
-        }
-
-        // P0+P1 sound-edit countdown. Until now this 1 s hold gave nothing
-        // at all until it fired — no build-up on the LED, none on the
-        // screen — even though it silently reassigns every knob in the mode.
-        // Short enough that the announce window gets a single slow pulse
-        // rather than three (see kShortAnnounceBlocks).
-        {
-            uint32_t shold = se_hold_count;
-            if (shold > 0 && !se_fired) {
-                if (shold < kShortAnnounceBlocks) {
-                    set_led(true);  delay_serviced(130);
-                    set_led(false); delay_serviced(70);
-                } else {
-                    const uint32_t span = kSndEditHoldBlocks - kShortAnnounceBlocks;
-                    const uint32_t t    = (shold < kSndEditHoldBlocks)
-                                        ? shold - kShortAnnounceBlocks : span;
-                    const uint32_t interval = 150u - t * 120u / span;
-                    set_led(true);  delay_serviced(interval);
-                    set_led(false); delay_serviced(interval);
-                }
-                continue;
-            }
-        }
-
-        // Recording-entry countdown: from ~0.2 s into the pad hold, slow
-        // pulses while the screen names what the hold does, then gradually
-        // shrinking intervals (~150 ms down to 30 ms at the 2 s threshold) —
-        // release any time to abort. Same two-phase shape as P0+P2 above.
-        uint32_t ehold = entry_hold_count;
-        if (rec_mode == RecMode::IDLE && ehold >= kRecEntryAnimStart) {
-            if (ehold < kRecEntryAnnounceBlocks) {
+    // P0+P1 sound-edit countdown. Until now this 1 s hold gave nothing
+    // at all until it fired — no build-up on the LED, none on the
+    // screen — even though it silently reassigns every knob in the mode.
+    // Short enough that the announce window gets a single slow pulse
+    // rather than three (see kShortAnnounceBlocks).
+    {
+        uint32_t shold = se_hold_count;
+        if (shold > 0 && !se_fired) {
+            if (shold < kShortAnnounceBlocks) {
                 set_led(true);  delay_serviced(130);
                 set_led(false); delay_serviced(70);
             } else {
-                const uint32_t span = kRecEntryHoldBlocks - kRecEntryAnnounceBlocks;
-                const uint32_t t    = (ehold < kRecEntryHoldBlocks)
-                                    ? ehold - kRecEntryAnnounceBlocks : span;
+                const uint32_t span = kSndEditHoldBlocks - kShortAnnounceBlocks;
+                const uint32_t t    = (shold < kSndEditHoldBlocks)
+                                    ? shold - kShortAnnounceBlocks : span;
                 const uint32_t interval = 150u - t * 120u / span;
                 set_led(true);  delay_serviced(interval);
                 set_led(false); delay_serviced(interval);
             }
-            continue;
-        }
-
-        // P2+pad layer-clear countdown (21/07/26 LED redesign): the same
-        // accelerating-blink language as every other hold gesture, so
-        // holding toward Clear/Clear-all reads as unmistakably different
-        // from the instant tap that means mute/unmute — the tap gets its
-        // own confirm blink (NUMBERED) with no preceding animation at all.
-        // Stops claiming the loop the instant a pad's hold actually fires,
-        // so the queued completion event (see AudioCallback) dispatches
-        // through the normal path below instead of being swallowed here.
-        {
-            uint32_t max_hold   = 0;
-            bool     any_count = false;
-            for (int i = 0; i < 5; i++) {
-                if (p2layer_hold[i] > 0 && !p2layer_fired[i]) {
-                    any_count = true;
-                    if (p2layer_hold[i] > max_hold) max_hold = p2layer_hold[i];
-                }
-            }
-            if (rec_mode == RecMode::IDLE && any_count && max_hold >= kRecEntryAnimStart) {
-                uint32_t t        = (max_hold < kLongHoldBlocks) ? max_hold : kLongHoldBlocks;
-                uint32_t interval = 150u - t * 120u / kLongHoldBlocks;
-                set_led(true);  delay_serviced(interval);
-                set_led(false); delay_serviced(interval);
-                continue;
-            }
-        }
-
-        // Recording mode LED (this branch owns the loop while recording).
-        if (rec_mode == RecMode::RECORDING) {
-            // Copy fires while still in recording — its confirm event would
-            // otherwise sit undispatched until rec exits. Show it here.
-            __disable_irq();
-            bool copy_confirm = (led_event == LedEvent::CONFIRM);
-            if (copy_confirm) led_event = LedEvent::NONE;
-            __enable_irq();
-            if (copy_confirm) { blink_confirm(); continue; }
-
-            // Copy hold (source + second pad down): the entry countdown
-            // animation restarts, accelerating toward the affirmation.
-            uint32_t chold = copy_hold_anim;
-            if (chold > 0) {
-                uint32_t t        = (chold < kLongHoldBlocks) ? chold : kLongHoldBlocks;
-                uint32_t interval = 150u - t * 120u / kLongHoldBlocks;
-                set_led(true);  delay_serviced(interval);
-                set_led(false); delay_serviced(interval);
-                continue;
-            }
-
-            // Entry burst: one rapid pattern right after the 2 s hold lands...
-            if (rec_entry_flash) {
-                rec_entry_flash = false;
-                for (int i = 0; i < 5; i++) {
-                    set_led(true);  delay_serviced(35);
-                    set_led(false); delay_serviced(35);
-                }
-                delay_serviced(250);
-                continue;
-            }
-
-            // ...then the recording heartbeat: one fast double blink per
-            // audible hit of the slot (seq step or paused-seq audition), so
-            // the LED is locked to the audio — and unmistakably different
-            // from the sequencer's single on/off beat pulse.
-            if (rec_hit_flash) {
-                rec_hit_flash = false;
-                set_led(true);  delay_serviced(45);
-                set_led(false); delay_serviced(45);
-                set_led(true);  delay_serviced(45);
-                set_led(false);
-            }
-            delay_serviced(10);
-            continue;
-        }
-
-        // Atomic read of led_event + data.
-        __disable_irq();
-        LedEvent ev   = led_event;
-        int      data = led_event_data;
-        led_event = LedEvent::NONE;
-        __enable_irq();
-
-        // A real blink arms the beat hold-off first, so no beat pulse gets
-        // queued during it or blends into its trailing edge.
-        if (ev != LedEvent::NONE && ev != LedEvent::BEAT)
-            beat_led_hold = kBeatLedHoldBlocks;
-
-        switch (ev) {
-            case LedEvent::NUMBERED: blink_numbered(data); break;
-            case LedEvent::LIMIT:    blink_limit();        break;
-            case LedEvent::CONFIRM:  blink_confirm();      break;
-            case LedEvent::MODEL:
-                set_led(true); delay_serviced(50); set_led(false); break;
-            case LedEvent::BEAT:
-                set_led(true); delay_serviced(20); set_led(false); break;
-            default: delay_serviced(10); break;
+            return;
         }
     }
+
+    // Recording-entry countdown: from ~0.2 s into the pad hold, slow
+    // pulses while the screen names what the hold does, then gradually
+    // shrinking intervals (~150 ms down to 30 ms at the 2 s threshold) —
+    // release any time to abort. Same two-phase shape as P0+P2 above.
+    uint32_t ehold = entry_hold_count;
+    if (rec_mode == RecMode::IDLE && ehold >= kRecEntryAnimStart) {
+        if (ehold < kRecEntryAnnounceBlocks) {
+            set_led(true);  delay_serviced(130);
+            set_led(false); delay_serviced(70);
+        } else {
+            const uint32_t span = kRecEntryHoldBlocks - kRecEntryAnnounceBlocks;
+            const uint32_t t    = (ehold < kRecEntryHoldBlocks)
+                                ? ehold - kRecEntryAnnounceBlocks : span;
+            const uint32_t interval = 150u - t * 120u / span;
+            set_led(true);  delay_serviced(interval);
+            set_led(false); delay_serviced(interval);
+        }
+        return;
+    }
+
+    // P2+pad layer-clear countdown (21/07/26 LED redesign): the same
+    // accelerating-blink language as every other hold gesture, so
+    // holding toward Clear/Clear-all reads as unmistakably different
+    // from the instant tap that means mute/unmute — the tap gets its
+    // own confirm blink (NUMBERED) with no preceding animation at all.
+    // Stops claiming the loop the instant a pad's hold actually fires,
+    // so the queued completion event (see AudioCallback) dispatches
+    // through the normal path below instead of being swallowed here.
+    {
+        uint32_t max_hold   = 0;
+        bool     any_count = false;
+        for (int i = 0; i < 5; i++) {
+            if (p2layer_hold[i] > 0 && !p2layer_fired[i]) {
+                any_count = true;
+                if (p2layer_hold[i] > max_hold) max_hold = p2layer_hold[i];
+            }
+        }
+        if (rec_mode == RecMode::IDLE && any_count && max_hold >= kRecEntryAnimStart) {
+            uint32_t t        = (max_hold < kLongHoldBlocks) ? max_hold : kLongHoldBlocks;
+            uint32_t interval = 150u - t * 120u / kLongHoldBlocks;
+            set_led(true);  delay_serviced(interval);
+            set_led(false); delay_serviced(interval);
+            return;
+        }
+    }
+
+    // Recording mode LED (this branch owns the loop while recording).
+    if (rec_mode == RecMode::RECORDING) {
+        // Copy fires while still in recording — its confirm event would
+        // otherwise sit undispatched until rec exits. Show it here.
+        __disable_irq();
+        bool copy_confirm = (led_event == LedEvent::CONFIRM);
+        if (copy_confirm) led_event = LedEvent::NONE;
+        __enable_irq();
+        if (copy_confirm) { blink_confirm(); return; }
+
+        // Copy hold (source + second pad down): the entry countdown
+        // animation restarts, accelerating toward the affirmation.
+        uint32_t chold = copy_hold_anim;
+        if (chold > 0) {
+            uint32_t t        = (chold < kLongHoldBlocks) ? chold : kLongHoldBlocks;
+            uint32_t interval = 150u - t * 120u / kLongHoldBlocks;
+            set_led(true);  delay_serviced(interval);
+            set_led(false); delay_serviced(interval);
+            return;
+        }
+
+        // Entry burst: one rapid pattern right after the 2 s hold lands...
+        if (rec_entry_flash) {
+            rec_entry_flash = false;
+            for (int i = 0; i < 5; i++) {
+                set_led(true);  delay_serviced(35);
+                set_led(false); delay_serviced(35);
+            }
+            delay_serviced(250);
+            return;
+        }
+
+        // ...then the recording heartbeat: one fast double blink per
+        // audible hit of the slot (seq step or paused-seq audition), so
+        // the LED is locked to the audio — and unmistakably different
+        // from the sequencer's single on/off beat pulse.
+        if (rec_hit_flash) {
+            rec_hit_flash = false;
+            set_led(true);  delay_serviced(45);
+            set_led(false); delay_serviced(45);
+            set_led(true);  delay_serviced(45);
+            set_led(false);
+        }
+        delay_serviced(10);
+        return;
+    }
+
+    // Atomic read of led_event + data.
+    __disable_irq();
+    LedEvent ev   = led_event;
+    int      data = led_event_data;
+    led_event = LedEvent::NONE;
+    __enable_irq();
+
+    // A real blink arms the beat hold-off first, so no beat pulse gets
+    // queued during it or blends into its trailing edge.
+    if (ev != LedEvent::NONE && ev != LedEvent::BEAT)
+        beat_led_hold = kBeatLedHoldBlocks;
+
+    switch (ev) {
+        case LedEvent::NUMBERED: blink_numbered(data); break;
+        case LedEvent::LIMIT:    blink_limit();        break;
+        case LedEvent::CONFIRM:  blink_confirm();      break;
+        case LedEvent::MODEL:
+            set_led(true); delay_serviced(50); set_led(false); break;
+        case LedEvent::BEAT:
+            set_led(true); delay_serviced(20); set_led(false); break;
+        default: delay_serviced(10); break;
+    }
 }
+
+// simple-touch-web (browser build) calls Setup once and then Loop every
+// millisecond; on the Seed, main() does the same.
+#ifdef SIMPLE_TOUCH_WEB
+#include "simple_touch_web.h"
+ST_WEB_FIRMWARE(Setup, Loop)
+#else
+int main() {
+    Setup();
+    while (true) Loop();
+}
+#endif

@@ -30,6 +30,14 @@ else
 C_DEFS += -DUSB_MIDI
 endif
 
+# Browser build: simple-touch-web reads this Makefile with SIMPLE_TOUCH_WEB=1.
+# TEST makes stmlib use plain C where it has ARM assembly (ssat, usat, vsqrt)
+# and drops its .ramtext placement; it changes nothing else. The hardware
+# build never sees it.
+ifdef SIMPLE_TOUCH_WEB
+C_DEFS += -DTEST
+endif
+
 # Sources: main entry + touch hardware layer + display + MIDI I/O + Plaits voice wrapper
 CPP_SOURCES = TouchPlaited.cpp \
               $(wildcard touch/*.cpp) \
@@ -100,3 +108,9 @@ synth/patterns_gen.h: FORCE
 	python tools/gen_patterns.py
 FORCE:
 $(OBJECTS): synth/patterns_gen.h
+
+# The browser build (simple-touch-web) only asks make for the variables above,
+# so the pattern registry has to be generated on the way.
+ifdef SIMPLE_TOUCH_WEB
+stw-vars: synth/patterns_gen.h
+endif

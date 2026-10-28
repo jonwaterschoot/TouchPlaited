@@ -2,6 +2,17 @@
 
 #include <cstring>
 
+#ifdef SIMPLE_TOUCH_WEB
+
+// Browser build (simple-touch-web): no QSPI flash, so there is nothing to
+// restore and nowhere to save. Every boot is a first boot.
+namespace synthux {
+bool SettingsJournal::Init(void*, uint16_t, uint16_t) { return false; }
+void SettingsJournal::Tick(const void*, uint32_t, float) {}
+}  // namespace synthux
+
+#else
+
 #include "stm32h7xx.h"
 
 namespace synthux {
@@ -555,3 +566,5 @@ void SettingsJournal::Tick(const void* snapshot, uint32_t now_ms, float cpu_load
 }
 
 }  // namespace synthux
+
+#endif  // SIMPLE_TOUCH_WEB

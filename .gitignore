@@ -3,3 +3,6 @@ _site/
 synth/patterns_gen.h
 img/desktop.ini
 img/~touchplaitedcheats~uj(cn5.idlk
+
+# browser build (simple-touch-web)
+build-web/

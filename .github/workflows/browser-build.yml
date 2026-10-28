@@ -1,0 +1,24 @@
+# Builds the firmware for the browser with simple-touch-web, checks that it
+# boots, and adds it to the simple-touch-web branch. The run's summary links
+# it to the test bench and has the "emulator" block that lets the Simple
+# Touch library play it (see simple-touch-labels.json).
+
+name: Browser build
+
+on:
+  push:
+    branches: [main, browser-build]
+    paths-ignore:
+      - 'visualizer/**'
+      - 'tools/**'
+      - '**.md'
+  workflow_dispatch:
+
+jobs:
+  browser:
+    # v1.1: the first version that builds .cc sources (Plaits, stmlib)
+    uses: jonwaterschoot/simple-touch-web/.github/workflows/build-firmware.yml@v1.1
+    with:
+      simple-touch-web-ref: v1.1
+    permissions:
+      contents: write
