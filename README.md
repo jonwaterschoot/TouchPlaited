@@ -179,3 +179,14 @@ The full story — the original prompt, the plan, and a timeline from the first 
 - **Vlad (Bleeptools) / Synthux Academy** — the [TouchBass](https://github.com/Synthux-Academy/TouchBass) repo was the base template this project grew from, and the [Simple Touch](https://synthux.academy/) itself is the platform that makes tinkering like this so approachable (including their [libDaisy fork](https://github.com/Synthux-Academy/libDaisy) used as the submodule here).
 - **Electrosmith** — the [Daisy Seed](https://electro-smith.com/) and [libDaisy](https://github.com/electro-smith/libDaisy), the hardware and library everything runs on.
 - **Anthropic's Claude** — wrote the C++ under my direction; see the workflow story above.
+
+## Licence
+
+TouchPlaited is released under the [MIT License](LICENSE); [licenseinfo.md](licenseinfo.md) lists what it includes.
+
+It includes or builds on, all under the MIT License:
+
+- Mutable Instruments [Plaits](https://github.com/pichenettes/eurorack/tree/master/plaits), vendored in `thirdparty/plaits/` with [its licence](thirdparty/plaits/LICENSE), and [stmlib](https://github.com/pichenettes/stmlib) (submodule), © Émilie Gillet.
+- [libDaisy (Synthux fork)](https://github.com/Synthux-Academy/libDaisy) (submodule), © Electrosmith; the visualizer's OLED font tables are copied from it.
+
+Not covered by the MIT License: the Simple Touch panel drawing, © Roey Tsemah / [Synthux Academy](https://synthux.academy): `img/simpletouchdrawing_blank.svg`, the `img/SimpleTouchDrawing/` exports and `.ai` files, `visualizer/assets/panel.svg`, and the screenshots that show it.
