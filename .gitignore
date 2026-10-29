@@ -6,3 +6,6 @@ img/~touchplaitedcheats~uj(cn5.idlk
 
 # browser build (simple-touch-web)
 build-web/
+
+# local editor settings
+.vscode/settings.json
