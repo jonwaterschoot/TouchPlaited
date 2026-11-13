@@ -126,11 +126,40 @@ struct TelemetryState {
 //     heartbeat (larger frame, slower-moving data)
 //
 // Main-loop only (called via service_midi); never from the audio ISR.
+//
+// Live link for the web manual's Connect to Simple Touch (spec:
+// simple-touch-web's README, "Live link"). After each request the Live,
+// knobs and OLED frames run for 10 s:
+//   - request, page → board: F0 7D 54 50 01 7E F7
+//   - Live: F0 7D 53 54 01 <S09_S10> <S07_S08> <pads lo7> <pads hi5> F7
+//   - knobs: F0 7D 54 50 01 06 <S30–S37, 0–127> F7
+//   - OLED: half pages from OledMirror
+// The USB endpoint holds one transfer at a time, so a pass that sent a
+// visualizer frame sends no link frame, and the link sends one frame per pass.
 class Telemetry {
 public:
     void Service(const TelemetryState& s, uint32_t now_ms, MidiIO& midi);
 
+    // SysEx body without F0 and F7. True when it was the link's request.
+    // Called from the MIDI handlers, with interrupts off.
+    bool OnSysex(const uint8_t* data, uint8_t len);
+
 private:
+    void ServiceLink(const TelemetryState& s, uint32_t now_ms, MidiIO& midi,
+                     bool sent);
+
+    volatile bool link_asked_ = false;
+    bool     link_on_      = false;
+    bool     live_valid_   = false;   // false: send whether it changed or not
+    bool     knobs_valid_  = false;
+    uint8_t  sent_live_[4] = {};
+    uint8_t  sent_knobs_[8] = {};
+    uint32_t link_ms_  = 0;   // last request
+    uint32_t beat_ms_  = 0;   // last full resend
+    uint32_t live_ms_  = 0;
+    uint32_t knobs_ms_ = 0;
+    uint32_t oled_ms_  = 0;
+
     void SendState(const TelemetryState& s, uint32_t now_ms, MidiIO& midi);
     void SendFx(const TelemetryState& s, uint32_t now_ms, MidiIO& midi);
     void SendKit(const TelemetryState& s, uint32_t now_ms, MidiIO& midi);

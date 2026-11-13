@@ -24,6 +24,7 @@ struct MidiHandlers {
     void (*start)();           // FA
     void (*cont)();            // FB ('continue' is a keyword)
     void (*stop)();            // FC
+    void (*sysex)(const uint8_t* data, uint8_t len);   // body without F0 and F7
 };
 
 class MidiIO {

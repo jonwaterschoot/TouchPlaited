@@ -63,6 +63,10 @@ static void dispatch(MidiEvent ev, const MidiHandlers& h) {
                 default: break;
             }
             break;
+        case SystemCommon:
+            if (ev.sc_type == SystemExclusive)
+                h.sysex(ev.sysex_data, ev.sysex_message_len);
+            break;
         default: break;
     }
     __enable_irq();

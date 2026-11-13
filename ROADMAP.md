@@ -67,15 +67,18 @@ The ordering is deliberate: each step narrows what the next one has to read.
 
 ## Docs & site
 
-- [ ] **Live link for the Play page.** `/play/` and the Simple Touch library
-      run the browser build with the OLED (`"oled": true` and an `oled`
-      placement in `simple-touch-labels.json`, 2026-11-13). Still open:
-      **Connect to Simple Touch**, which shows a real board on the same
-      drawing. It needs the Live SysEx frames next to the telemetry (levers
-      and pads, knobs, OLED pages, sent after a request) and a `device` block
-      with `live` in the label file. Spec: simple-touch-web's README, "Live
-      link"; TouchSpore's `SporeUI::_SendLink` is the worked example. Once it
-      runs on hardware the visualizer can leave the site's navigation.
+- [ ] **Live link, what is left.** The firmware side runs on hardware
+      (2026-11-13, simple-touch-web's test bench: levers, pads, knobs, OLED).
+      `Telemetry::ServiceLink` (`midi/telemetry.cpp`) sends the Live frame,
+      a knobs frame (type `0x06`) and OLED half pages (`display/oled_mirror.h`)
+      for 10 s after the request `F0 7D 54 50 01 7E F7`, and the label file
+      has the `device` block. Spec: simple-touch-web's README, "Live link".
+      Still open:
+      - Check **Connect to Simple Touch** on `/play/` and in the library once
+        this and simple-touch-web are pushed.
+      - Take the visualizer out of the site's navigation.
+      - Page to board: touch frames in, pad hits out, knobs. The board is
+        read-only from the page for now.
 - [ ] **Approve a newer browser build.** The approved one (`8acf93d464ec`) is
       from 2026-10-29. Designer › **Find builds in the repository** ›
       **Use this build**, and keep `"oled": true`.

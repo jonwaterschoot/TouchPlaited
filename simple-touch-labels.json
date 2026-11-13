@@ -197,6 +197,19 @@
     "embed": "allowed",
     "oled": true
   },
+  "device": {
+    "port": "TouchPlaited",
+    "request": "F0 7D 54 50 01 7E F7",
+    "live": {
+      "knobs": {
+        "state": "7D 54 50 01 06",
+        "cc": 102
+      },
+      "oled": {
+        "rows": 32
+      }
+    }
+  },
   "oled": {
     "rows": 32,
     "phone": {

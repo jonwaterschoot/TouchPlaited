@@ -1,11 +1,14 @@
 #include "telemetry.h"
 #include "midi_io.h"
+#include "../display/oled_mirror.h"
+#include <cstring>
 
 namespace synthux {
 
 namespace {
 
 // F0 7D 54 50 <ver> <type> <payload…> F7 — mfr 0x7D (educational), "TP"
+// Type 0x06 is the live link's knobs frame, 0x7E its request (page → board).
 constexpr uint8_t kFrameState = 0x01;
 constexpr uint8_t kFrameFx    = 0x04;
 constexpr uint8_t kFrameKit   = 0x05;
@@ -15,6 +18,14 @@ constexpr uint32_t kHeartbeatMs        = 500;
 constexpr uint32_t kFxMinIntervalMs    = 100;
 constexpr uint32_t kKitMinIntervalMs   = 100;
 constexpr uint32_t kKitHeartbeatMs     = 2000; // big frame, slow-moving data
+
+// Live link
+constexpr uint8_t  kFrameKnobs  = 0x06;
+constexpr uint8_t  kLinkRequest[5] = { 0x7D, 0x54, 0x50, 0x01, 0x7E };
+constexpr uint32_t kLinkMs      = 10000;  // frames stop this long after a request
+constexpr uint32_t kLinkBeatMs  = 500;    // Live and knobs sent again, changed or not
+constexpr uint32_t kLinkFrameMs = 33;     // fastest rate per frame type
+constexpr uint32_t kLinkOledMs  = 8;      // per half page: a full screen in ~64 ms
 
 bool StateChanged(const TelemetryState& a, const TelemetryState& b) {
     if (a.pads != b.pads || a.sw1 != b.sw1 || a.sw2 != b.sw2) return true;
@@ -59,22 +70,98 @@ bool KitChanged(const TelemetryState& a, const TelemetryState& b) {
 void Telemetry::Service(const TelemetryState& s, uint32_t now_ms, MidiIO& midi) {
     const bool first = !started_;
     started_ = true;
+    bool sent = false;
 
     const uint32_t state_age = now_ms - state_ms_;
     if (first || state_age >= kHeartbeatMs
         || (StateChanged(s, last_state_) && state_age >= kStateMinIntervalMs)) {
         SendState(s, now_ms, midi);
+        sent = true;
     }
 
     const uint32_t fx_age = now_ms - fx_ms_;
     if (first || (FxChanged(s, last_fx_) && fx_age >= kFxMinIntervalMs)) {
         SendFx(s, now_ms, midi);
+        sent = true;
     }
 
     const uint32_t kit_age = now_ms - kit_ms_;
     if (first || kit_age >= kKitHeartbeatMs
         || (KitChanged(s, last_kit_) && kit_age >= kKitMinIntervalMs)) {
         SendKit(s, now_ms, midi);
+        sent = true;
+    }
+
+    ServiceLink(s, now_ms, midi, sent);
+}
+
+bool Telemetry::OnSysex(const uint8_t* data, uint8_t len) {
+    if (len != sizeof(kLinkRequest)
+        || std::memcmp(data, kLinkRequest, sizeof(kLinkRequest)) != 0)
+        return false;
+    link_asked_ = true;
+    return true;
+}
+
+void Telemetry::ServiceLink(const TelemetryState& s, uint32_t now_ms,
+                            MidiIO& midi, bool sent) {
+    if (link_asked_) {
+        link_asked_ = false;
+        link_on_    = true;
+        link_ms_    = beat_ms_ = now_ms;
+        live_valid_ = knobs_valid_ = false;
+        OledMirror::All();
+    }
+    if (!link_on_) return;
+    if (now_ms - link_ms_ >= kLinkMs) {
+        link_on_ = false;
+        return;
+    }
+    if (now_ms - beat_ms_ >= kLinkBeatMs) {
+        beat_ms_    = now_ms;
+        live_valid_ = knobs_valid_ = false;
+    }
+    if (sent) return;
+
+    // s.sw1 is 0 left, 1 centre, 2 right. The Live frame counts S09_S10 from
+    // the right. s.sw2 already matches S07_S08: 0 up, 1 centre, 2 down.
+    const uint8_t live[4] = {
+        static_cast<uint8_t>(s.sw1 <= 2 ? 2 - s.sw1 : 1),
+        static_cast<uint8_t>(s.sw2 <= 2 ? s.sw2 : 1),
+        static_cast<uint8_t>(s.pads & 0x7F),
+        static_cast<uint8_t>((s.pads >> 7) & 0x1F),
+    };
+    if ((!live_valid_ || std::memcmp(live, sent_live_, sizeof(live)) != 0)
+        && (!live_valid_ || now_ms - live_ms_ >= kLinkFrameMs)) {
+        uint8_t f[10] = { 0xF0, 0x7D, 0x53, 0x54, 0x01 };
+        std::memcpy(f + 5, live, sizeof(live));
+        f[9] = 0xF7;
+        midi.SendSysexUsb(f, sizeof(f));
+        std::memcpy(sent_live_, live, sizeof(live));
+        live_valid_ = true;
+        live_ms_    = now_ms;
+        return;
+    }
+
+    if ((!knobs_valid_ || std::memcmp(s.controls, sent_knobs_, 8) != 0)
+        && (!knobs_valid_ || now_ms - knobs_ms_ >= kLinkFrameMs)) {
+        uint8_t f[15] = { 0xF0, 0x7D, 0x54, 0x50, 0x01, kFrameKnobs };
+        for (int i = 0; i < 8; i++) f[6 + i] = s.controls[i] & 0x7F;
+        f[14] = 0xF7;
+        midi.SendSysexUsb(f, sizeof(f));
+        std::memcpy(sent_knobs_, s.controls, 8);
+        knobs_valid_ = true;
+        knobs_ms_    = now_ms;
+        return;
+    }
+
+    if (now_ms - oled_ms_ >= kLinkOledMs) {
+        uint8_t   f[OledMirror::kFrameBytes];
+        const int n = OledMirror::Frame(f);
+        if (n > 0) {
+            midi.SendSysexUsb(f, static_cast<size_t>(n));
+            oled_ms_ = now_ms;
+        }
     }
 }
 

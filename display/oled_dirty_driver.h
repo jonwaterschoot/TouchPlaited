@@ -2,6 +2,7 @@
 
 #include "dev/oled_ssd130x.h"
 #include "../i2c1_lock.h"
+#include "oled_mirror.h"
 #include <cstring>
 
 #ifdef __cplusplus
@@ -79,6 +80,7 @@ public:
             i2c1_bus_busy = false;
 
             std::memcpy(dst, src, kWidth);
+            OledMirror::Store(page, src);
             pushed++;
         }
         shadow_valid_ = true;

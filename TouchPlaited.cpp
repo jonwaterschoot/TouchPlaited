@@ -1346,10 +1346,13 @@ static void on_midi_stop() {
     midi.SendStop();
 }
 
+static void on_midi_sysex(const uint8_t* data, uint8_t len);
+
 static const MidiHandlers kMidiHandlers = { on_midi_note_on, on_midi_note_off,
                                             on_midi_cc, on_midi_all_notes_off,
                                             on_midi_clock, on_midi_start,
-                                            on_midi_continue, on_midi_stop };
+                                            on_midi_continue, on_midi_stop,
+                                            on_midi_sysex };
 
 // ─── Visualizer telemetry ─────────────────────────────────────────────────────
 // Full panel-state snapshot streamed as SysEx over USB MIDI (rate-limited in
@@ -1357,6 +1360,11 @@ static const MidiHandlers kMidiHandlers = { on_midi_note_on, on_midi_note_off,
 // LED blink loops — that's exactly what lets the visualizer mirror the blinks.
 static Telemetry telemetry;
 static OledUi oled_ui;
+
+// The web manual's live link request. See midi/telemetry.h.
+static void on_midi_sysex(const uint8_t* data, uint8_t len) {
+    telemetry.OnSysex(data, len);
+}
 
 // Defined below the P0+P2 hold state it reads (~line 1560) — forward
 // declared here so service_telemetry() can call it despite coming first in
