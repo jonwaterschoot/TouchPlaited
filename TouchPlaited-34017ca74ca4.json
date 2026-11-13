@@ -1,0 +1,13 @@
+{
+  "target": "TouchPlaited",
+  "file": "TouchPlaited-34017ca74ca4.wasm",
+  "abi": "simple-touch-web/1",
+  "sha256": "34017ca74ca422ec2077f73d6b8122713e4dcc82ab13259ff5c8f9091fdcbb31",
+  "bytes": 480145,
+  "url": "https://raw.githubusercontent.com/jonwaterschoot/TouchPlaited/simple-touch-web/TouchPlaited-34017ca74ca4.wasm",
+  "source": {
+    "repository": "jonwaterschoot/TouchPlaited",
+    "commit": "c20e339783bef69c5b88276d31740ab9bb6c6b57"
+  },
+  "built": "2026-11-13T20:28:29.946Z"
+}
