@@ -8,6 +8,16 @@
 > `doc/codemap_brief.md`), was added after this plan was written, following
 > the same "copied verbatim" pattern as `/editor/`.
 
+> **2026-11-13: `/play/` added.** The firmware in the browser, on the Simple
+> Touch labels web app. `build-site.mjs` copies the app from a checkout of
+> `jonwaterschoot/simple-touch-labels` (its `main` at build time), adds this
+> site's header (`doc/site-head.css`) and `doc/play.css`, and puts a copy of
+> `simple-touch-labels.json` and the faceplate beside it. Online the page
+> reads the label file from this repository's default branch. The header and
+> its navigation are now written by `build-site.mjs`. README.md and MANUAL.md
+> were shortened the same day; the long manual is
+> `notesarchive/manual_v1.9_full.md`.
+
 Four pages, one repo, one deploy, one theme:
 
 | URL (github.io/TouchPlaited…) | What | Source of truth |

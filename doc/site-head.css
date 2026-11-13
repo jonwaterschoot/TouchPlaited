@@ -1,0 +1,32 @@
+/* The site header: brand and navigation. Shared by the rendered pages
+   (doc/template.html) and the Play page (play/, see doc/play.css). Uses the
+   tokens of theme.css; play.css sets the same ones on .site-head. */
+.site-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 10px 24px;
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 26px 20px 0;
+  font-family: var(--font);
+}
+.site-head .brand {
+  font-weight: 700;
+  letter-spacing: 0.25em;
+  text-transform: uppercase;
+  color: var(--text);
+  text-decoration: none;
+}
+.site-head .brand .px { color: var(--accent); }
+.site-head nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 18px;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.site-head nav a { color: var(--dim); text-decoration: none; }
+.site-head nav a:hover { color: var(--accent-hi); }
+.site-head nav a[aria-current="page"] { color: var(--accent); border-bottom: 2px solid var(--accent); }

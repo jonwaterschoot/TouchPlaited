@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{{title}}</title>
   <link rel="stylesheet" href="theme.css">
+  <link rel="stylesheet" href="site-head.css">
   <style>
     html, body {
       margin: 0;
@@ -12,31 +13,6 @@
       color: var(--text);
       font: 14px/1.6 var(--font);
     }
-    header {
-      display: flex;
-      flex-wrap: wrap;
-      align-items: baseline;
-      gap: 10px 24px;
-      max-width: 900px;
-      margin: 0 auto;
-      padding: 26px 20px 0;
-    }
-    .brand {
-      font-weight: 700;
-      letter-spacing: 0.25em;
-      text-transform: uppercase;
-    }
-    .brand .px { color: var(--accent); }
-    nav {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 4px 18px;
-      font-size: 12px;
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
-    }
-    nav a { color: var(--dim); text-decoration: none; }
-    nav a:hover { color: var(--accent-hi); }
     main {
       max-width: 900px;
       margin: 0 auto;
@@ -99,25 +75,39 @@
     }
     main hr { border: none; border-top: 1px solid var(--line); }
     main li { margin: 3px 0; }
+    main details {
+      margin: 10px 0;
+      border: 1px solid var(--line);
+      background: var(--surface);
+    }
+    main summary {
+      cursor: pointer;
+      padding: 7px 12px;
+      color: var(--accent);
+      font-weight: 700;
+    }
+    main summary:hover { color: var(--accent-hi); }
+    main details[open] > summary { border-bottom: 1px solid var(--line); }
+    main details > :not(summary) { margin-left: 12px; margin-right: 12px; }
+    main details code, main details th { background: var(--bg); }
+    main .cta {
+      display: inline-block;
+      padding: 7px 14px;
+      border: 1px solid var(--accent);
+      color: var(--accent);
+      font-weight: 700;
+      text-decoration: none;
+    }
+    main .cta:hover { background: var(--accent); color: var(--bg); }
   </style>
 </head>
 <body>
-  <header>
-    <span class="brand">Touch<span class="px">Plaited</span></span>
-    <nav>
-      <a href="./">Home</a>
-      <a href="visualizer/">Visualizer</a>
-      <a href="editor/">Pattern editor</a>
-      <a href="codemap/">Code map</a>
-      <a href="manual.html">Manual</a>
-      <a href="https://github.com/jonwaterschoot/TouchPlaited">GitHub</a>
-    </nav>
-  </header>
+{{header}}
   <main>
 {{content}}
   </main>
   <footer>
-    TouchPlaited — firmware for the Synthux Simple Touch ·
+    TouchPlaited · firmware for the Synthux Simple Touch ·
     <a href="https://github.com/jonwaterschoot/TouchPlaited">github.com/jonwaterschoot/TouchPlaited</a>
   </footer>
 </body>

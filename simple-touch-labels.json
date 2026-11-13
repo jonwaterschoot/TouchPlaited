@@ -3,28 +3,33 @@
   "firmware": {
     "name": "TouchPlaited",
     "author": "Jon Waterschoot",
-    "version": "",
-    "description": "A Synthux Simple Touch firmware based on Mutable Instruments Plaits (Émilie Gillet, MIT License): a 7-voice touch synth plus a 16-step generative drum sequencer, playable at the same time.",
-    "notes": "",
+    "version": "1.9.0",
+    "description": "A 6-voice Plaits synth, an arpeggiator with a 2-bar note recorder and a 16-step generative drum sequencer, playable at the same time. Based on Mutable Instruments Plaits by Émilie Gillet.",
+    "notes": "## Modes\nThe right switch (S07/S08) picks the playmode. The left switch (S09/S10) then picks the genre, the arp state or the scale.\n\n- **Seq** (up): the drum sequencer. Pads play the seven drums. Hold a drum pad 2 s to edit that drum.\n- **Arp/Mel** (centre): arpeggiator (Hold, Arp) or the 2-bar note recorder (Rec).\n- **Basic Pitch** (down): one Plaits model, played with the pads or MIDI.\n\nThe drums and the arp keep playing when you switch modes.\n\n## Held pads\n- **P0**: sound and pitch. Model bank 0 on S35, stereo width on S37, root, arp octave range or kick preset on P10 / P11.\n- **P1**: FX. Reverb on S30, delay on S35. Centre is off.\n- **P2**: transport. Then tap P11 for the drums, P10 for the arp and loop. Model bank 1 on S35.\n- **P0 + P2** held 2 s, then 4 s: vary the sound, then a new one.\n\nHolding P0, P1 or P2 alone lists on the OLED what it unlocks in the current mode.\n\n## MIDI\nUSB and TRS. Notes on channel 1 (pitched) and channel 10 (drums). Clock in and out. The CCs in the table address a function, in any mode.\n\n[Manual](https://jonwaterschoot.github.io/TouchPlaited/manual.html) · [Pattern editor](https://jonwaterschoot.github.io/TouchPlaited/editor/)",
     "repo": "https://github.com/jonwaterschoot/TouchPlaited",
     "authorUrl": "https://github.com/jonwaterschoot"
   },
   "labels": {
     "S30": {
       "main": "Drive",
-      "m_P01": "Reverb"
+      "m_P01": "Reverb",
+      "midi": "CC 24"
     },
     "S31": {
-      "main": "Decay"
+      "main": "Decay",
+      "midi": "CC 23"
     },
     "S32": {
-      "main": "Harmonics"
+      "main": "Harmonics",
+      "midi": "CC 20"
     },
     "S33": {
-      "main": "Timbre"
+      "main": "Timbre",
+      "midi": "CC 21"
     },
     "S34": {
-      "main": "Morph"
+      "main": "Morph",
+      "midi": "CC 22"
     },
     "S35": {
       "main": "Model select",
@@ -33,7 +38,8 @@
       "m_P02": "Model select"
     },
     "S36": {
-      "main": "Output level"
+      "main": "Output level",
+      "midi": "CC 26"
     },
     "S37": {
       "main": "Model mix",
@@ -188,7 +194,21 @@
     "wasm": "https://raw.githubusercontent.com/jonwaterschoot/TouchPlaited/simple-touch-web/TouchPlaited-8acf93d464ec.wasm",
     "abi": "simple-touch-web/1",
     "sha256": "8acf93d464ecdf0548de818ec521b2dd2b057f03ba2efde9a52f19e09ecb41d3",
-    "embed": "allowed"
+    "embed": "allowed",
+    "oled": true
+  },
+  "oled": {
+    "rows": 32,
+    "phone": {
+      "x": 360,
+      "y": 770,
+      "w": 360
+    },
+    "desktop": {
+      "x": 360,
+      "y": 770,
+      "w": 360
+    }
   },
   "modes": {
     "switch": "S07_S08",
@@ -198,19 +218,24 @@
         "name": "Seq",
         "labels": {
           "S30": {
-            "m_P01": "Reverb"
+            "m_P01": "Reverb",
+            "midi": "CC 24"
           },
           "S31": {
-            "main": "Tempo"
+            "main": "Tempo",
+            "midi": "CC 27"
           },
           "S32": {
-            "main": "Shuffle"
+            "main": "Shuffle",
+            "midi": "CC 28"
           },
           "S33": {
-            "main": "Pattern density"
+            "main": "Pattern density",
+            "midi": "CC 29"
           },
           "S34": {
-            "main": "Step chance"
+            "main": "Step chance",
+            "midi": "CC 30"
           },
           "S35": {
             "main": "Pattern select",
@@ -218,36 +243,45 @@
             "m_P02": "Per-slot model select"
           },
           "S36": {
-            "main": "Seq volume"
+            "main": "Seq volume",
+            "midi": "-"
           },
           "S37": {
             "main": "Tightness",
-            "m_P00": "Drum-group stereo width"
+            "m_P00": "Drum-group stereo width",
+            "midi": "CC 31"
           },
           "S09_S10": {
             "main": "Genre",
             "main_2": "IDM / Techno / Electro"
           },
           "P03": {
-            "main": "Kick"
+            "main": "Kick",
+            "midi": "note 36 ch 10"
           },
           "P04": {
-            "main": "Snare"
+            "main": "Snare",
+            "midi": "note 38 ch 10"
           },
           "P05": {
-            "main": "Cl. hat"
+            "main": "Cl. hat",
+            "midi": "note 42 ch 10"
           },
           "P06": {
-            "main": "Op. hat"
+            "main": "Op. hat",
+            "midi": "note 46 ch 10"
           },
           "P07": {
-            "main": "Clap"
+            "main": "Clap",
+            "midi": "note 39 ch 10"
           },
           "P08": {
-            "main": "Tom"
+            "main": "Tom",
+            "midi": "note 41 ch 10"
           },
           "P09": {
-            "main": "Perc"
+            "main": "Perc",
+            "midi": "note 43 ch 10"
           },
           "P10": {
             "main": "Drum pitch −1",
@@ -265,16 +299,20 @@
         "name": "Arp/Mel",
         "labels": {
           "S31": {
-            "main": "Decay"
+            "main": "Decay",
+            "midi": "-"
           },
           "S32": {
-            "main": "Division"
+            "main": "Division",
+            "midi": "-"
           },
           "S33": {
-            "main": "Swing"
+            "main": "Swing",
+            "midi": "-"
           },
           "S34": {
-            "main": "Density"
+            "main": "Density",
+            "midi": "-"
           },
           "S35": {
             "main": "Order",
@@ -283,7 +321,8 @@
             "m_P02": "Model select"
           },
           "S36": {
-            "main": "Output level"
+            "main": "Output level",
+            "midi": "-"
           },
           "S37": {
             "main": "Blend",
@@ -328,6 +367,9 @@
           "P11": {
             "main": "Base octave +",
             "m_P00": "Octave range +"
+          },
+          "S30": {
+            "midi": "-"
           }
         }
       },

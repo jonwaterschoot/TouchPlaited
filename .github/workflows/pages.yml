@@ -1,6 +1,9 @@
 # Builds and deploys the GitHub Pages site (doc/SITE-PLAN.md):
 #   /            landing page rendered from README.md
 #   /manual.html rendered from MANUAL.md
+#   /play/       the firmware in the browser: the Simple Touch labels web app
+#                (jonwaterschoot/simple-touch-labels, its main branch at build
+#                time) with this site's header and doc/play.css
 #   /visualizer/ the Vite app
 #   /editor/     tools/pattern_editor.html
 #   /codemap/    tools/codemap.html
@@ -19,6 +22,8 @@ on:
       - 'README.md'
       - 'MANUAL.md'
       - 'img/**'
+      - 'docs/**'
+      - 'simple-touch-labels.json'
       - '.github/workflows/pages.yml'
   workflow_dispatch:
 
@@ -36,6 +41,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      # play/ is assembled from this checkout by build-site.mjs. To hold the
+      # page at one version of the library, add `ref: <commit>` here.
+      - uses: actions/checkout@v4
+        with:
+          repository: jonwaterschoot/simple-touch-labels
+          path: _labels
       - uses: actions/setup-node@v4
         with:
           node-version: 22

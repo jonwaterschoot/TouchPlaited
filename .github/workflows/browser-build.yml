@@ -11,6 +11,9 @@ on:
     paths-ignore:
       - 'visualizer/**'
       - 'tools/**'
+      - 'doc/**'
+      - 'img/**'
+      - 'simple-touch-labels.json'
       - '**.md'
   workflow_dispatch:
 

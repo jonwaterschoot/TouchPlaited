@@ -1,0 +1,44 @@
+/* The Play page (play/): the Simple Touch labels web app in this site's
+   look. Loaded after the app's own styles.css and ui.css, and only sets
+   their tokens and a few colours. Token values: keep in sync with
+   doc/theme.css. The drawing keeps the look saved in
+   simple-touch-labels.json. */
+
+/* body[class] outranks the app's .ui-dark / .ui-light / .ui-vis, which it
+   switches with the drawing's theme. The page chrome stays the site's. */
+body[class] {
+  --page: #141412;
+  --text: #e8e4da;
+  --muted: #8f8a7d;
+  --rule: #4a4538;
+  --hair: #35322b;
+  --active: #edb655;
+  --kicker: #edb655;
+  --field: #1d1c19;
+  --warn: #e6371e;
+  --color-accent: #edb655;
+  --font-body: 'Cascadia Mono', Consolas, 'JetBrains Mono', ui-monospace, monospace;
+  --font-heading: var(--font-body);
+  --font-heading-weight: 700;
+  font-size: 14px;
+}
+
+.site-head {
+  --text: #e8e4da;
+  --dim: #8f8a7d;
+  --accent: #edb655;
+  --accent-hi: #ffd97a;
+  --font: var(--font-body);
+  max-width: 1600px;
+  padding: 26px 24px 0;
+}
+
+.wrap { padding-top: 18px; }
+.intro h1 { font-size: 22px; color: var(--active); letter-spacing: 0.02em; }
+.intro p { font-size: 14px; }
+
+/* the app's filled buttons carry white text, unreadable on the yellow */
+button[aria-pressed="true"],
+button.primary { color: #141412; }
+
+a:hover { color: #ffd97a; }

@@ -67,6 +67,19 @@ The ordering is deliberate: each step narrows what the next one has to read.
 
 ## Docs & site
 
+- [ ] **Live link for the Play page.** `/play/` and the Simple Touch library
+      run the browser build with the OLED (`"oled": true` and an `oled`
+      placement in `simple-touch-labels.json`, 2026-11-13). Still open:
+      **Connect to Simple Touch**, which shows a real board on the same
+      drawing. It needs the Live SysEx frames next to the telemetry (levers
+      and pads, knobs, OLED pages, sent after a request) and a `device` block
+      with `live` in the label file. Spec: simple-touch-web's README, "Live
+      link"; TouchSpore's `SporeUI::_SendLink` is the worked example. Once it
+      runs on hardware the visualizer can leave the site's navigation.
+- [ ] **Approve a newer browser build.** The approved one (`8acf93d464ec`) is
+      from 2026-10-29. Designer › **Find builds in the repository** ›
+      **Use this build**, and keep `"oled": true`.
+
 - [ ] **Code map — check & update.** `tools/codemap.html` (served at
       `/codemap/`) is the interactive hardware + memory atlas, and it hasn't
       been walked against the source since a good deal shipped: the OLED and
