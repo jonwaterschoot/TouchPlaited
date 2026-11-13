@@ -1,13 +1,13 @@
 {
   "target": "TouchPlaited",
-  "file": "TouchPlaited-8acf93d464ec.wasm",
+  "file": "TouchPlaited-172cda53470d.wasm",
   "abi": "simple-touch-web/1",
-  "sha256": "8acf93d464ecdf0548de818ec521b2dd2b057f03ba2efde9a52f19e09ecb41d3",
-  "bytes": 477122,
-  "url": "https://raw.githubusercontent.com/jonwaterschoot/TouchPlaited/simple-touch-web/TouchPlaited-8acf93d464ec.wasm",
+  "sha256": "172cda53470d47d8e036910d4e0daacb5af2874678dc73fa2c07d8d449c45616",
+  "bytes": 477170,
+  "url": "https://raw.githubusercontent.com/jonwaterschoot/TouchPlaited/simple-touch-web/TouchPlaited-172cda53470d.wasm",
   "source": {
     "repository": "jonwaterschoot/TouchPlaited",
-    "commit": "11f5bc4513541ee18ecccf409dd315391222c151"
+    "commit": "1ba79fbb958aa96c523754ff9d35a4aaf153f865"
   },
-  "built": "2026-10-28T19:34:50.119Z"
+  "built": "2026-11-13T03:42:46.624Z"
 }
