@@ -74,10 +74,10 @@ The ordering is deliberate: each step narrows what the next one has to read.
       a knobs frame (type `0x06`) and OLED half pages (`display/oled_mirror.h`)
       for 10 s after the request `F0 7D 54 50 01 7E F7`, and the label file
       has the `device` block. Spec: simple-touch-web's README, "Live link".
-      Still open:
-      - Take the visualizer out of the site's navigation.
-      - Page to board: touch frames in, pad hits out, knobs. The board is
-        read-only from the page for now.
+      Decided 2026-11-14: the board stays read-only from the page (no touch
+      frames in, no pad hits out), and the visualizer stays on the site.
+      Still open, on the library's side: the page sends each control's `midi`
+      entry from the label file, which needs no firmware change.
 - [ ] **Approve a newer browser build.** The approved one (`8acf93d464ec`) is
       from 2026-10-29. Designer › **Find builds in the repository** ›
       **Use this build**, and keep `"oled": true`.
