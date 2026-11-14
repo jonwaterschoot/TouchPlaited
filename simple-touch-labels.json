@@ -190,6 +190,10 @@
     },
     "desktop": {}
   },
+  "listing": {
+    "tags": ["Synth"],
+    "audio": [{ "src": "media/Touchplaited_demo.mp3" }]
+  },
   "emulator": {
     "wasm": "https://raw.githubusercontent.com/jonwaterschoot/TouchPlaited/simple-touch-web/TouchPlaited-8acf93d464ec.wasm",
     "abi": "simple-touch-web/1",
