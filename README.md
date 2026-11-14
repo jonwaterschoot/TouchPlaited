@@ -6,6 +6,18 @@ Firmware for the Synthux Simple Touch: a 6-voice Plaits synth, an arpeggiator wi
 
 [Manual](MANUAL.md) · [Pattern editor](https://jonwaterschoot.github.io/TouchPlaited/editor/) · [Releases](../../releases) · [Simple Touch library](https://jonwaterschoot.github.io/simple-touch-labels/?community=touchplaited)
 
+## Start simple
+
+The firmware is finished, and it does more at once than it plays well. Drums under a melody run out of voices, and you hear notes being cut off. The controls take the manual and the OLED to learn.
+
+The part that works best is the one the project started with: playing the Plaits models from the pads. I'd stick to that.
+
+1. Flick SW2 down (Basic Pitch) and play P3–P9. P10 / P11 change the octave.
+2. Hold P0 and turn S35 for models 0–11. Hold P2 and turn S35 for models 12–23.
+3. Shape the sound with S31–S34: decay, harmonics, timbre, morph.
+
+If the drums are running, hold P2 and tap P11 to pause them. A light version with only this mode would be the better firmware. This was my first Daisy project built by prompting, and it stays as it is.
+
 ![TouchPlaited control map: main functions, and the functions with P0, P1 or P2 held](docs/touchplaited-controls.png)
 
 ## What it does
@@ -113,7 +125,7 @@ The output is `build/TouchPlaited.bin`. After moving the libDaisy submodule, run
 | `tools/` | Pattern editor, code map, `gen_patterns.py` |
 | `visualizer/` | The visualizer, and `tools/build-site.mjs`, which builds this site |
 | `doc/` | Site template and theme, [settings memory](doc/settings-memory.md) |
-| `ROADMAP.md`, `notes.md`, `notesarchive/` | Open work, the working log, and finished rounds |
+| `ROADMAP.md`, `notes.md`, `notesarchive/` | What is still open, the working log, and finished rounds |
 
 </details>
 
