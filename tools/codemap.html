@@ -185,9 +185,10 @@
   </div>
   <nav>
     <a href="../">Home</a>
-    <a href="../visualizer/">Visualizer</a>
-    <a href="../editor/">Pattern editor</a>
+    <a href="../play/">Play</a>
     <a href="../manual.html">Manual</a>
+    <a href="../editor/">Pattern editor</a>
+    <a href="../visualizer/">Visualizer</a>
     <a href="https://github.com/jonwaterschoot/TouchPlaited">GitHub</a>
   </nav>
 </header>
@@ -211,7 +212,7 @@
   <h2>Hardware</h2>
   <div id="hwwrap">
   <svg id="hw" viewBox="0 0 1160 700" role="img"
-       aria-label="Map of the Simple Touch hardware: Daisy Seed, MPR121, pots, jacks, switches, MIDI">
+       aria-label="Map of the Simple Touch hardware: Daisy Seed, MPR121, OLED, pots, jacks, switches, MIDI">
     <defs>
       <marker id="arr" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7"
               markerHeight="7" orient="auto-start-reverse">
@@ -243,7 +244,7 @@
     <text data-id="pads-note" data-ctx="isr boot" x="30" y="470"
           transform="rotate(-90 30 470)" class="cap">12 TOUCH PADS ON PANEL →</text>
     <!-- breakout right-edge pins -->
-    <g data-id="pins-i2c" data-ctx="isr boot">
+    <g data-id="pins-i2c" data-ctx="isr main boot">
       <rect x="204" y="399" width="12" height="12" class="pinsq used"/>
       <rect x="204" y="424" width="12" height="12" class="pinsq used"/>
       <text x="198" y="408" text-anchor="end">SCL</text>
@@ -260,12 +261,26 @@
       <text x="198" y="458" text-anchor="end" class="dim tiny">IRQ</text>
     </g>
     <!-- I2C bus -->
-    <g data-id="pins-i2c" data-ctx="isr boot">
+    <g data-id="pins-i2c" data-ctx="isr main boot">
       <path class="trace" d="M216,405 L400,405 L410,408 L424,408"/>
       <path class="trace" d="M216,430 L400,430 L410,434 L424,434"/>
       <path class="hit" d="M216,405 L424,408"/>
       <path class="hit" d="M216,430 L424,434"/>
-      <text x="228" y="398" class="acc">I2C1 · read in the audio ISR</text>
+      <text x="228" y="398" class="acc">I2C1 · pads in the ISR · OLED in main</text>
+    </g>
+
+    <!-- ═════ OLED (optional mod, same bus) ═════ -->
+    <g data-id="oled" data-ctx="main boot">
+      <path class="trace" d="M248,405 L248,533 L216,533"/>
+      <path class="trace" d="M236,430 L236,547 L216,547"/>
+      <path class="hit" d="M248,405 L248,533 L216,533"/>
+      <circle cx="248" cy="405" r="2.5" fill="var(--trace)"/>
+      <circle cx="236" cy="430" r="2.5" fill="var(--trace)"/>
+      <rect x="60" y="518" width="150" height="44" class="blk"/>
+      <rect x="204" y="527" width="12" height="12" class="pinsq used"/>
+      <rect x="204" y="541" width="12" height="12" class="pinsq used"/>
+      <text x="128" y="536" text-anchor="middle" class="acc">OLED · SSD1306</text>
+      <text x="128" y="549" text-anchor="middle" class="tiny dim">128×32 · 0x3C · optional</text>
     </g>
 
     <!-- ═════ switches ═════ -->
@@ -323,21 +338,21 @@
       <rect x="506" y="62" width="68" height="36" fill="#55524a" stroke="#8a867c"/>
       <text x="540" y="84" text-anchor="middle" style="fill:var(--bg)">USB</text>
       <path class="trace" d="M540,62 L540,44" stroke-dasharray="3 3"/>
-      <text x="540" y="40" text-anchor="middle" class="tiny">one port, one owner: USB MIDI or serial log (<tspan class="acc">-DUSB_MIDI</tspan>)</text>
+      <text x="540" y="40" text-anchor="middle" class="tiny">one port, one owner: USB MIDI, or the serial log (<tspan class="acc">make MEASURE=1</tspan>)</text>
     </g>
     <g data-id="led" data-ctx="main boot">
       <rect x="612" y="110" width="16" height="9" fill="var(--c2)" stroke="var(--c3)"/>
-      <text x="628" y="106" text-anchor="end" class="tiny dim">LED = the display</text>
+      <text x="628" y="106" text-anchor="end" class="tiny dim">user LED · blink codes</text>
     </g>
     <g data-id="sdram-chip" data-ctx="isr boot">
       <rect x="475" y="146" width="130" height="62" fill="var(--chip)" stroke="var(--line2)"/>
       <text x="540" y="172" text-anchor="middle">SDRAM</text>
-      <text x="540" y="186" text-anchor="middle" class="tiny dim">64 MB · voices + FX</text>
+      <text x="540" y="186" text-anchor="middle" class="tiny dim">64 MB · FX buffers</text>
     </g>
     <g data-id="mcu" data-ctx="isr main boot">
       <rect x="480" y="248" width="120" height="112" fill="var(--chip)" stroke="var(--line2)" stroke-width="1.25"/>
       <text x="540" y="294" text-anchor="middle">STM32H750</text>
-      <text x="540" y="308" text-anchor="middle" class="tiny dim">Cortex-M7 · 480 MHz</text>
+      <text x="540" y="308" text-anchor="middle" class="tiny dim">Cortex-M7 · 400 MHz</text>
       <text x="540" y="322" text-anchor="middle" class="tiny dim">everything runs here</text>
     </g>
     <g data-id="qspi-chip" data-ctx="isr main boot">
@@ -394,7 +409,7 @@
       <path class="audio" d="M476,542 L372,574"/>
       <path class="audio" d="M272,578 L120,578" marker-end="url(#arr)"/>
       <path class="clock" d="M600,330 L886,330" marker-end="url(#arrw)"/>
-      <text x="60" y="626" fill="var(--v)">touch → I2C → AudioCallback → voices (SDRAM/AXI) → FX → limiter → codec → out</text>
+      <text x="60" y="626" fill="var(--v)">touch → I2C → AudioCallback → voices (AXI SRAM) → FX (SDRAM) → limiter → codec → out</text>
     </g>
 
     <!-- legend -->
@@ -427,10 +442,10 @@
       <b>1 · bootloader</b><span class="d">internal flash, 128 KB — reserves first 256 KB of QSPI</span></div>
     <span class="barrow">→</span>
     <div class="bstep" data-id="boot-xip" data-ctx="boot">
-      <b>2 · app, XIP from QSPI</b><span class="d">runs in place at <code>0x90040000</code> (<code>APP_TYPE = BOOT_QSPI</code>)</span></div>
+      <b>2 · app, XIP from QSPI</b><span class="d">runs in place at <code>0x90040000</code> (<code>APP_TYPE = BOOT_QSPI</code>) · a constructor copies the Six-Op code to ITCM first</span></div>
     <span class="barrow">→</span>
     <div class="bstep" data-id="boot-init" data-ctx="boot">
-      <b>3 · main() init</b><span class="d">hw + LED workaround · journal scan/restore · stale-sector erase (blocking, pre-audio)</span></div>
+      <b>3 · Setup()</b><span class="d">hw + LED workaround · journal scan/restore · stale-sector erase · pads, OLED boot animation (blocking, pre-audio)</span></div>
     <span class="barrow">→</span>
     <div class="bstep" data-id="boot-run" data-ctx="boot">
       <b>4 · StartAudio()</b><span class="d">AudioCallback @ 250 Hz ‖ main loop, forever</span></div>
@@ -441,7 +456,7 @@
     <span class="s">8 MB</span><span></span>
     <div class="bar">
       <div class="seg rsv"  data-id="boot-loader" data-ctx="boot" style="width:9%">boot rsv 256K</div>
-      <div class="seg app"  data-id="seg-app" data-ctx="isr main boot" style="width:14%">app ~360K</div>
+      <div class="seg app"  data-id="seg-app" data-ctx="isr main boot" style="width:14%">app ~470K</div>
       <div class="seg free" style="width:57%">free</div>
       <div class="seg jrn"  data-id="seg-journal" data-ctx="main boot" style="width:12%">journal 2×32K</div>
       <div class="seg grd"  data-id="seg-guard" data-ctx="boot" style="width:8%">guard 64K</div>
@@ -452,61 +467,64 @@
 
   <div class="mrow" data-id="mem-axi" data-ctx="isr main boot">
     <span class="a">0x24000000</span><span class="n">AXI SRAM</span>
-    <span class="s">512 KB · ~53%</span><span></span>
-    <div class="bar"><div class="fill" style="width:53%"></div></div>
+    <span class="s">512 KB · ~55%</span><span></span>
+    <div class="bar"><div class="fill" style="width:55%"></div></div>
     <span class="what"><b>.data/.bss hot state · voice working set</b> (moved from SDRAM for the 6-voice CPU win) · RAM-resident QSPI write routine <code>tp_qspi_ram_op</code></span>
   </div>
   <div class="mrow" data-id="mem-sdram" data-ctx="isr boot">
     <span class="a">0xC0000000</span><span class="n">SDRAM</span>
     <span class="s">64 MB · ~2.3 MB</span><span></span>
     <div class="bar"><div class="fill" style="width:4%"></div></div>
-    <span class="what"><b>Plaits voice instances · FX delay/reverb buffers</b> (<code>.sdram_bss</code>, NOLOAD)</span>
+    <span class="what"><b>FX delay/reverb buffers</b>, four groups (<code>.sdram_bss</code>, NOLOAD) · nothing else</span>
   </div>
   <div class="mrow" data-id="mem-sram1" data-ctx="isr">
     <span class="a">0x30000000</span><span class="n">SRAM1 (D2)</span>
-    <span class="s">32 KB</span><span></span>
-    <div class="bar"><div class="fill" style="width:20%"></div></div>
-    <span class="what"><b>audio DMA buffers</b> — MPU marks the region non-cacheable</span>
+    <span class="s">32 KB · ~55%</span><span></span>
+    <div class="bar"><div class="fill" style="width:55%"></div></div>
+    <span class="what"><b>DMA buffers</b> (audio, ADC, UART) — MPU marks the region non-cacheable</span>
   </div>
   <div class="mrow" data-id="mem-dtcm" data-ctx="isr main boot">
     <span class="a">0x20000000</span><span class="n">DTCM</span>
     <span class="s">128 KB</span><span></span>
     <div class="bar"><div class="fill" style="width:12%"></div></div>
-    <span class="what"><b>stack</b> · mostly free</span>
+    <span class="what"><b>stack only</b> · no data placed here</span>
   </div>
-  <div class="mrow" data-id="mem-itcm" data-ctx="">
+  <div class="mrow" data-id="mem-itcm" data-ctx="isr boot">
     <span class="a">0x00000000</span><span class="n">ITCM</span>
-    <span class="s">64 KB · 0%</span><span></span>
-    <div class="bar"></div>
-    <span class="what"><b>unused</b> — the known future lever for a 7th voice</span>
+    <span class="s">64 KB · ~32%</span><span></span>
+    <div class="bar"><div class="fill" style="width:32%"></div></div>
+    <span class="what"><b>Six-Op render path</b> (20.8 KB of code) — loads from QSPI, copied here before any static constructor runs</span>
   </div>
   <div class="mrow" data-id="mem-bkp" data-ctx="boot">
     <span class="a">0x38800000</span><span class="n">Backup SRAM</span>
     <span class="s">4 KB</span><span></span>
-    <div class="bar"><div class="fill" style="width:3%"></div></div>
-    <span class="what"><b>bootloader version stamp</b> — this device reports &lt; v6.0, hence the manual <code>hw.led.Init()</code> workaround</span>
+    <div class="bar"><div class="fill" style="width:1%"></div></div>
+    <span class="what"><b>bootloader version stamp</b> (12 bytes) — a bootloader older than v6.0 leaves none, hence the manual <code>hw.led.Init()</code></span>
   </div>
 
   <div class="lanes">
     <div class="lane isr" data-id="ctx-isr-lane" data-ctx="isr">
       <h4>AudioCallback — ISR · 250 Hz / 4 ms blocks</h4>
       <ol>
-        <li><code>touch.Process()</code> <span class="d">— I2C pad read + touch callbacks</span></li>
+        <li>load-shed guard <span class="d">— last block over 90 %: sleep the oldest non-held voice</span></li>
+        <li><code>touch.Process()</code> <span class="d">— I2C pad read + touch callbacks · skipped while an OLED page is on the bus</span></li>
         <li>knobs + pickups <span class="d">— 8 pots, per-mode layers</span></li>
         <li>SW1/SW2 handling <span class="d">— change-latched sub-states</span></li>
         <li>seq / arp / note-rec ticks <span class="d">+ CV clock in &amp; out</span></li>
-        <li>8 × 24-sample Plaits chunks <span class="d">→ voice pool</span></li>
-        <li>4 FX groups → soft limiter</li>
-        <li>CPU meter <span class="d">+ &gt;90 % load-shed guard</span></li>
+        <li>8 × 24-sample Plaits chunks <span class="d">→ 6-voice pool</span></li>
+        <li>4 FX groups → soft limiter <span class="d">— linear below 0.8</span></li>
+        <li>CPU meter <span class="d">— this block's load feeds the guard at the top</span></li>
       </ol>
     </div>
     <div class="lane mainloop" data-id="ctx-main-lane" data-ctx="main">
       <h4>Main loop — everything the ISR must not do</h4>
       <ol>
-        <li>LED pattern state machine <span class="d">— the only display</span></li>
         <li>MIDI service <span class="d">— UART + USB, bounded TX drain</span></li>
-        <li>CPU serial print <span class="d">— <code>sv N</code> = settings save count</span></li>
+        <li>telemetry <span class="d">— SysEx state frame over USB (33 ms limit) · live link for 10 s after a request</span></li>
+        <li>OLED <span class="d">— redraw at most every 40 ms, changed pages only</span></li>
+        <li>CPU serial print <span class="d">— <code>make MEASURE=1</code> builds only · <code>sv N</code> = settings save count</span></li>
         <li><code>persist_tick()</code> <span class="d">— debounced auto-save: 250 ms compare · 3 s settle · one flash page per pass · gated on load &lt; 85 %</span></li>
+        <li>LED pattern state machine <span class="d">— blink codes; its delays keep servicing MIDI</span></li>
       </ol>
     </div>
   </div>
@@ -520,7 +538,7 @@
 <footer>
   TouchPlaited — firmware for the Synthux Simple Touch ·
   <a href="https://github.com/jonwaterschoot/TouchPlaited">github.com/jonwaterschoot/TouchPlaited</a>
-  · this map is hand-verified against the code; every panel links to its source
+  · checked against the source and the build's map file on 2026-11-14; every panel links to its source
 </footer>
 
 <script>
@@ -545,7 +563,7 @@ const PINS_R = [ // physical 40..21, top→bottom (numbering runs up this side)
   [25,'A3','pots','g'],[24,'A2','pots','g'],[23,'A1','pots','g'],[22,'A0','pots','g'],
   [21,'3V3A','pins-power','p'],
 ];
-const CTX_OF = { sw1:'isr', sw2:'isr', 'pins-i2c':'isr boot', midi:'main boot',
+const CTX_OF = { sw1:'isr', sw2:'isr', 'pins-i2c':'isr main boot', midi:'main boot',
   'audio-io':'isr boot', 'jack-in':'isr', 'jack-out':'isr', pots:'isr',
   'pins-power':'isr main boot', 'seed-pins':'' };
 
@@ -626,8 +644,8 @@ const INFO = {
   carrier: { t: 'Synthux Simple Touch', m: 'carrier PCB', c: ['isr','main','boot'],
     b: `<p>The carrier board: the Daisy Seed is socketed onto it, and it fans the
         Seed's pins out to 8 pots, 2 CV jacks, 2 three-position switches, the
-        TRS MIDI mod, the audio jacks and the 12 capacitive pads (via the
-        MPR121 breakout).</p>
+        audio jacks and the 12 capacitive pads (via the MPR121 breakout).
+        TRS MIDI and the OLED are optional mods wired to the same pins.</p>
         <p>Everything on this map that isn't on the Seed itself lives here.</p>`,
     src: [['img/simpletouchdrawing_blank.svg', 'panel illustration']] },
 
@@ -637,21 +655,25 @@ const INFO = {
         firmware — bootloader, synth, sequencer, MIDI — runs on it.</p>`,
     src: [['lib/libDaisy/src/daisy_seed.h', 'pin map — daisy::seed namespace']] },
 
-  mcu: { t: 'STM32H750', m: 'Cortex-M7 · 480 MHz · single core', c: ['isr','main','boot'],
+  mcu: { t: 'STM32H750', m: 'Cortex-M7 · 400 MHz · single core', c: ['isr','main','boot'],
     b: `<p>One core, two worlds: the <b>AudioCallback ISR</b> preempts the
         <b>main loop</b> every 4 ms and does nearly everything — even the I2C
-        pad read. The main loop gets whatever must not block audio: LED, MIDI
-        service, serial, settings persistence.</p>
+        pad read. The main loop gets whatever must not block audio: MIDI
+        service, telemetry, the OLED, serial, settings persistence, the LED.</p>
+        <p>400 MHz is libDaisy's default clock: <code>hw.Init()</code> is
+        called without the 480 MHz boost.</p>
         <p>Internal memories (AXI SRAM, DTCM, ITCM) are inside this chip —
         see the memory map below.</p>`,
-    src: [['TouchPlaited.cpp', 'AudioCallback + main()']] },
+    src: [['TouchPlaited.cpp', 'AudioCallback, Setup() and Loop()']] },
 
   'sdram-chip': { t: 'SDRAM · 64 MB', m: 'on the Seed · mapped at 0xC0000000', c: ['isr','boot'],
-    b: `<p>Big but slower memory. Holds the Plaits voice instances and the FX
-        delay/reverb buffers (<code>.sdram_bss</code>, NOLOAD — nothing to
-        flash, cleared at boot). The per-voice <em>working set</em> was moved
-        out of here into AXI SRAM — that was the 6-voice CPU win.</p>`,
-    src: [['TouchPlaited.cpp', 'voice pool + .sdram_bss placements']] },
+    b: `<p>Big but slower memory. Holds only the FX delay/reverb buffers of
+        the four FX groups, about 570 KB each (<code>.sdram_bss</code>, NOLOAD
+        — nothing to flash, cleared in <code>FxSection::Init</code>). The
+        Plaits voices and their scratch buffers are in AXI SRAM: reading them
+        from here every sample was the largest CPU cost.</p>`,
+    src: [['synth/fx.cpp', 'DSY_SDRAM_BSS buffers'],
+          ['synth/plaits_voice.cpp', 'why the voices are not here']] },
 
   'qspi-chip': { t: 'QSPI NOR flash · 8 MB', m: 'on the Seed · memory-mapped at 0x90000000', c: ['isr','main','boot'],
     b: `<p>The firmware executes in place (XIP) from this chip — every
@@ -662,68 +684,104 @@ const INFO = {
         writes need an MPU no-access guard over the mapping or speculative
         prefetch stalls AXI permanently.</p>`,
     src: [['synth/settings_journal.cpp', 'RAM-resident program/erase routine'],
-          ['README.md', '“Settings memory” notes']] },
+          ['doc/settings-memory.md', 'how settings memory works']] },
 
   codec: { t: 'Audio codec', m: '48 kHz · 192-sample blocks (4 ms)', c: ['isr','boot'],
     b: `<p>Stereo out and audio in, on the Seed. DMA moves samples through
         buffers in SRAM1 (D2 domain), which the MPU marks non-cacheable. Each
         completed block fires the AudioCallback — the 250 Hz heartbeat the
         whole instrument runs on.</p>`,
-    src: [['TouchPlaited.cpp', 'SetAudioBlockSize(192) / 48 kHz setup']] },
+    src: [['TouchPlaited.cpp', 'kBlockSize = 192 / 48 kHz, in Setup()']] },
 
   usb: { t: 'USB port', m: 'one port, one owner', c: ['main','boot'],
-    b: `<p>Compile-time choice in the Makefile: with <code>-DUSB_MIDI</code>
-        the port is a USB MIDI device (notes + SysEx telemetry for the web
-        visualizer); comment it out and the port becomes the serial log for
-        the CPU meter build. Never both.</p>
+    b: `<p>Compile-time choice in the Makefile. A plain <code>make</code>
+        sets <code>-DUSB_MIDI</code>: the port is a USB MIDI device (notes,
+        CC, clock, SysEx telemetry for the visualizer and the live link for
+        the Play page). <code>make MEASURE=1</code> gives the port to the
+        serial log for the CPU meter and adds <code>-DNO_PERSIST</code>, so a
+        measurement build never writes settings. Never both; run
+        <code>make clean</code> when switching.</p>
         <p>At boot the same port is how firmware gets flashed (bootloader DFU).</p>`,
-    src: [['Makefile', '-DUSB_MIDI switch'], ['midi/midi_io.cpp', 'USB MIDI init + service']] },
+    src: [['Makefile', 'MEASURE switch'], ['midi/midi_io.cpp', 'USB MIDI init + service'],
+          ['midi/telemetry.cpp', 'state frame + live link']] },
 
-  led: { t: 'Onboard LED', m: 'the only display', c: ['main','boot'],
-    b: `<p>All user feedback is blink patterns, driven by a state machine in
-        the main loop via <code>set_led</code>/<code>led_event</code>.</p>
-        <p>Boot quirk: this device's bootloader reports &lt; v6.0 (stamp in
-        backup SRAM), which leaves the LED GPIO uninitialised — hence the
-        manual <code>hw.led.Init()</code> workaround in <code>main()</code>.</p>`,
-    src: [['TouchPlaited.cpp', 'set_led / led_event + LED init workaround']] },
+  led: { t: 'Onboard LED', m: 'blink codes · the display on a board without an OLED', c: ['main','boot'],
+    b: `<p>Blink patterns driven by a state machine in the main loop via
+        <code>set_led</code>/<code>led_event</code>. With an OLED fitted the
+        screen names the same events; without one the LED codes cover them.</p>
+        <p>Boot quirk: when the bootloader is older than v6.0 (no version
+        stamp in backup SRAM) and the app runs from QSPI,
+        <code>DaisySeed::Init</code> skips the LED GPIO — hence the manual
+        <code>hw.led.Init()</code> in <code>Setup()</code>.</p>`,
+    src: [['TouchPlaited.cpp', 'set_led / led_event + LED init workaround'],
+          ['MANUAL.md', 'LED codes']] },
+
+  oled: { t: 'OLED · SSD1306', m: 'I2C1 @ 0x3C · 128×32 · optional mod', c: ['main','boot'],
+    b: `<p>Shares D11/D12 with the MPR121. Drawn from the <b>main loop</b>:
+        <code>OledUi::Service</code> turns the same snapshot the visualizer
+        gets into a label and a value, at most every 40 ms. The driver sends
+        only the pages whose pixels changed.</p>
+        <p>The pad read is in the audio ISR and would tear a transfer, so the
+        driver raises <code>i2c1_bus_busy</code> per page and the pad poll
+        skips those blocks. A frame's wall-clock time is set by audio load,
+        not by the bus.</p>
+        <p>At boot it runs a blocking animation before audio starts.</p>`,
+    src: [['display/oled_screen.h', 'screens + bus setup (400 kHz)'],
+          ['display/oled_dirty_driver.h', 'changed-pages driver + interlock'],
+          ['display/oled_ui.cpp', 'what is shown, redraw throttle'],
+          ['i2c1_lock.h', 'the shared-bus rule']] },
 
   mpr121: { t: 'MPR121 breakout', m: 'I2C1 @ 0x5A · 12-channel cap sense', c: ['isr','boot'],
     b: `<p>Reads the 12 touch pads on the panel. Polled — surprisingly — from
         <b>inside the audio ISR</b>: <code>touch.Process()</code> does the I2C
         read and fires the touch/release callbacks once per 4 ms block, so pad
         timing is sample-block-accurate.</p>
+        <p>While the OLED has a page on the shared bus the poll is skipped
+        and the last state held. <code>Pads::Init</code> checks that the chip
+        started and retries once; the MEASURE build's log prints
+        <code>PADS ERR</code> if it did not.</p>
         <p>ADDR is tied so the chip sits at the default address 0x5A.</p>`,
     src: [['touch/pads.cpp', 'Pads::Init / Process'],
+          ['i2c1_lock.h', 'the shared-bus rule'],
           ['lib/libDaisy/src/dev/mpr121.h', 'driver (default cfg: I2C1, PB8/PB9, 0x5A)']] },
 
   'pads-note': { t: 'P3–P9 · musical pads', m: '7 pads → scale degrees', c: ['isr','boot'],
     b: `<p>The seven playing pads. Their meaning shifts with SW2: notes in
-        Basic Pitch, arp/melody input in Arp/Mel (hold to enter recording),
-        pattern slots in Seq mode. Scale and root come from SW1 + knob
-        layers.</p>`,
-    src: [['TouchPlaited.cpp', 'pad touch/release handlers + compute_note()']] },
+        Basic Pitch, the arp's note pool and the recorder's input in Arp/Mel,
+        the seven drums in Seq (hold one for 2 s to edit that drum). The
+        scale comes from SW1, the root from P0 + P10/P11.</p>`,
+    src: [['TouchPlaited.cpp', 'pad touch/release handlers + compute_note()'],
+          ['MANUAL.md', 'every control per mode']] },
 
   'pads-mod': { t: 'P0 / P1 / P2 · modifier pads', m: 'combo keys', c: ['isr','boot'],
-    b: `<p>Held modifiers that re-map everything else: P0 (width/shift-style
-        combos), P1 (FX modifier — its release is edge-detected in the ISR),
-        P2 (transport &amp; latch combos, e.g. P2+P10 melodic transport,
-        P2+P11 drum-seq transport).</p>`,
+    b: `<p>Held modifiers that re-map everything else: P0 is sound and pitch
+        (model select with S35, root, arp octave range, stereo width), P1 is
+        FX (reverb on S30, delay on S35 — its release is edge-detected in the
+        ISR), P2 is transport (P2+P10 arp and loop, P2+P11 drums) and the
+        second model bank with S35.</p>`,
     src: [['TouchPlaited.cpp', 'modifier combo handling (AudioCallback + touch callbacks)']] },
 
   'pads-oct': { t: 'P10 / P11 · octave pads', m: 'down / up · per-playmode stores', c: ['isr','boot'],
     b: `<p>Octave taps write whichever store matches the current mode —
         <code>bp_octave</code>, <code>arp_octave</code> or
         <code>rec_octave</code> — so each playmode keeps its own octave.
-        With P1 held they set the arp's extra octave range (0–3).</p>`,
+        With P0 held they are the root note in Basic Pitch, the arp's extra
+        octave range (0–3) in Arp/Mel and previous/next kick in Seq.</p>`,
     src: [['TouchPlaited.cpp', 'active_octave() dispatch']] },
 
-  'pins-i2c': { t: 'I2C1 — SCL / SDA', m: 'D11 = PB8 (pin 12) · D12 = PB9 (pin 13)', c: ['isr','boot'],
-    b: `<p>The two-wire bus to the MPR121 at address 0x5A. These are libDaisy's
-        default MPR121 config pins — the driver's <code>Config()</code>
-        constructor already points at I2C1 / PB8 / PB9.</p>
-        <p>The bus is serviced from the audio ISR each block.</p>`,
-    src: [['lib/libDaisy/src/dev/mpr121.h', 'Config() defaults'],
-          ['touch/pads.cpp', 'init + per-block read']] },
+  'pins-i2c': { t: 'I2C1 — SCL / SDA', m: 'D11 = PB8 (pin 12) · D12 = PB9 (pin 13) · 400 kHz', c: ['isr','main','boot'],
+    b: `<p>The two-wire bus to the MPR121 at address 0x5A and, when fitted,
+        the OLED at 0x3C. These are libDaisy's default pins for both
+        drivers.</p>
+        <p>Two contexts use it: the audio ISR reads the pads each block, and
+        the main loop pushes OLED pages. Neither transfer survives being
+        interrupted by the other, so the OLED side raises
+        <code>i2c1_bus_busy</code> for each page and the pad read skips that
+        block.</p>`,
+    src: [['i2c1_lock.h', 'the shared-bus rule'],
+          ['lib/libDaisy/src/dev/mpr121.h', 'Config() defaults'],
+          ['touch/pads.cpp', 'init + per-block read'],
+          ['display/oled_dirty_driver.h', 'per-page interlock']] },
 
   sw2: { t: 'SW2 — playmode', m: 'right 3-pos · D7/D6 (pins 8/7)', c: ['isr'],
     b: `<p>The mode switch: <b>Down = Basic Pitch</b>, <b>Center = Arp/Mel</b>,
@@ -745,14 +803,16 @@ const INFO = {
     b: `<p>Always active, regardless of the USB build flavour. libDaisy's
         default <code>MidiUartHandler</code> config is exactly this wiring.
         Serviced in the main loop with a <b>bounded TX drain</b> — UART TX
-        blocks ~1 ms per 3-byte message at 31250 baud, so the loop caps how
-        much it sends per pass.</p>`,
+        blocks ~1 ms per 3-byte message at 31250 baud, so each pass sends at
+        most four messages. The ISR queues outgoing messages; the main loop
+        sends them.</p>`,
     src: [['midi/midi_io.cpp', 'UART + USB MIDI service']] },
 
   'audio-io': { t: 'Audio out L/R + in', m: 'Seed pins 16–19 → panel jacks', c: ['isr','boot'],
     b: `<p>The codec's analog side: stereo out to the panel jacks (plus audio
         in). 48 kHz, 192-sample blocks — after the voice pool, 4 FX groups and
-        the soft limiter, this is where the sound leaves the map.</p>`,
+        the soft limiter (linear below 0.8, curved above), this is where the
+        sound leaves the map.</p>`,
     src: [['TouchPlaited.cpp', 'AudioCallback output stage + limiter']] },
 
   pots: { t: '8 pots — knob layers', m: 'A0–A7 = D15–D22 (pins 22–29) · S30–S37', c: ['isr'],
@@ -766,8 +826,9 @@ const INFO = {
   'jack-in': { t: 'S43 — CV clock in', m: 'A11 = D28/PA2 (pin 35) · raw ADC', c: ['isr'],
     b: `<p>External clock input. Read as <b>raw ADC counts with no
         smoothing</b> — it feeds an edge detector, not a knob filter, so a
-        pulse is a pulse. Detected edges drive the same tick path as incoming
-        MIDI F8 clocks.</p>`,
+        pulse is a pulse. Each pulse counts as a 16th note and becomes six
+        24 ppqn ticks on the same path as incoming MIDI F8 clocks. The
+        thresholds have not been checked against a real CV source.</p>`,
     src: [['touch/knobs.cpp', 'A11 channel (no smoothing)'],
           ['TouchPlaited.cpp', 'CV clock-in edge detector']] },
 
@@ -798,25 +859,30 @@ const INFO = {
         <code>0x90040000</code>.</p>`,
     src: [['README.md', 'flashing — dfu-util 0x90040000'], ['Makefile', 'APP_TYPE = BOOT_QSPI']] },
 
-  'boot-xip': { t: 'App runs XIP from QSPI', m: '0x90040000 · ~360 KB', c: ['boot'],
-    b: `<p>No copy to RAM: the CPU executes straight out of memory-mapped QSPI
-        flash. Cache makes it fast enough; the ITCM move (64 KB, currently
-        unused) is the known lever if the hottest render paths ever need
-        it.</p>`,
-    src: [['Makefile', 'APP_TYPE = BOOT_QSPI']] },
+  'boot-xip': { t: 'App runs XIP from QSPI', m: '0x90040000 · ~470 KB', c: ['boot'],
+    b: `<p>The CPU executes straight out of memory-mapped QSPI flash, with
+        one exception: the Six-Op render path links into ITCM. A
+        priority-101 constructor (<code>copy_itcm_text</code>) copies it
+        there from QSPI before any static constructor runs.</p>`,
+    src: [['Makefile', 'APP_TYPE = BOOT_QSPI + LDSCRIPT'],
+          ['linker/TouchPlaited_qspi.lds', '.itcmram_text'],
+          ['TouchPlaited.cpp', 'copy_itcm_text()']] },
 
-  'boot-init': { t: 'main() init', m: 'blocking, before audio starts', c: ['boot'],
+  'boot-init': { t: 'Setup()', m: 'blocking, before audio starts', c: ['boot'],
     b: `<p>Hardware init (including the manual LED init workaround for
         pre-v6.0 bootloaders), then the settings journal boot pass: scan both
         banks for the newest CRC-valid record, restore it, and erase whatever
         sectors the journal no longer needs — the slow (45–300 ms) erases all
-        happen <em>before</em> audio ever starts.</p>`,
-    src: [['synth/settings_journal.h', 'Init() contract'], ['TouchPlaited.cpp', 'main()']] },
+        happen <em>before</em> audio ever starts. Without a valid record it
+        starts on random models.</p>
+        <p>Then the pads, the OLED and its boot animation, the clock-out pin,
+        the voice pool, the four FX groups and MIDI.</p>`,
+    src: [['synth/settings_journal.h', 'Init() contract'], ['TouchPlaited.cpp', 'Setup()']] },
 
   'boot-run': { t: 'StartAudio() — steady state', m: 'ISR ‖ main loop, forever', c: ['boot'],
     b: `<p>From here on the machine is two loops: the AudioCallback ISR at
-        250 Hz doing nearly everything, and the main loop sweeping up LED,
-        MIDI, serial and persistence behind it.</p>`,
+        250 Hz doing nearly everything, and the main loop sweeping up MIDI,
+        telemetry, OLED, serial, persistence and the LED behind it.</p>`,
     src: [['TouchPlaited.cpp', 'hw.StartAudio(AudioCallback)']] },
 
   /* memory rows */
@@ -831,9 +897,10 @@ const INFO = {
     src: [['synth/settings_journal.h', 'layout + wear math'],
           ['synth/settings_journal.cpp', 'implementation']] },
 
-  'seg-app': { t: 'App image', m: '0x90040000 · ~360 KB · XIP', c: ['isr','main','boot'],
+  'seg-app': { t: 'App image', m: '0x90040000 · ~470 KB · XIP', c: ['isr','main','boot'],
     b: `<p>The firmware itself — every context executes from this segment
-        (through the I-cache). Flashed via the bootloader with
+        (through the I-cache), except the 20.8 KB Six-Op render path, which
+        is stored here and runs from ITCM. Flashed via the bootloader with
         <code>dfu-util -s 0x90040000</code>.</p>`,
     src: [['README.md', 'flashing instructions']] },
 
@@ -857,42 +924,53 @@ const INFO = {
         never touches the last 64 KB of the mapping.</p>`,
     src: [['synth/settings_journal.h', 'kTopGuardBytes comment']] },
 
-  'mem-axi': { t: 'AXI SRAM', m: '0x24000000 · 512 KB · ~53 % used', c: ['isr','main','boot'],
-    b: `<p>The hot heart: <code>.data</code>/<code>.bss</code> state and the
-        per-voice working set — moved here from SDRAM, which is what made six
-        voices fit the CPU budget. Also hosts <code>tp_qspi_ram_op</code>,
+  'mem-axi': { t: 'AXI SRAM', m: '0x24000000 · 512 KB · ~55 % used', c: ['isr','main','boot'],
+    b: `<p>The hot heart: <code>.data</code>/<code>.bss</code> state (282 KB)
+        including the six Plaits voices and their 16 KB scratch buffers —
+        moved here from SDRAM, which is what made six voices fit the CPU
+        budget. Also hosts <code>tp_qspi_ram_op</code>,
         the QSPI write routine placed in <code>.data</code> so it executes
         from SRAM while the flash is offline mid-write.</p>`,
-    src: [['TouchPlaited.cpp', 'voice working set'],
+    src: [['synth/plaits_voice.cpp', 'voice storage + scratch'],
           ['synth/settings_journal.cpp', 'tp_qspi_ram_op placement']] },
 
   'mem-sdram': { t: 'SDRAM', m: '0xC0000000 · 64 MB · ~2.3 MB used', c: ['isr','boot'],
-    b: `<p>Plaits voice instances and FX delay/reverb buffers, in
-        <code>.sdram_bss</code> (NOLOAD). Plenty of headroom — the constraint
-        on voice count is CPU, not memory.</p>`,
-    src: [['TouchPlaited.cpp', '.sdram_bss buffers']] },
+    b: `<p>The FX delay/reverb buffers of the four FX groups, in
+        <code>.sdram_bss</code> (NOLOAD). Nothing else lives here. Plenty of
+        headroom — the constraint on voice count is CPU, not memory.</p>`,
+    src: [['synth/fx.cpp', 'DSY_SDRAM_BSS buffers']] },
 
-  'mem-sram1': { t: 'SRAM1 (D2 domain)', m: '0x30000000 · 32 KB region', c: ['isr'],
-    b: `<p>Audio DMA buffers. The MPU marks this region non-cacheable so the
-        DMA engine and the CPU never disagree about sample data — no cache
-        maintenance in the hot path.</p>`,
-    src: [['TouchPlaited.cpp', 'audio init']] },
+  'mem-sram1': { t: 'SRAM1 (D2 domain)', m: '0x30000000 · 32 KB region · ~55 % used', c: ['isr'],
+    b: `<p>libDaisy's DMA buffers (audio, ADC, UART), 17.5 KB. The MPU marks
+        this region non-cacheable so the DMA engine and the CPU never
+        disagree about sample data — no cache maintenance in the hot
+        path.</p>`,
+    src: [['linker/TouchPlaited_qspi.lds', '.sram1_bss → RAM_D2_DMA']] },
 
   'mem-dtcm': { t: 'DTCM', m: '0x20000000 · 128 KB', c: ['isr','main','boot'],
-    b: `<p>Tightly-coupled data RAM: zero-wait-state, holds the stack. Mostly
-        free.</p>`, src: [] },
+    b: `<p>Tightly-coupled data RAM: zero-wait-state, holds the stack and
+        nothing else. Moving the Plaits lookup tables here was measured at
+        ~1 % and not kept.</p>`,
+    src: [['notes.md', 'Plaits tables in DTCM']] },
 
-  'mem-itcm': { t: 'ITCM', m: '64 KB · 0 % used', c: [],
-    b: `<p>Tightly-coupled instruction RAM, currently untouched. The known
-        future lever: move the hottest Plaits render paths here (code
-        otherwise fetches from QSPI on I-cache miss) — that headroom is the
-        plan for a 7th voice.</p>`,
-    src: [['notes.md', 'optimization list — ITCM placement']] },
+  'mem-itcm': { t: 'ITCM', m: '0x00000000 · 64 KB · ~32 % used', c: ['isr','boot'],
+    b: `<p>Tightly-coupled instruction RAM. The Six-Op render path (20.8 KB)
+        runs from here; all other code fetches from QSPI through the I-cache.
+        Measured on hardware it took Six-Op from 36 / 50 / 64 / 78 % to
+        28 / 41 / 53 / 65 % for one to four held notes.</p>
+        <p>The section loads from QSPI. <code>copy_itcm_text()</code>, a
+        priority-101 constructor, copies it before any static constructor
+        runs, and the linker script fails the build if the section comes out
+        under 16 KB.</p>`,
+    src: [['linker/TouchPlaited_qspi.lds', '.itcmram_text + size ASSERT'],
+          ['TouchPlaited.cpp', 'copy_itcm_text()'],
+          ['notes.md', 'ITCM was the bottleneck all along']] },
 
   'mem-bkp': { t: 'Backup SRAM', m: '4 KB', c: ['boot'],
-    b: `<p>Where the Daisy bootloader stamps its version. This device reports
-        &lt; v6.0 — which is why <code>main()</code> has to init the LED GPIO
-        manually before any blink pattern works.</p>`,
+    b: `<p>Where the Daisy bootloader stamps its version
+        (<code>daisy::boot_info</code>, 12 bytes). A bootloader older than
+        v6.0 leaves no stamp — which is why <code>Setup()</code> inits the
+        LED GPIO manually before any blink pattern works.</p>`,
     src: [['TouchPlaited.cpp', 'LED init workaround comment']] },
 
   /* contexts */
@@ -900,24 +978,39 @@ const INFO = {
     b: `<p>The codec DMA fires this every 192 samples. It does nearly
         everything: the I2C pad read, knobs + pickups, switch handling,
         seq/arp/note-rec ticks, CV clock in/out, 8 × 24-sample Plaits chunks
-        through the voice pool, 4 FX groups and the soft limiter.</p>
-        <p>A CPU meter measures every block; above ~90 % load a shedding guard
-        drops work before the deadline drops audio.</p>`,
-    src: [['TouchPlaited.cpp', 'AudioCallback']] },
+        through the six-voice pool, 4 FX groups and the soft limiter.</p>
+        <p>Every block is timed. If the last one ran over 90 %, the next
+        starts by putting the oldest non-held voice to sleep (two if it
+        overran). Held notes are never shed, so Basic Pitch caps them: four
+        at once, three on Six-Op, Speech, Particle, String and Modal.</p>
+        <p>The pool takes a sleeping voice before it steals a sounding one,
+        and the kick is protected from being stolen right after it fires.</p>`,
+    src: [['TouchPlaited.cpp', 'AudioCallback'],
+          ['synth/voice_pool.h', 'pool, held cap, steal order'],
+          ['synth/kick_presets.h', 'the kick bank']] },
 
   'ctx-main': { t: 'Main loop', m: 'everything that may block', c: ['main'],
-    b: `<p>LED pattern state machine, MIDI service (UART + USB, bounded TX
-        drain), the CPU serial print (<code>sv N</code> = settings save
-        count), and <code>persist_tick()</code>: the debounced settings
-        auto-save — compare every 250 ms, save 3 s after the last change, one
-        flash page per pass, gated on audio load &lt; 85 %.</p>`,
-    src: [['TouchPlaited.cpp', 'main loop + persist_tick()'],
-          ['midi/midi_io.cpp', 'MIDI service']] },
+    b: `<p>MIDI service (UART + USB, bounded TX drain), then telemetry and
+        the OLED from one snapshot of the panel state: a SysEx frame over USB
+        for the visualizer (33 ms limit), the live link's Live, knobs and
+        OLED frames for 10 s after a request, and the screen redraw (40 ms
+        throttle).</p>
+        <p>Then the CPU serial print (<code>make MEASURE=1</code> builds
+        only; <code>sv N</code> = settings save count),
+        <code>persist_tick()</code> — compare every 250 ms, save 3 s after
+        the last change, one flash page per pass, gated on audio load
+        &lt; 85 % — and the LED pattern state machine, whose blocking delays
+        keep servicing MIDI.</p>`,
+    src: [['TouchPlaited.cpp', 'Loop() + persist_tick()'],
+          ['midi/midi_io.cpp', 'MIDI service'],
+          ['midi/telemetry.cpp', 'state frame + live link'],
+          ['display/oled_ui.cpp', 'OLED screens']] },
 
   'ctx-boot': { t: 'Boot', m: 'power-on → steady state', c: ['boot'],
     b: `<p>Bootloader (internal flash) → app XIP from QSPI at
-        <code>0x90040000</code> → <code>main()</code> init with the journal
-        scan/restore and pre-audio sector erases → <code>StartAudio()</code>.
+        <code>0x90040000</code> → ITCM copy → <code>Setup()</code> with the
+        journal scan/restore, pre-audio sector erases and the OLED boot
+        animation → <code>StartAudio()</code>.
         Follow the numbered chain in the memory section.</p>`,
     src: [['Makefile', 'APP_TYPE = BOOT_QSPI'], ['synth/settings_journal.h', 'boot pass']] },
 };
