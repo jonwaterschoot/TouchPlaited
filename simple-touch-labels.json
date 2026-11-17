@@ -192,7 +192,8 @@
   },
   "listing": {
     "tags": ["Synth"],
-    "audio": [{ "src": "media/Touchplaited_demo.mp3" }]
+    "audio": [{ "src": "media/Touchplaited_demo.mp3" }],
+    "links": [{ "url": "https://jonwaterschoot.github.io/TouchPlaited/", "text": "Project website" }]
   },
   "emulator": {
     "wasm": "https://raw.githubusercontent.com/jonwaterschoot/TouchPlaited/simple-touch-web/TouchPlaited-8acf93d464ec.wasm",
